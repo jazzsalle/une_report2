@@ -3,7 +3,7 @@
 | Priority | Source | Use |
 |---|---|---|
 | 1 | ADR v1.1 | binding architectural decisions and closed OPEN items |
-| 2 | approved change/ADR records | later amendments |
+| 2 | approved change/ADR records (`docs/adr/*`, e.g. ADR-19) | later amendments |
 | 3 | API/DB/Sequence v1.0 | implementation-level behavior |
 | 4 | OpenAPI, JSON Schema, migrations | machine-verifiable contracts |
 | 5 | screen and user scenario designs | user flow, states, permissions, errors |

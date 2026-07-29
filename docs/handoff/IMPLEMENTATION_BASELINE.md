@@ -54,15 +54,19 @@ Hard rules:
 
 ## 6. Implementation profiles
 
-Recommended pending approval:
+Approved at CC-000 (2026-07-30). This section supersedes the earlier
+"ASP.NET Core 8 recommended" baseline — see `docs/adr/ADR-19-backend-profile-nestjs.md`
+and `work-items/00_DECISIONS_TO_CONFIRM.yaml`.
 
-- React + TypeScript
-- ASP.NET Core 8
+- React + TypeScript (Vite), pnpm workspaces
+- NestJS (Node 20+, TypeScript) — ADR-19
 - PostgreSQL 16+
+- S3-compatible object storage port (MinIO locally)
 - Python for HWPX experiments or worker tools behind stable API/CLI contracts
-- Docker Compose for local dependencies
-
-The repository must remain adaptable if the backend profile changes before CC-001.
+- Docker Compose for local dependencies (free path: WSL2 Docker Engine CE / Rancher Desktop / Podman)
+- GitHub Actions CI
+- Demos require public URLs (no fixed developer IPs): frontend on Vercel,
+  backend containers on a cloud host (OB-14); backend never Vercel serverless
 
 ## 7. Release gates
 

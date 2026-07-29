@@ -12,7 +12,7 @@ work_items:
   title: Confirm implementation profile and external assumptions
   gate: G0
   dependencies: []
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - Approved decision YAML
   - repository URL and branch policy
@@ -22,7 +22,13 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - work-items/00_DECISIONS_TO_CONFIRM.yaml status APPROVED, approved_by jazzsalle 2026-07-30
+  - docs/adr/ADR-19-backend-profile-nestjs.md + docs/adr/README.md ADR register
+  - docs/handoff/TECHNOLOGY_PROFILE.md and IMPLEMENTATION_BASELINE.md section 6 updated to approved profile
+  - docs/handoff/OPEN_BINDINGS.md OB-09 closed, OB-14 added (demo host / delivery env)
+  - architecture-guardian + qa-gate-reviewer parallel review 2026-07-30; High/Medium findings fixed same day
+  - scripts/validate_handoff.py PASS (461 files)
 - id: CC-001
   title: Bootstrap monorepo and shared tooling
   gate: G0
@@ -80,6 +86,9 @@ work_items:
   - upgrade fixture migration
   - 57-table baseline or approved staged subset
   - data dictionary sync
+  - migration tool decision recorded (node-pg-migrate vs Prisma migrate, ADR-19 deferral)
+  - ORM/generated types confined to persistence adapters; domain depends on ports only
+  - integration test proving state change + execution event + outbox insert in one transaction
   design_refs:
   - ADR
   - API_DB_SEQUENCE
@@ -97,6 +106,8 @@ work_items:
   - tenant isolation
   - permission tests
   - audit login/session events
+  - tenant claim forgery blocked and tenant filter tests pass even in mock auth mode
+  - mock-jwt issuance gated by AUTH_MODE=mock with signing key from environment secrets
   design_refs:
   - ADR
   - API_DB_SEQUENCE

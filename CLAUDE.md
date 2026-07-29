@@ -9,9 +9,10 @@ Build the UNE-owned parts of RS-2024-00407304 from the approved design baseline.
 Before modifying code, read:
 
 1. `docs/handoff/IMPLEMENTATION_BASELINE.md`
-2. the current item in `work-items/MASTER_WORK_ITEMS.yaml`
-3. relevant files under `docs/design-markdown/`
-4. relevant OpenAPI, JSON Schema, and SQL migrations
+2. `docs/handoff/TECHNOLOGY_PROFILE.md` and `docs/adr/` (approved profile and post-baseline ADRs)
+3. the current item in `work-items/MASTER_WORK_ITEMS.yaml`
+4. relevant files under `docs/design-markdown/`
+5. relevant OpenAPI, JSON Schema, and SQL migrations
 
 Do not infer requirements only from filenames or previous chat history.
 
@@ -120,14 +121,17 @@ Never run destructive commands, push, deploy, rotate credentials, modify product
 - `tests`: unit, contract, integration, E2E
 - `docs`: design, ADR, handoff, evidence
 
-## Initial implementation profile
+## Implementation profile
 
-Recommended default pending CC-000 approval:
+Approved at CC-000 (2026-07-30, `work-items/00_DECISIONS_TO_CONFIRM.yaml`, ADR-19):
 
-- frontend: React + TypeScript
-- backend: ASP.NET Core 8 Web API
+- frontend: React + TypeScript (Vite), pnpm workspaces; dev/demo deploys to Vercel
+- backend: NestJS (Node 20+, TypeScript) — ADR-19 supersedes the earlier ASP.NET Core 8 recommendation
 - database: PostgreSQL 16+
+- object storage: S3-compatible port (MinIO locally)
 - HWPX/POC workers: Python where useful, with a stable service contract
-- local infrastructure: Docker Compose
+- local infrastructure: Docker Compose (free path: WSL2 Docker Engine CE / Rancher Desktop / Podman)
+- CI: GitHub Actions
+- demos require public URLs (developer PCs have no fixed IP): frontend on Vercel, backend containers on a cloud host (OB-14); backend never runs as Vercel serverless functions
 
 Do not silently change the approved profile.

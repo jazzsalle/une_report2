@@ -1,0 +1,27 @@
+# ADR Register
+
+전체 ADR 등록부. ADR-01~10은 통합설계 기준선 인계서 v0.9에서, ADR-11~18은
+`docs/design-markdown/03_ADR_v1.1.md`에서 확정되었다. ADR-19부터는 이
+디렉터리에 개별 파일로 추가한다. 신규 ADR은 이 표에 반드시 등재한다.
+
+| ID | 제목 | 상태 | 출처 | 재검토 Trigger |
+|---|---|---|---|---|
+| ADR-01 | rhwp Web Editor를 중앙 Single Editing Surface로 사용 | ACCEPTED | 02_BASELINE_HANDOFF_v0.9, 03_ADR_v1.1 §2 | - |
+| ADR-02 | 임의 HWPX 자동분석 + Template Profile + Prototype Clone | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-03 | AI는 내용/의미 level만 생성, HWPX 서식은 UNE 엔진이 적용 | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-04 | Cursor/Range/Block/Section 선택과 ChangeSet/Diff/Undo | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-05 | 계획서 생성은 T3Q RPT-001/002만 사용 | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-06 | 상황일지 POC는 UNI Upload/Search/chat-json/chat 사용 | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-07 | 상황전파는 T3Q/UNI가 아닌 UNE 내부모듈 담당 | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-08 | 현재상황은 SituationFact/Snapshot 관리, LLM 생성값 금지 | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-09 | KMA/MOIS 우선, SafeKorea 보조, Naver 사용자 요청형 보조수집 | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-10 | Execution Log를 사실원장으로 상황일지 생성 | ACCEPTED | 03_ADR_v1.1 §2 | - |
+| ADR-11 | T3Q 현재 재난상황정보 API 적용 정책 | ACCEPTED | 03_ADR_v1.1 §4 | §4.8 참조 |
+| ADR-12 | 상황일지 생성 주체와 T3Q RPT-003 적용 정책 | ACCEPTED | 03_ADR_v1.1 §5 | §5.7 참조 |
+| ADR-13 | UNI compns와 UNE SOP Schema 변환 경계 | ACCEPTED | 03_ADR_v1.1 §6 | §6.7 참조 |
+| ADR-14 | 국민안전24·Naver 보조수집 운영정책 | ACCEPTED | 03_ADR_v1.1 §7 | §7 참조 |
+| ADR-15 | rhwp pinned 소스 반입과 보존형 Serializer | ACCEPTED | 03_ADR_v1.1 §8 | §8 참조 |
+| ADR-16 | CI 검증 + Windows 한컴 Round-trip 이중 시험체계 | ACCEPTED | 03_ADR_v1.1 §9 | §9 참조 |
+| ADR-17 | ChannelPort + Transactional Outbox | ACCEPTED | 03_ADR_v1.1 §10 | §10 참조 |
+| ADR-18 | 기관 독립 Scenario Pack | ACCEPTED | 03_ADR_v1.1 §11 | §11 참조 |
+| ADR-19 | 백엔드 구현 프로파일: NestJS (Node/TypeScript) | ACCEPTED | [ADR-19-backend-profile-nestjs.md](ADR-19-backend-profile-nestjs.md) | 사내 표준 강제 또는 납품 인프라의 Node 미허용 |

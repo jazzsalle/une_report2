@@ -1,25 +1,40 @@
-# Technology Profile - Approval Required at CC-000
+# Technology Profile - Approved at CC-000 (2026-07-30)
 
-## Recommended default
+Approved via `work-items/00_DECISIONS_TO_CONFIRM.yaml`. Backend deviation from
+the detailed design is recorded in `docs/adr/ADR-19-backend-profile-nestjs.md`.
 
-- Web: React, TypeScript, Vite or approved enterprise build tool
-- API: ASP.NET Core 8 Web API
-- Data access: EF Core plus explicit SQL for projection/high-volume paths
+## Approved profile
+
+- Web: React, TypeScript, Vite; deployed to Vercel for dev/demo sharing
+- API: NestJS (Node 20+, TypeScript) — ADR-19
+- Data access: migration-reproducible tool (finalized at CC-004) plus explicit SQL for projection/high-volume paths
 - DB: PostgreSQL 16+
-- Background work: .NET Worker Service and PostgreSQL-backed job/outbox queue initially
-- HWPX: rhwp TypeScript adapter where possible; Python tools only behind explicit interfaces
-- Tests: xUnit, Testcontainers, Vitest/Playwright, pytest for Python tools
-- Local runtime: Docker Compose
-- CI: GitHub Actions or company-approved equivalent
+- Background work: NestJS worker service and PostgreSQL-backed job/outbox queue initially
+- Object storage: MinIO locally; any S3-compatible store (R2/Supabase) in cloud demo, behind one storage port
+- HWPX: pinned rhwp Rust/WASM core (ADR-15) consumed through a UNE TypeScript adapter; HWPX engine image and CI include the Rust+wasm toolchain; Python tools only behind explicit interfaces
+- Tests: Vitest/Jest, Testcontainers-node, Playwright, pytest for Python tools; Track A export validators in CI and a Windows/Hancom Track B runner as the G4 release gate (ADR-16)
+- Package manager: pnpm (workspaces)
+- Branch policy: trunk-based; feature/CC-<id> branches per Work Item merged to main after gate review; no force-push to main
+- Local runtime: Docker Compose via free path (WSL2 Docker Engine CE, Rancher Desktop, or Podman)
+- CI: GitHub Actions
 
-## Decisions required
+## Deployment constraints
 
-- exact repository and branching policy
-- package manager (`npm`, `pnpm`, or company standard)
-- backend framework approval
-- object storage implementation
-- authentication mode for POC and integration
-- CI/deployment target
-- supported browser and Hancom/Windows versions
+- Developer PCs are on internal networks without fixed IPs. Team/meeting-room
+  demos require public URLs: frontend on Vercel, backend as containers on a
+  cloud host (OB-14, decide before first G2 demo), managed PostgreSQL,
+  S3-compatible storage.
+- Backend/worker/HWPX engine stay containerized; never Vercel serverless
+  functions (long-running workers, outbox polling, SSE, long HWPX jobs).
+- Shared demo environments carry masked/sample data only.
+- Public demo environments require access control on both sides: frontend
+  (Vercel Deployment Protection/SSO or basic auth) and backend (IP allowlist
+  or gateway auth). mock-jwt only with AUTH_MODE=mock, signing key from
+  environment secrets, never in environments with unmasked data.
+- Final delivery environment: OPEN (OB-14).
 
-Do not start CC-001 until required values in `work-items/00_DECISIONS_TO_CONFIRM.yaml` are approved.
+## Still OPEN
+
+- demo backend host and final delivery environment (OB-14)
+- Hancom test version for Track B (OB-08, decide before G4)
+- data access / migration tool (node-pg-migrate vs Prisma migrate — finalized at CC-004)
