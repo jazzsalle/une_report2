@@ -7,9 +7,10 @@
 
 ## Completed this session
 
-- CC-000 DONE: implementation profile approved (NestJS/Node-TS per ADR-19,
-  pnpm, MinIO/S3-compatible, GitHub Actions, Chrome+Edge, Windows 11,
-  trunk-based branch policy). Committed b78c5b8, pushed to origin/main.
+- CC-000 DONE (commit b78c5b8): implementation profile approved (NestJS/Node-TS
+  per ADR-19, pnpm, MinIO/S3-compatible, GitHub Actions, Chrome+Edge,
+  Windows 11, trunk-based branch policy).
+- CC-001 DONE (commit b1dc50e): see below.
 - CC-001 DONE: pnpm monorepo bootstrap — apps/web + apps/field-web
   (React 19/Vite 7), services/api (NestJS 11, /api/v1 prefix, ops /health at
   root), services/worker (standalone heartbeat), services/hwpx-engine
@@ -61,3 +62,14 @@
   actual import/analysis/round-trip inputs for CC-140/CC-160/hwpx-roundtrip.
 - pnpm installed globally via npm user prefix (corepack needs admin on this
   PC). pnpm 10.34.5 / Node 22.14.0.
+
+## Company-PC quick start (tomorrow)
+
+1. `git clone https://github.com/jazzsalle/une_report2` (or `git pull` if cloned)
+2. Install Node >= 22.12, then `npm install -g pnpm@10`
+3. `pnpm install` at repo root; verify with `pnpm build && pnpm test`
+4. Open Claude Code in the repo — the SessionStart hook auto-loads this file
+5. First check the GitHub Actions run for commits b78c5b8/b1dc50e (first CI
+   run happens on push), then say "CC-002 진행하자" — it needs a Docker
+   runtime (WSL2 Docker Engine CE / Rancher Desktop / Podman); if none is
+   installed, installation guidance comes first.
