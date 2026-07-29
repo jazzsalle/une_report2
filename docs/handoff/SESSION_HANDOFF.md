@@ -2,58 +2,62 @@
 
 - Date/time: 2026-07-30
 - Branch: main
-- Current Work Item: CC-000
+- Current Work Item: CC-001
 - Status: DONE
 
 ## Completed this session
 
-- CC-000: implementation profile approved (NestJS/Node-TS per ADR-19, pnpm,
-  MinIO/S3-compatible, GitHub Actions, Chrome+Edge latest, Windows 11 QA,
-  trunk-based branch policy).
-- architecture-guardian + qa-gate-reviewer parallel review completed; all
-  High/Medium findings fixed (baseline sync, session handoff, demo access
-  control, branch policy), Low findings applied (ADR register, ADR-19
-  citation/scope fixes, rhwp Rust/WASM wording).
-
-## Files changed
-
-- work-items/00_DECISIONS_TO_CONFIRM.yaml (APPROVED, branch_policy, demo access-control constraints)
-- docs/adr/ADR-19-backend-profile-nestjs.md, docs/adr/README.md (new)
-- docs/handoff/TECHNOLOGY_PROFILE.md, IMPLEMENTATION_BASELINE.md §6, SOURCE_OF_TRUTH.md, OPEN_BINDINGS.md
-- CLAUDE.md (Read first + Implementation profile)
-- work-items/MASTER_WORK_ITEMS.yaml, IMPLEMENTATION_STATUS.md, CHANGELOG.md
+- CC-000 DONE: implementation profile approved (NestJS/Node-TS per ADR-19,
+  pnpm, MinIO/S3-compatible, GitHub Actions, Chrome+Edge, Windows 11,
+  trunk-based branch policy). Committed b78c5b8, pushed to origin/main.
+- CC-001 DONE: pnpm monorepo bootstrap — apps/web + apps/field-web
+  (React 19/Vite 7), services/api (NestJS 11, /api/v1 prefix, ops /health at
+  root), services/worker (standalone heartbeat), services/hwpx-engine
+  (contract stub; rhwp NOT imported, ADR-15 gate), packages/domain
+  (platform-neutral branded IDs), packages/provider-adapters (stub),
+  GitHub Actions CI, shared tsconfig/ESLint/Prettier, non-secret env examples.
+- Both work items passed architecture-guardian + qa-gate-reviewer parallel
+  review; every Medium/condition finding fixed same day.
 
 ## Tests and evidence
 
-- python scripts/validate_handoff.py: PASS (461 files) — run by qa-gate-reviewer
-- YAML parse check on decision/work-item/parallel-plan files: OK
-- Secret scan on changed files: no findings
+- pnpm build (7 projects) / typecheck (incl. tests) / test (10) / lint /
+  format:check all exit 0; validate_handoff.py PASS.
+- Runtime smoke: GET http://localhost:3001/health -> 200; /api/v1 prefix
+  active (excluded /health returns 404 under prefix as designed).
+- Full details in work-items/MASTER_WORK_ITEMS.yaml evidence and CHANGELOG.md.
 
 ## Decisions and OPEN bindings
 
-- ADR-19: backend NestJS supersedes ASP.NET Core 8 recommendation
-- OB-09 closed; OB-14 added (demo backend host + final delivery env, decide before first G2 demo)
-- OB-08 kept (Hancom Track B version, decide before G4)
-- Data access/migration tool deferred to CC-004 (node-pg-migrate vs Prisma migrate)
+- OB-14 (demo backend host + delivery env, before first G2 demo), OB-08
+  (Hancom Track B version, before G4) remain OPEN.
+- Migration tool (node-pg-migrate vs Prisma) decided at CC-004.
+- /health formal OpenAPI inclusion decided at CC-003 (currently documented as
+  out-of-contract ops endpoint in the contract header note).
+- Node floor is 22.12+ (Vite 7), recorded in TECHNOLOGY_PROFILE.md.
+- Bootstrap exception: CC-000/CC-001 direct to main; feature/CC-<id> branches
+  from CC-002 onward.
 
 ## Risks/blockers
 
-- .claude/settings.json still allows dotnet/npm, no pnpm entries — user must
-  update permissions before CC-001 to avoid prompts (agents must not edit it).
-- manifest/SHA256SUMS.txt hash for 00_DECISIONS_TO_CONFIRM.yaml is stale
-  (validation script does not check hashes; informational).
-- CC-000 outputs not yet committed/pushed.
+- manifest/SHA256SUMS.txt hashes are stale for files edited after package
+  install (validation script does not check hashes; informational).
+- Root .env.example (pre-existing) contains UNI_VERIFY_TLS=false — POC-local
+  only; must never reach production config.
+- tests/{unit,contract,integration,e2e} and tests/baseline pytest suite are
+  intentionally unwired at G0.
 
 ## Exact next action
 
-- Commit and push CC-000 outputs, then start CC-001 (NestJS + pnpm monorepo
-  bootstrap via bootstrap-repository skill). CI/HWPX images must include the
-  Rust+wasm toolchain for pinned rhwp (ADR-15/ADR-19).
+- Start CC-002 on branch feature/CC-002: Docker Compose for PostgreSQL 16 +
+  MinIO with health checks, persistent volumes, no secrets in repo
+  (bootstrap-repository skill). Local runtime on this PC needs a free Docker
+  path (WSL2 Docker Engine CE / Rancher Desktop / Podman) — verify
+  availability first.
 
 ## Notes
 
-- `templete/` holds 6 real HWPX templates (보고 양식, 상황보고 등) provided by
-  the user — use these as actual import/analysis/round-trip inputs for HWPX
-  work items (CC-140, CC-160, hwpx-roundtrip), not synthetic fixtures.
-- .claude/settings.json permissions updated 2026-07-30: dotnet removed, pnpm
-  build/test/lint/typecheck/install/run added (user-approved).
+- `templete/` holds 6 real HWPX templates (보고 양식, 상황보고 등) — use as
+  actual import/analysis/round-trip inputs for CC-140/CC-160/hwpx-roundtrip.
+- pnpm installed globally via npm user prefix (corepack needs admin on this
+  PC). pnpm 10.34.5 / Node 22.14.0.

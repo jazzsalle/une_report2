@@ -1,0 +1,30 @@
+{
+  "name": "une-disaster-document-platform",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.34.5",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "eslint .",
+    "format": "prettier --write \"{apps,services,packages}/**/*.{ts,tsx,json}\" \"*.{json,mjs}\"",
+    "format:check": "prettier --check \"{apps,services,packages}/**/*.{ts,tsx,json}\" \"*.{json,mjs}\"",
+    "validate:handoff": "python scripts/validate_handoff.py"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "eslint": "^9.30.0",
+    "prettier": "^3.6.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.35.0"
+  }
+}

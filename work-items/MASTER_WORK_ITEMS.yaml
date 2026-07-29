@@ -34,7 +34,7 @@ work_items:
   gate: G0
   dependencies:
   - CC-000
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - web/api/worker/hwpx/test skeleton builds
   - root scripts and README
@@ -43,7 +43,15 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - pnpm install / pnpm build 7 projects pass (vite 7.3.6 apps, tsc services/packages)
+  - pnpm typecheck exit 0 (incl. test files via tsconfig.test.json); pnpm test exit 0 (10 tests); pnpm lint 0 errors; pnpm format:check pass
+  - python scripts/validate_handoff.py PASS (node_modules/.git/dist excluded)
+  - runtime smoke - GET /health 200 at root, /api/v1 global prefix active (OpenAPI local server synced to 3001)
+  - non-secret .env.example in services/api, services/worker, apps/web, apps/field-web (base URL includes /api/v1)
+  - root README.md with structure and commands; pnpm-workspace.yaml + shared tsconfig/eslint/prettier; .github/workflows/ci.yml
+  - architecture-guardian CONDITIONAL PASS + qa-gate-reviewer PASS WITH CONDITIONS 2026-07-30; all Medium/condition items fixed same day (api/v1 prefix, platform-neutral domain crypto, test typecheck, CI workflow, handoff sync)
+  - deferral notes - tests/{unit,contract,integration,e2e} and tests/baseline pytest intentionally unwired at G0; /health formal contract inclusion decided at CC-003
 - id: CC-002
   title: Bootstrap PostgreSQL, object storage, and local compose
   gate: G0

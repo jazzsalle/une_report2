@@ -6,7 +6,7 @@ the detailed design is recorded in `docs/adr/ADR-19-backend-profile-nestjs.md`.
 ## Approved profile
 
 - Web: React, TypeScript, Vite; deployed to Vercel for dev/demo sharing
-- API: NestJS (Node 20+, TypeScript) — ADR-19
+- API: NestJS (Node 22.12+, TypeScript) — ADR-19; Node floor raised from 20+ by Vite 7 workspace requirement (CC-001)
 - Data access: migration-reproducible tool (finalized at CC-004) plus explicit SQL for projection/high-volume paths
 - DB: PostgreSQL 16+
 - Background work: NestJS worker service and PostgreSQL-backed job/outbox queue initially

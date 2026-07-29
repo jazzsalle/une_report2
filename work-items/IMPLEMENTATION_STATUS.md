@@ -5,7 +5,7 @@ Last updated: 2026-07-30
 | ID | Title | Status | Branch/PR | Evidence | Next action |
 |---|---|---|---|---|---|
 | CC-000 | Confirm implementation profile and external assumptions | DONE | main | 00_DECISIONS_TO_CONFIRM.yaml APPROVED 2026-07-30; ADR-19; TECHNOLOGY_PROFILE.md; OB-09 closed, OB-14 added | Proceed to CC-001 (NestJS monorepo bootstrap) |
-| CC-001 | Bootstrap monorepo and shared tooling | NOT_STARTED | - | - | Confirm dependencies and plan |
+| CC-001 | Bootstrap monorepo and shared tooling | DONE | main | pnpm build/typecheck/test/lint all pass (10 tests); validate_handoff PASS 254 files; env examples + README | Proceed to CC-002 (compose: PostgreSQL+MinIO) |
 | CC-002 | Bootstrap PostgreSQL, object storage, and local compose | NOT_STARTED | - | - | Confirm dependencies and plan |
 | CC-003 | Import and validate OpenAPI and JSON Schemas | NOT_STARTED | - | - | Confirm dependencies and plan |
 | CC-004 | Apply initial database migrations and seed | NOT_STARTED | - | - | Confirm dependencies and plan |

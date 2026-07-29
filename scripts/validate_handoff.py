@@ -20,12 +20,18 @@ for rel in required:
     if not p.exists() or p.stat().st_size == 0:
         errors.append(f'missing or empty: {rel}')
 
-for p in root.rglob('*.json'):
+SKIP_DIRS = {'node_modules', '.git', 'dist', 'coverage', '.venv', '__pycache__', '.pnpm-store'}
+def scan(pattern):
+    for p in root.rglob(pattern):
+        if not SKIP_DIRS.intersection(p.relative_to(root).parts):
+            yield p
+
+for p in scan('*.json'):
     try: json.loads(p.read_text(encoding='utf-8'))
     except Exception as e: errors.append(f'invalid json {p.relative_to(root)}: {e}')
 
 if yaml:
-    for p in list(root.rglob('*.yaml')) + list(root.rglob('*.yml')):
+    for p in list(scan('*.yaml')) + list(scan('*.yml')):
         try: yaml.safe_load(p.read_text(encoding='utf-8'))
         except Exception as e: errors.append(f'invalid yaml {p.relative_to(root)}: {e}')
 
@@ -39,4 +45,4 @@ if errors:
     sys.exit(1)
 print('HANDOFF VALIDATION: PASS')
 print('root:',root)
-print('files:',sum(1 for p in root.rglob('*') if p.is_file()))
+print('files:',sum(1 for p in scan('*') if p.is_file()))
