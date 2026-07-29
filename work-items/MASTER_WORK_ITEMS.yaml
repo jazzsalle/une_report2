@@ -1,0 +1,563 @@
+version: '1.1'
+project: UNE-disaster-document-platform
+status_values:
+- NOT_STARTED
+- PLANNED
+- IN_PROGRESS
+- BLOCKED
+- PASS_WITH_CONDITIONS
+- DONE
+work_items:
+- id: CC-000
+  title: Confirm implementation profile and external assumptions
+  gate: G0
+  dependencies: []
+  status: NOT_STARTED
+  acceptance_criteria:
+  - Approved decision YAML
+  - repository URL and branch policy
+  - technology profile
+  - local/CI/deployment constraints
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-001
+  title: Bootstrap monorepo and shared tooling
+  gate: G0
+  dependencies:
+  - CC-000
+  status: NOT_STARTED
+  acceptance_criteria:
+  - web/api/worker/hwpx/test skeleton builds
+  - root scripts and README
+  - non-secret env examples
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-002
+  title: Bootstrap PostgreSQL, object storage, and local compose
+  gate: G0
+  dependencies:
+  - CC-001
+  status: NOT_STARTED
+  acceptance_criteria:
+  - local services start
+  - health checks
+  - persistent volumes
+  - no secrets in repo
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-003
+  title: Import and validate OpenAPI and JSON Schemas
+  gate: G1
+  dependencies:
+  - CC-001
+  status: NOT_STARTED
+  acceptance_criteria:
+  - contract validation passes
+  - generated client/DTO strategy
+  - mock contract sync
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-004
+  title: Apply initial database migrations and seed
+  gate: G1
+  dependencies:
+  - CC-002
+  status: NOT_STARTED
+  acceptance_criteria:
+  - empty DB migration
+  - upgrade fixture migration
+  - 57-table baseline or approved staged subset
+  - data dictionary sync
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-100
+  title: Implement mock authentication, tenant, and RBAC
+  gate: G1
+  dependencies:
+  - CC-003
+  - CC-004
+  status: NOT_STARTED
+  acceptance_criteria:
+  - JWT mock
+  - tenant isolation
+  - permission tests
+  - audit login/session events
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-110
+  title: Implement Plan and immutable PlanContextSnapshot
+  gate: G2
+  dependencies:
+  - CC-100
+  status: NOT_STARTED
+  acceptance_criteria:
+  - plan CRUD
+  - context schema validation
+  - snapshot hash/version
+  - conflict tests
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-115
+  title: Baseline current T3Q RPT-001/002 and target-v2 change request contracts
+  gate: G2
+  dependencies:
+  - CC-110
+  status: NOT_STARTED
+  acceptance_criteria:
+  - legacy contract tests
+  - target-v2 OpenAPI validation
+  - field gap matrix
+  - feature capability states
+  - no UNI plan fallback
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - T3Q_PLAN_API_CHANGE_REQUEST
+  evidence: []
+- id: CC-120
+  title: Implement T3Q RPT-001 TOC job using mock adapter
+  gate: G2
+  dependencies:
+  - CC-115
+  status: NOT_STARTED
+  acceptance_criteria:
+  - job/idempotency
+  - adapter mapping
+  - TOC version
+  - SSE or polling events
+  - failure/retry tests
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-125
+  title: Implement dual Legacy and Target-v2 T3Q Plan adapters with mocks
+  gate: G2
+  dependencies:
+  - CC-120
+  status: NOT_STARTED
+  acceptance_criteria:
+  - one T3qPlanProvider port
+  - legacy adapter current RPT-001/002
+  - target-v2 adapter mock
+  - feature-flag selection
+  - raw payload and mapping version
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - T3Q_PLAN_API_CHANGE_REQUEST
+  evidence: []
+- id: CC-130
+  title: Implement T3Q RPT-002 content job and protected blocks
+  gate: G2
+  dependencies:
+  - CC-125
+  status: NOT_STARTED
+  acceptance_criteria:
+  - partial content events
+  - cancel/retry
+  - protected user blocks
+  - evidence mapping
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-135
+  title: Implement target-v2 plan job, semantic edit, evidence, and validation mocks
+  gate: G2
+  dependencies:
+  - CC-130
+  status: NOT_STARTED
+  acceptance_criteria:
+  - job status/SSE/cancel/retry mocks
+  - Range/Block/Section change proposals
+  - evidence provenance
+  - validation issues
+  - mock-only status visible
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - T3Q_PLAN_API_CHANGE_REQUEST
+  evidence: []
+- id: CC-140
+  title: Implement HWPX import, provenance, IR, and prototype analysis shell
+  gate: G2
+  dependencies:
+  - CC-001
+  status: NOT_STARTED
+  acceptance_criteria:
+  - source archive provenance template
+  - package analysis
+  - Document IR
+  - compatibility classification
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-150
+  title: Implement document Revision, ChangeSet, autosave, diff, and conflict
+  gate: G2
+  dependencies:
+  - CC-135
+  - CC-140
+  status: NOT_STARTED
+  acceptance_criteria:
+  - ETag/version conflict
+  - selection anchors
+  - undo/restore
+  - audit
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-160
+  title: Implement HWPX preservation export and Track A validation
+  gate: G4
+  dependencies:
+  - CC-150
+  status: NOT_STARTED
+  acceptance_criteria:
+  - no-op round trip
+  - reference validation
+  - unsupported object preservation
+  - validation report
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-170
+  title: Complete Plan vertical slice E2E
+  gate: G2
+  dependencies:
+  - CC-160
+  status: NOT_STARTED
+  acceptance_criteria:
+  - SSO mock to HWPX download
+  - normal/alternate/error paths
+  - screen evidence
+  - performance baseline
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-200
+  title: Implement Situation and candidate SituationFact ingestion
+  gate: G3
+  dependencies:
+  - CC-100
+  status: NOT_STARTED
+  acceptance_criteria:
+  - manual/provider facts
+  - source/timestamps
+  - normalization
+  - partial provider failure
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-210
+  title: Implement duplicate/conflict resolution and SituationSnapshot
+  gate: G3
+  dependencies:
+  - CC-200
+  status: NOT_STARTED
+  acceptance_criteria:
+  - unresolved conflict block
+  - immutable snapshot
+  - hash/version
+  - change comparison
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-220
+  title: Implement knowledge document upload and UNI mock adapter
+  gate: G3
+  dependencies:
+  - CC-210
+  status: NOT_STARTED
+  acceptance_criteria:
+  - file security checks
+  - object storage
+  - UNI upload status
+  - retry
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-230
+  title: Implement evidence search and immutable EvidenceSet
+  gate: G3
+  dependencies:
+  - CC-220
+  status: NOT_STARTED
+  acceptance_criteria:
+  - snapshot-derived query
+  - Top-K mapping
+  - source/page/chunk
+  - authorization filter
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-240
+  title: Implement UNI SOP generation and versioned UniSopMapper
+  gate: G3
+  dependencies:
+  - CC-230
+  status: NOT_STARTED
+  acceptance_criteria:
+  - chat-json/SSE mock
+  - raw payload retention
+  - SopGraph mapping
+  - schema failure handling
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-250
+  title: Implement SOP canvas model, validation, review, and approval
+  gate: G3
+  dependencies:
+  - CC-240
+  status: NOT_STARTED
+  acceptance_criteria:
+  - node/edge editing
+  - DAG rules
+  - role/state control
+  - locked approved version
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-260
+  title: Implement SopRun, Task, and explicit state machine
+  gate: G3
+  dependencies:
+  - CC-250
+  status: NOT_STARTED
+  acceptance_criteria:
+  - dry-run/exercise/live modes
+  - task activation
+  - pause/resume/terminate
+  - state tests
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-270
+  title: Implement Transactional Outbox and simulation channels
+  gate: G3
+  dependencies:
+  - CC-260
+  status: NOT_STARTED
+  acceptance_criteria:
+  - atomic write
+  - retry/backoff/dead letter
+  - duplicate suppression
+  - delivery status
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-280
+  title: Implement field task acknowledge/start/progress/complete/reject/reassign
+  gate: G3
+  dependencies:
+  - CC-270
+  status: NOT_STARTED
+  acceptance_criteria:
+  - responsive field flow
+  - required evidence
+  - escalation
+  - execution events
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-290
+  title: Implement Execution Log and dashboard projections
+  gate: G3
+  dependencies:
+  - CC-280
+  status: NOT_STARTED
+  acceptance_criteria:
+  - append-only event
+  - correction event
+  - timeline/KPI
+  - drill-down
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-300
+  title: Implement Journal Projection, locked facts, editing, and export
+  gate: G3
+  dependencies:
+  - CC-290
+  - CC-160
+  status: NOT_STARTED
+  acceptance_criteria:
+  - snapshot+event projection
+  - AI wording guard
+  - revision
+  - HWPX/PDF/DOCX as approved
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-310
+  title: Implement exercise close, evaluation, and improvement feedback
+  gate: G3
+  dependencies:
+  - CC-300
+  status: NOT_STARTED
+  acceptance_criteria:
+  - close preconditions
+  - evaluation evidence
+  - improvement actions
+  - plan/SOP links
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-320
+  title: Complete Situation-SOP-Journal vertical slice E2E
+  gate: G3
+  dependencies:
+  - CC-310
+  status: NOT_STARTED
+  acceptance_criteria:
+  - end-to-end exercise flow
+  - multiple tasks
+  - failure/retry/escalation
+  - journal fact consistency
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-400
+  title: Bind actual T3Q contracts and run contract/E2E tests
+  gate: G5
+  dependencies:
+  - CC-170
+  - CC-320
+  status: NOT_STARTED
+  acceptance_criteria:
+  - legacy auth/TLS/timeouts/error binding
+  - accepted target-v2 fields and capabilities
+  - actual versus mock feature matrix
+  - contract and E2E evidence
+  - no domain leakage or UNI fallback
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-410
+  title: Bind actual UNI contracts and finalize mapping
+  gate: G5
+  dependencies:
+  - CC-320
+  status: NOT_STARTED
+  acceptance_criteria:
+  - upload/search/chat mapping
+  - SSE reconnect
+  - compns mapping
+  - test payload evidence
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-420
+  title: Run Hancom Track B round-trip gate
+  gate: G4
+  dependencies:
+  - CC-160
+  status: NOT_STARTED
+  acceptance_criteria:
+  - defined Windows/Hancom version
+  - open/save/reopen
+  - rhwp reopen
+  - regression report
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-430
+  title: Security, performance, observability, backup and recovery
+  gate: G6
+  dependencies:
+  - CC-400
+  - CC-410
+  status: NOT_STARTED
+  acceptance_criteria:
+  - RBAC/tenant/file/security tests
+  - P95 targets
+  - traces/metrics/logs
+  - backup restore drill
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []
+- id: CC-440
+  title: Release candidate, acceptance package, and deployment runbook
+  gate: G6
+  dependencies:
+  - CC-420
+  - CC-430
+  status: NOT_STARTED
+  acceptance_criteria:
+  - release manifest
+  - all gates
+  - operator/developer docs
+  - rollback/forward-fix
+  - acceptance evidence
+  design_refs:
+  - ADR
+  - API_DB_SEQUENCE
+  - IMPLEMENTATION_BASELINE
+  evidence: []

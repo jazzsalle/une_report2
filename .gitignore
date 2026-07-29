@@ -1,0 +1,45 @@
+# Claude local settings and memory
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Node
+node_modules/
+dist/
+.next/
+coverage/
+
+# .NET
+bin/
+obj/
+*.user
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+artifacts/
+logs/
+tmp/
+*.log
+
+# Original package archive (contents already installed at repo root)
+설계 및 개발착수 문서/*.zip

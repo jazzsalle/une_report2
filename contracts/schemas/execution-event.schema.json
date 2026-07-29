@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.une.local/execution-event.schema.json",
+  "title": "Execution Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "tenantId",
+    "situationId",
+    "aggregateType",
+    "aggregateId",
+    "eventType",
+    "occurredAt",
+    "recordedAt",
+    "payload",
+    "eventHash"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenantId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "situationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "aggregateType": {
+      "type": "string",
+      "maxLength": 30
+    },
+    "aggregateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "type": "string",
+      "maxLength": 60
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actorId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "correctsEventId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "correlationId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 100
+    },
+    "eventHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

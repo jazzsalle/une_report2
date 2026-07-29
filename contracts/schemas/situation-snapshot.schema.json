@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.une.local/situation-snapshot.schema.json",
+  "title": "Situation Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "situationId",
+    "versionNo",
+    "effectiveAt",
+    "facts",
+    "contentHash",
+    "confirmedBy",
+    "confirmedAt"
+  ],
+  "properties": {
+    "situationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "versionNo": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "effectiveAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "facts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "situation-fact.schema.json"
+      }
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "confirmedBy": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "confirmedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "supersedesSnapshotId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1000
+    }
+  }
+}

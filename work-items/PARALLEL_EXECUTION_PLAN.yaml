@@ -1,0 +1,124 @@
+# PARALLEL_EXECUTION_PLAN.yaml — 병렬 실행 오버레이 (overlay)
+#
+# 목적: MASTER_WORK_ITEMS.yaml(정본, Source of Truth)을 수정하지 않고,
+#       /work-batch 오케스트레이터가 병렬 디스패치할 트랙과 합류점을 선언한다.
+# 원칙:
+#   - 이 파일은 정본의 dependencies를 "완화"하지 않는다. 정본 의존성은 항상 준수한다.
+#     이 파일이 추가로 제공하는 것은 (1) 논리적으로 독립인 트랙 묶음,
+#     (2) 정본에 없는 선행착수(early-start) 허용 선언, (3) worktree/충돌 주의사항이다.
+#   - 트랙 간 파일 경로가 겹치면 worktree: true 트랙은 격리된 git worktree에서 실행한다.
+#   - 상태 판정은 항상 MASTER_WORK_ITEMS.yaml + IMPLEMENTATION_STATUS.md 기준.
+version: '1.0'
+source_of_truth: work-items/MASTER_WORK_ITEMS.yaml
+orchestrator: .claude/skills/work-batch/SKILL.md
+
+# Work Item → 담당 specialist 서브에이전트 매핑 (기본값; UI 수용기준 포함 항목은
+# frontend-specialist를 보조로 추가 디스패치 가능)
+agent_mapping:
+  database-specialist: [CC-002, CC-004, CC-270, CC-290]
+  contract-specialist: [CC-003, CC-115, CC-120, CC-125, CC-130, CC-135, CC-220, CC-240, CC-400, CC-410]
+  hwpx-specialist: [CC-140, CC-150, CC-160, CC-420]
+  frontend-specialist: [CC-170, CC-250, CC-280, CC-300, CC-320]
+  # CC-000/001/100/110/200/210/230/260/310/430/440 등 도메인 횡단 항목은
+  # 메인 세션이 직접 계획 후 가장 근접한 specialist에게 위임하거나 직접 구현.
+
+phases:
+  phase_1:
+    note: "6항목 → 4단계. CC-001 완료 후 3-way 병렬."
+    serial_prefix: [CC-000, CC-001]
+    parallel_tracks:
+      - name: infra-db
+        items: [CC-002, CC-004]      # 트랙 내부는 직렬 (002 → 004)
+        worktree: false
+      - name: contracts
+        items: [CC-003]
+        worktree: false
+      - name: hwpx-early-start
+        items: [CC-140]              # 정본 의존성이 CC-001뿐 → Phase 1에서 선행착수 가능
+        worktree: true               # services/hwpx-engine 독립 경로지만 초기 스캐폴딩과 겹칠 수 있음
+    join:
+      - item: CC-100
+        requires: [CC-003, CC-004]
+
+  phase_2:
+    note: "T3Q 체인 ∥ HWPX 트랙. 합류는 CC-150."
+    parallel_tracks:
+      - name: t3q-plan-chain
+        items: [CC-110, CC-115, CC-120, CC-125, CC-130, CC-135]
+        worktree: false
+        in_track_overlap:            # 트랙 내부에서 추가 병행 가능한 쌍 (포트/계약 확정 후)
+          - pair: [CC-110, CC-115]
+            reason: "CC-115는 계약 갭 매트릭스 문서 작업 — CC-110 도메인 구현과 파일 미중복"
+          - pair: [CC-130, CC-135]
+            reason: "legacy(RPT-002)와 target-v2 mock은 서로 다른 어댑터 — T3qPlanProvider 포트 확정 후 병행"
+      - name: hwpx-track
+        items: [CC-140]              # Phase 1에서 완료했으면 스킵
+        worktree: true
+    join:
+      - item: CC-150
+        requires: [CC-135, CC-140]
+      - item: CC-160
+        requires: [CC-150]
+      - item: CC-170
+        requires: [CC-160]
+
+  phase_3:
+    note: >
+      정본 선언은 13단 완전 직렬이나 논리적 독립 묶음으로 8~9단으로 단축.
+      경고: CC-260/270 원자성 규칙(Dispatch 상태변경 + Execution Event + Outbox insert =
+      단일 트랜잭션, CLAUDE.md·11번 문서 §7.1) — 병렬 분리 전에 트랜잭션 경계 소유권을
+      메인 세션이 먼저 확정하고 두 트랙에 공유할 것.
+    parallel_tracks:
+      - name: fact-management
+        items: [CC-200, CC-210]
+        worktree: false
+      - name: knowledge-rag
+        items: [CC-220]              # Snapshot 데이터 불필요 — CC-210과 독립
+        worktree: true
+      - name: outbox-infra
+        items: [CC-270]              # 순수 인프라 — SOP 도메인 선행 불필요 (early-start)
+        worktree: true
+      - name: ledger-dashboard-prep
+        items: [CC-290]              # execution-event.schema.json 확정됨 — 스키마 기반 선행 구현
+        worktree: true
+      - name: hancom-track-b
+        items: [CC-420]              # CC-160만 필요 — Phase 3 전체와 병행 (OB-08 해소 시)
+        worktree: true
+        blocked_by_open_binding: OB-08
+    join:
+      - item: CC-230
+        requires: [CC-210, CC-220]
+      - item: CC-240
+        requires: [CC-230]
+      - item: CC-250
+        requires: [CC-240]
+      - item: CC-260
+        requires: [CC-250, CC-270]
+      - item: CC-280
+        requires: [CC-260]
+      - item: CC-290
+        requires: [CC-280]           # 선행 구현분 통합 시점
+      - item: CC-300
+        requires: [CC-290, CC-160]
+      - item: CC-310
+        requires: [CC-300]
+      - item: CC-320
+        requires: [CC-310]
+
+  phase_4:
+    note: "외부 실계약 바인딩 3-way 병렬 후 순차 수렴."
+    parallel_tracks:
+      - name: t3q-binding
+        items: [CC-400]
+        blocked_by_open_binding: OB-01
+      - name: uni-binding
+        items: [CC-410]
+        blocked_by_open_binding: OB-13
+      - name: hancom-track-b
+        items: [CC-420]              # Phase 3에서 완료했으면 스킵
+        blocked_by_open_binding: OB-08
+    join:
+      - item: CC-430
+        requires: [CC-400, CC-410]
+      - item: CC-440
+        requires: [CC-420, CC-430]

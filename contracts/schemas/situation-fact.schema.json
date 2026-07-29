@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.une.local/situation-fact.schema.json",
+  "title": "Situation Fact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "factType",
+    "factKey",
+    "value",
+    "source",
+    "collectedAt",
+    "status"
+  ],
+  "properties": {
+    "factId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "factType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50
+    },
+    "factKey": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{1,99}$"
+    },
+    "value": {},
+    "unit": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 30
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "providerCode",
+        "sourceName",
+        "collectedAt"
+      ],
+      "properties": {
+        "providerCode": {
+          "type": "string",
+          "enum": [
+            "KMA",
+            "MOIS",
+            "SAFEKOREA",
+            "NAVER",
+            "MANUAL",
+            "T3Q",
+            "UNI"
+          ]
+        },
+        "sourceName": {
+          "type": "string"
+        },
+        "sourceUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "externalId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "collectedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "observedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "collectedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "CANDIDATE",
+        "CONFIRMED",
+        "REJECTED"
+      ]
+    }
+  }
+}

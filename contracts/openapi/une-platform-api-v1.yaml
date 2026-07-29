@@ -1,0 +1,7349 @@
+openapi: 3.1.0
+info:
+  title: UNE 재난안전 AI 문서 통합플랫폼 API
+  version: 1.0.0
+  description: ADR v1.1 및 API·DB·화면별 Sequence 상세설계서 기준 121개 내부 API 계약 초안
+servers:
+- url: http://localhost:8080/api/v1
+  description: Local development
+- url: https://{host}/api/v1
+  description: Deployment
+  variables:
+    host:
+      default: une-platform.example.local
+tags:
+- name: AUTH
+  description: 인증·조직·사용자
+- name: HOME
+  description: 통합 홈·알림
+- name: PLAN
+  description: 계획서 기준정보·생성
+- name: DOC
+  description: HWPX·문서편집·Revision·Export
+- name: SIT
+  description: 상황·Fact·Snapshot
+- name: KNOW
+  description: UNI 학습자료·Evidence
+- name: SOP
+  description: SOP 생성·편집·승인·실행
+- name: TASK
+  description: 임무·전파·현장보고
+- name: JNL
+  description: 전자상황판·Execution Log·상황일지·평가
+- name: ADMIN
+  description: RBAC·조직 Binding·감사·Provider 운영
+paths:
+  /auth/sso/exchange:
+    post:
+      tags:
+      - AUTH
+      summary: T3Q SSO 토큰 교환
+      operationId: une_auth_001
+      description: '권한: PUBLIC_SSO
+
+
+        핵심 요청: externalToken, returnUrl
+
+
+        핵심 응답: accessToken, refreshToken, userContext
+
+
+        오류: AUTH-1001~1004'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-AUTH-001
+      x-permission: PUBLIC_SSO
+      x-db-tables:
+      - app_user
+      - user_session
+      - audit_log
+      x-error-codes:
+      - AUTH-1001
+      - '1004'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SsoExchangeRequest'
+      security: []
+  /auth/me:
+    get:
+      tags:
+      - AUTH
+      summary: 현재 사용자·기관·역할 조회
+      operationId: une_auth_002
+      description: '권한: AUTHENTICATED
+
+
+        핵심 요청: -
+
+
+        핵심 응답: UserContext
+
+
+        오류: AUTH-1005'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-AUTH-002
+      x-permission: AUTHENTICATED
+      x-db-tables:
+      - app_user
+      - user_role
+      - organization
+      x-error-codes:
+      - AUTH-1005
+      security:
+      - BearerAuth: []
+  /auth/refresh:
+    post:
+      tags:
+      - AUTH
+      summary: Access Token 갱신
+      operationId: une_auth_003
+      description: '권한: AUTHENTICATED
+
+
+        핵심 요청: refreshToken
+
+
+        핵심 응답: accessToken
+
+
+        오류: AUTH-1002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-AUTH-003
+      x-permission: AUTHENTICATED
+      x-db-tables:
+      - user_session
+      x-error-codes:
+      - AUTH-1002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /auth/logout:
+    post:
+      tags:
+      - AUTH
+      summary: 세션 종료
+      operationId: une_auth_004
+      description: '권한: AUTHENTICATED
+
+
+        핵심 요청: -
+
+
+        핵심 응답: 204
+
+
+        오류: AUTH-1006'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-AUTH-004
+      x-permission: AUTHENTICATED
+      x-db-tables:
+      - user_session
+      - audit_log
+      x-error-codes:
+      - AUTH-1006
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /organizations/tree:
+    get:
+      tags:
+      - AUTH
+      summary: 조직도 조회
+      operationId: une_auth_005
+      description: '권한: ORG_READ
+
+
+        핵심 요청: tenantId(optional)
+
+
+        핵심 응답: OrganizationTree
+
+
+        오류: ORG-2001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-AUTH-005
+      x-permission: ORG_READ
+      x-db-tables:
+      - organization
+      x-error-codes:
+      - ORG-2001
+      security:
+      - BearerAuth: []
+  /users:
+    get:
+      tags:
+      - AUTH
+      summary: 사용자·담당자 검색
+      operationId: une_auth_006
+      description: '권한: USER_READ
+
+
+        핵심 요청: orgId,keyword,status,page
+
+
+        핵심 응답: Page<UserSummary>
+
+
+        오류: USER-2101'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-AUTH-006
+      x-permission: USER_READ
+      x-db-tables:
+      - app_user
+      - organization
+      x-error-codes:
+      - USER-2101
+      security:
+      - BearerAuth: []
+  /roles:
+    get:
+      tags:
+      - AUTH
+      summary: 역할·권한 조회
+      operationId: une_auth_007
+      description: '권한: RBAC_READ
+
+
+        핵심 요청: scope
+
+
+        핵심 응답: Role[]
+
+
+        오류: RBAC-2201'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-AUTH-007
+      x-permission: RBAC_READ
+      x-db-tables:
+      - role
+      - permission
+      - role_permission
+      x-error-codes:
+      - RBAC-2201
+      security:
+      - BearerAuth: []
+  /home/summary:
+    get:
+      tags:
+      - HOME
+      summary: 통합 홈 요약
+      operationId: une_home_001
+      description: '권한: AUTHENTICATED
+
+
+        핵심 요청: -
+
+
+        핵심 응답: recentWorks,myTasks,health,alerts
+
+
+        오류: COM-0001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-HOME-001
+      x-permission: AUTHENTICATED
+      x-db-tables:
+      - document
+      - situation
+      - task
+      - provider_health
+      x-error-codes:
+      - COM-0001
+      security:
+      - BearerAuth: []
+  /notifications:
+    get:
+      tags:
+      - HOME
+      summary: 알림 목록
+      operationId: une_home_002
+      description: '권한: AUTHENTICATED
+
+
+        핵심 요청: filter,page
+
+
+        핵심 응답: Page<Notification>
+
+
+        오류: NOTI-3001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-HOME-002
+      x-permission: AUTHENTICATED
+      x-db-tables:
+      - notification
+      x-error-codes:
+      - NOTI-3001
+      security:
+      - BearerAuth: []
+  /notifications/{id}/read:
+    post:
+      tags:
+      - HOME
+      summary: 알림 읽음
+      operationId: une_home_003
+      description: '권한: AUTHENTICATED
+
+
+        핵심 요청: -
+
+
+        핵심 응답: Notification
+
+
+        오류: NOTI-3002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-HOME-003
+      x-permission: AUTHENTICATED
+      x-db-tables:
+      - notification
+      x-error-codes:
+      - NOTI-3002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /notifications/read-all:
+    post:
+      tags:
+      - HOME
+      summary: 전체 읽음
+      operationId: une_home_004
+      description: '권한: AUTHENTICATED
+
+
+        핵심 요청: filter
+
+
+        핵심 응답: count
+
+
+        오류: NOTI-3003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-HOME-004
+      x-permission: AUTHENTICATED
+      x-db-tables:
+      - notification
+      x-error-codes:
+      - NOTI-3003
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /plans:
+    post:
+      tags:
+      - PLAN
+      summary: 계획서 Workspace 생성
+      operationId: une_plan_001
+      description: '권한: PLAN_CREATE
+
+
+        핵심 요청: title,startMode,templateFileId
+
+
+        핵심 응답: Plan
+
+
+        오류: PLAN-4001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-001
+      x-permission: PLAN_CREATE
+      x-db-tables:
+      - plan
+      - document
+      x-error-codes:
+      - PLAN-4001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanCreateRequest'
+      security:
+      - BearerAuth: []
+    get:
+      tags:
+      - PLAN
+      summary: 계획서 목록·검색
+      operationId: une_plan_002
+      description: '권한: PLAN_READ
+
+
+        핵심 요청: keyword,status,hazardType,page
+
+
+        핵심 응답: Page<Plan>
+
+
+        오류: PLAN-4002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-002
+      x-permission: PLAN_READ
+      x-db-tables:
+      - plan
+      - document
+      x-error-codes:
+      - PLAN-4002
+      security:
+      - BearerAuth: []
+  /plans/{planId}:
+    get:
+      tags:
+      - PLAN
+      summary: 계획서 상세
+      operationId: une_plan_003
+      description: '권한: PLAN_READ
+
+
+        핵심 요청: planId
+
+
+        핵심 응답: PlanDetail
+
+
+        오류: PLAN-4003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-003
+      x-permission: PLAN_READ
+      x-db-tables:
+      - plan
+      - document
+      x-error-codes:
+      - PLAN-4003
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - PLAN
+      summary: 계획서 메타 수정
+      operationId: une_plan_004
+      description: '권한: PLAN_EDIT
+
+
+        핵심 요청: If-Match, JSON Merge Patch
+
+
+        핵심 응답: Plan
+
+
+        오류: PLAN-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-004
+      x-permission: PLAN_EDIT
+      x-db-tables:
+      - plan
+      - audit_log
+      x-error-codes:
+      - PLAN-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+    delete:
+      tags:
+      - PLAN
+      summary: 계획서 휴지통 이동
+      operationId: une_plan_005
+      description: '권한: PLAN_DELETE
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: 204
+
+
+        오류: PLAN-403-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-005
+      x-permission: PLAN_DELETE
+      x-db-tables:
+      - plan
+      x-error-codes:
+      - PLAN-403-001
+      security:
+      - BearerAuth: []
+  /plans/{planId}/context-drafts:
+    post:
+      tags:
+      - PLAN
+      summary: 기준정보 임시저장
+      operationId: une_plan_006
+      description: '권한: PLAN_EDIT
+
+
+        핵심 요청: PlanContextDraft
+
+
+        핵심 응답: ContextDraft
+
+
+        오류: PLAN-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-006
+      x-permission: PLAN_EDIT
+      x-db-tables:
+      - plan_context_draft
+      x-error-codes:
+      - PLAN-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /plans/{planId}/context-snapshots:
+    post:
+      tags:
+      - PLAN
+      summary: 기준정보 Snapshot 확정
+      operationId: une_plan_007
+      description: '권한: PLAN_EDIT
+
+
+        핵심 요청: PlanContext
+
+
+        핵심 응답: PlanContextSnapshot
+
+
+        오류: PLAN-412-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-007
+      x-permission: PLAN_EDIT
+      x-db-tables:
+      - plan_context_snapshot
+      - audit_log
+      x-error-codes:
+      - PLAN-412-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanContext'
+      security:
+      - BearerAuth: []
+    get:
+      tags:
+      - PLAN
+      summary: 기준정보 Snapshot 목록
+      operationId: une_plan_008
+      description: '권한: PLAN_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: Snapshot[]
+
+
+        오류: PLAN-404-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-008
+      x-permission: PLAN_READ
+      x-db-tables:
+      - plan_context_snapshot
+      x-error-codes:
+      - PLAN-404-002
+      security:
+      - BearerAuth: []
+  /plans/{planId}/toc-jobs:
+    post:
+      tags:
+      - PLAN
+      summary: T3Q RPT-001 목차 생성 Job
+      operationId: une_plan_009
+      description: '권한: PLAN_GENERATE
+
+
+        핵심 요청: snapshotId,generationOption
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: T3Q-502-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-009
+      x-permission: PLAN_GENERATE
+      x-db-tables:
+      - generation_job
+      x-error-codes:
+      - T3Q-502-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TocGenerationRequest'
+      security:
+      - BearerAuth: []
+  /plan-jobs/{jobId}:
+    get:
+      tags:
+      - PLAN
+      summary: 생성 Job 상태 조회
+      operationId: une_plan_010
+      description: '권한: PLAN_READ
+
+
+        핵심 요청: jobId
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: JOB-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-010
+      x-permission: PLAN_READ
+      x-db-tables:
+      - generation_job
+      x-error-codes:
+      - JOB-404-001
+      security:
+      - BearerAuth: []
+  /plan-jobs/{jobId}/events:
+    get:
+      tags:
+      - PLAN
+      summary: 생성 Job SSE
+      operationId: une_plan_011
+      description: '권한: PLAN_READ
+
+
+        핵심 요청: Last-Event-ID
+
+
+        핵심 응답: SSE<JobEvent>
+
+
+        오류: JOB-503-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-011
+      x-permission: PLAN_READ
+      x-db-tables:
+      - generation_job
+      - job_event
+      x-error-codes:
+      - JOB-503-001
+      security:
+      - BearerAuth: []
+  /plan-jobs/{jobId}/cancel:
+    post:
+      tags:
+      - PLAN
+      summary: 생성 Job 중지
+      operationId: une_plan_012
+      description: '권한: PLAN_GENERATE
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: JOB-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-012
+      x-permission: PLAN_GENERATE
+      x-db-tables:
+      - generation_job
+      - job_event
+      x-error-codes:
+      - JOB-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /plan-jobs/{jobId}/retry:
+    post:
+      tags:
+      - PLAN
+      summary: 실패 단위 재시도
+      operationId: une_plan_013
+      description: '권한: PLAN_GENERATE
+
+
+        핵심 요청: blockIds,reason
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: JOB-409-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-013
+      x-permission: PLAN_GENERATE
+      x-db-tables:
+      - generation_job
+      x-error-codes:
+      - JOB-409-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /plans/{planId}/toc-versions:
+    post:
+      tags:
+      - PLAN
+      summary: 목차 편집 버전 저장
+      operationId: une_plan_014
+      description: '권한: PLAN_EDIT
+
+
+        핵심 요청: baseVersionId,tocTree
+
+
+        핵심 응답: TocVersion
+
+
+        오류: TOC-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-014
+      x-permission: PLAN_EDIT
+      x-db-tables:
+      - toc_version
+      - toc_node
+      x-error-codes:
+      - TOC-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /plans/{planId}/toc-versions/{id}:
+    get:
+      tags:
+      - PLAN
+      summary: 목차 버전 조회
+      operationId: une_plan_015
+      description: '권한: PLAN_READ
+
+
+        핵심 요청: id
+
+
+        핵심 응답: TocVersion
+
+
+        오류: TOC-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-015
+      x-permission: PLAN_READ
+      x-db-tables:
+      - toc_version
+      - toc_node
+      x-error-codes:
+      - TOC-404-001
+      security:
+      - BearerAuth: []
+  /plans/{planId}/content-jobs:
+    post:
+      tags:
+      - PLAN
+      summary: T3Q RPT-002 본문 생성 Job
+      operationId: une_plan_016
+      description: '권한: PLAN_GENERATE
+
+
+        핵심 요청: snapshotId,tocVersionId,protectedBlocks
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: T3Q-502-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-PLAN-016
+      x-permission: PLAN_GENERATE
+      x-db-tables:
+      - generation_job
+      - generated_block
+      x-error-codes:
+      - T3Q-502-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentGenerationRequest'
+      security:
+      - BearerAuth: []
+  /files:
+    post:
+      tags:
+      - DOC
+      summary: 파일 사전등록·업로드 URL 발급
+      operationId: une_doc_001
+      description: '권한: FILE_UPLOAD
+
+
+        핵심 요청: fileName,size,mimeType,sha256
+
+
+        핵심 응답: FileObject+uploadUrl
+
+
+        오류: FILE-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-001
+      x-permission: FILE_UPLOAD
+      x-db-tables:
+      - file_object
+      x-error-codes:
+      - FILE-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /files/{fileId}/complete:
+    post:
+      tags:
+      - DOC
+      summary: 업로드 완료·검사
+      operationId: une_doc_002
+      description: '권한: FILE_UPLOAD
+
+
+        핵심 요청: etag
+
+
+        핵심 응답: FileObject
+
+
+        오류: FILE-422-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: fileId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-002
+      x-permission: FILE_UPLOAD
+      x-db-tables:
+      - file_object
+      - malware_scan
+      x-error-codes:
+      - FILE-422-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /documents/import-hwpx:
+    post:
+      tags:
+      - DOC
+      summary: HWPX 업로드·분석
+      operationId: une_doc_003
+      description: '권한: PLAN_CREATE
+
+
+        핵심 요청: fileId,planId
+
+
+        핵심 응답: Document+AnalysisJob
+
+
+        오류: HWPX-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-003
+      x-permission: PLAN_CREATE
+      x-db-tables:
+      - document
+      - document_revision
+      - template_profile
+      x-error-codes:
+      - HWPX-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HwpImportRequest'
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/analysis:
+    get:
+      tags:
+      - DOC
+      summary: HWPX 분석결과 조회
+      operationId: une_doc_004
+      description: '권한: DOC_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: TemplateProfile,Warnings
+
+
+        오류: HWPX-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-004
+      x-permission: DOC_READ
+      x-db-tables:
+      - template_profile
+      - prototype_registry
+      x-error-codes:
+      - HWPX-404-001
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/ir:
+    get:
+      tags:
+      - DOC
+      summary: Document IR 조회
+      operationId: une_doc_005
+      description: '권한: DOC_READ
+
+
+        핵심 요청: revisionId
+
+
+        핵심 응답: DocumentIR
+
+
+        오류: DOC-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-005
+      x-permission: DOC_READ
+      x-db-tables:
+      - document_revision
+      x-error-codes:
+      - DOC-404-001
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/changesets:
+    post:
+      tags:
+      - DOC
+      summary: ChangeSet 원자 적용
+      operationId: une_doc_006
+      description: '권한: DOC_EDIT
+
+
+        핵심 요청: baseRevisionId,selection,operations
+
+
+        핵심 응답: DocumentRevision
+
+
+        오류: DOC-409-001,DOC-422-004'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-006
+      x-permission: DOC_EDIT
+      x-db-tables:
+      - change_set
+      - change_operation
+      - document_revision
+      x-error-codes:
+      - DOC-409-001
+      - DOC-422-004
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeSetRequest'
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/revisions:
+    get:
+      tags:
+      - DOC
+      summary: Revision 목록
+      operationId: une_doc_007
+      description: '권한: DOC_READ
+
+
+        핵심 요청: page
+
+
+        핵심 응답: Page<Revision>
+
+
+        오류: DOC-404-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-007
+      x-permission: DOC_READ
+      x-db-tables:
+      - document_revision
+      x-error-codes:
+      - DOC-404-002
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/revisions/{revisionId}/restore:
+    post:
+      tags:
+      - DOC
+      summary: Revision 복원
+      operationId: une_doc_008
+      description: '권한: DOC_EDIT
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: DocumentRevision
+
+
+        오류: DOC-409-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: revisionId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-008
+      x-permission: DOC_EDIT
+      x-db-tables:
+      - document_revision
+      - change_set
+      x-error-codes:
+      - DOC-409-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/autosaves:
+    post:
+      tags:
+      - DOC
+      summary: 자동저장
+      operationId: une_doc_009
+      description: '권한: DOC_EDIT
+
+
+        핵심 요청: baseRevisionId,delta,clientMutationId
+
+
+        핵심 응답: AutosaveReceipt
+
+
+        오류: DOC-409-003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-009
+      x-permission: DOC_EDIT
+      x-db-tables:
+      - document_autosave
+      x-error-codes:
+      - DOC-409-003
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/ai-edit-jobs:
+    post:
+      tags:
+      - DOC
+      summary: 선택영역 AI 편집 제안
+      operationId: une_doc_010
+      description: '권한: DOC_AI_EDIT
+
+
+        핵심 요청: selection,prompt,ruleSnapshot
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: DOC-422-005'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-010
+      x-permission: DOC_AI_EDIT
+      x-db-tables:
+      - generation_job
+      - ai_edit_proposal
+      x-error-codes:
+      - DOC-422-005
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/ai-edit-jobs/{jobId}/proposal:
+    get:
+      tags:
+      - DOC
+      summary: AI 편집 Diff 조회
+      operationId: une_doc_011
+      description: '권한: DOC_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: AiEditProposal
+
+
+        오류: DOC-404-003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-011
+      x-permission: DOC_READ
+      x-db-tables:
+      - ai_edit_proposal
+      x-error-codes:
+      - DOC-404-003
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/exports:
+    post:
+      tags:
+      - DOC
+      summary: HWPX/PDF/DOCX Export
+      operationId: une_doc_012
+      description: '권한: DOC_EXPORT
+
+
+        핵심 요청: revisionId,format,options
+
+
+        핵심 응답: ExportJob
+
+
+        오류: EXPORT-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-012
+      x-permission: DOC_EXPORT
+      x-db-tables:
+      - export_job
+      x-error-codes:
+      - EXPORT-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportRequest'
+      security:
+      - BearerAuth: []
+  /exports/{exportId}:
+    get:
+      tags:
+      - DOC
+      summary: Export 상태·검증결과
+      operationId: une_doc_013
+      description: '권한: DOC_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: ExportJob
+
+
+        오류: EXPORT-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: exportId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-013
+      x-permission: DOC_READ
+      x-db-tables:
+      - export_job
+      - validation_report
+      x-error-codes:
+      - EXPORT-404-001
+      security:
+      - BearerAuth: []
+  /exports/{exportId}/download:
+    get:
+      tags:
+      - DOC
+      summary: Export 파일 다운로드
+      operationId: une_doc_014
+      description: '권한: DOC_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: binary
+
+
+        오류: EXPORT-410-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: exportId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Binary file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-014
+      x-permission: DOC_READ
+      x-db-tables:
+      - file_object
+      - export_job
+      x-error-codes:
+      - EXPORT-410-001
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/submit-review:
+    post:
+      tags:
+      - DOC
+      summary: 검토 요청
+      operationId: une_doc_015
+      description: '권한: DOC_EDIT
+
+
+        핵심 요청: reviewerIds,message
+
+
+        핵심 응답: ReviewRequest
+
+
+        오류: REVIEW-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-015
+      x-permission: DOC_EDIT
+      x-db-tables:
+      - review_request
+      - notification
+      x-error-codes:
+      - REVIEW-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/review-comments:
+    post:
+      tags:
+      - DOC
+      summary: 검토의견 등록
+      operationId: une_doc_016
+      description: '권한: DOC_REVIEW
+
+
+        핵심 요청: anchor,comment,severity
+
+
+        핵심 응답: ReviewComment
+
+
+        오류: REVIEW-422-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-016
+      x-permission: DOC_REVIEW
+      x-db-tables:
+      - review_comment
+      x-error-codes:
+      - REVIEW-422-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /documents/{documentId}/approve:
+    post:
+      tags:
+      - DOC
+      summary: 문서 승인
+      operationId: une_doc_017
+      description: '권한: DOC_APPROVE
+
+
+        핵심 요청: revisionId,comment
+
+
+        핵심 응답: Document
+
+
+        오류: APPROVAL-412-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-DOC-017
+      x-permission: DOC_APPROVE
+      x-db-tables:
+      - document
+      - approval
+      - audit_log
+      x-error-codes:
+      - APPROVAL-412-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations:
+    post:
+      tags:
+      - SIT
+      summary: 실재난/훈련 등록
+      operationId: une_sit_001
+      description: '권한: SITUATION_CREATE
+
+
+        핵심 요청: mode,title,hazardType,occurredAt,location
+
+
+        핵심 응답: Situation
+
+
+        오류: SIT-5001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-001
+      x-permission: SITUATION_CREATE
+      x-db-tables:
+      - situation
+      x-error-codes:
+      - SIT-5001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SituationCreateRequest'
+      security:
+      - BearerAuth: []
+    get:
+      tags:
+      - SIT
+      summary: 상황·훈련 목록
+      operationId: une_sit_002
+      description: '권한: SITUATION_READ
+
+
+        핵심 요청: mode,status,hazardType,page
+
+
+        핵심 응답: Page<Situation>
+
+
+        오류: SIT-5002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-002
+      x-permission: SITUATION_READ
+      x-db-tables:
+      - situation
+      x-error-codes:
+      - SIT-5002
+      security:
+      - BearerAuth: []
+  /situations/{id}:
+    get:
+      tags:
+      - SIT
+      summary: 상황 상세
+      operationId: une_sit_003
+      description: '권한: SITUATION_READ
+
+
+        핵심 요청: id
+
+
+        핵심 응답: SituationDetail
+
+
+        오류: SIT-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-003
+      x-permission: SITUATION_READ
+      x-db-tables:
+      - situation
+      - situation_snapshot
+      x-error-codes:
+      - SIT-404-001
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - SIT
+      summary: 상황 기본정보 수정
+      operationId: une_sit_004
+      description: '권한: SITUATION_EDIT
+
+
+        핵심 요청: If-Match,patch
+
+
+        핵심 응답: Situation
+
+
+        오류: SIT-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-004
+      x-permission: SITUATION_EDIT
+      x-db-tables:
+      - situation
+      - audit_log
+      x-error-codes:
+      - SIT-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/provider-queries:
+    post:
+      tags:
+      - SIT
+      summary: 공식·보조 Provider 조회
+      operationId: une_sit_005
+      description: '권한: SITUATION_FACT_COLLECT
+
+
+        핵심 요청: providers,query,featureFlags
+
+
+        핵심 응답: ProviderQueryJob
+
+
+        오류: PROV-503-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-005
+      x-permission: SITUATION_FACT_COLLECT
+      x-db-tables:
+      - provider_job
+      x-error-codes:
+      - PROV-503-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderQueryRequest'
+      security:
+      - BearerAuth: []
+  /provider-jobs/{jobId}/events:
+    get:
+      tags:
+      - SIT
+      summary: Provider 수집 SSE
+      operationId: une_sit_006
+      description: '권한: SITUATION_READ
+
+
+        핵심 요청: Last-Event-ID
+
+
+        핵심 응답: SSE<ProviderEvent>
+
+
+        오류: PROV-503-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-006
+      x-permission: SITUATION_READ
+      x-db-tables:
+      - provider_job
+      - provider_result
+      x-error-codes:
+      - PROV-503-002
+      security:
+      - BearerAuth: []
+  /situations/{id}/facts:
+    post:
+      tags:
+      - SIT
+      summary: 수동 Fact 등록
+      operationId: une_sit_007
+      description: '권한: SITUATION_FACT_EDIT
+
+
+        핵심 요청: factType,key,value,source,observedAt
+
+
+        핵심 응답: SituationFact
+
+
+        오류: FACT-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-007
+      x-permission: SITUATION_FACT_EDIT
+      x-db-tables:
+      - situation_fact
+      - fact_source
+      x-error-codes:
+      - FACT-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/facts/{factId}:
+    patch:
+      tags:
+      - SIT
+      summary: 후보 Fact 보정
+      operationId: une_sit_008
+      description: '권한: SITUATION_FACT_EDIT
+
+
+        핵심 요청: If-Match,patch
+
+
+        핵심 응답: SituationFact
+
+
+        오류: FACT-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: factId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-008
+      x-permission: SITUATION_FACT_EDIT
+      x-db-tables:
+      - situation_fact
+      - audit_log
+      x-error-codes:
+      - FACT-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/facts/deduplicate:
+    post:
+      tags:
+      - SIT
+      summary: Fact 중복군 계산
+      operationId: une_sit_009
+      description: '권한: SITUATION_FACT_EDIT
+
+
+        핵심 요청: strategy,threshold
+
+
+        핵심 응답: DuplicateGroup[]
+
+
+        오류: FACT-422-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-009
+      x-permission: SITUATION_FACT_EDIT
+      x-db-tables:
+      - fact_duplicate_group
+      x-error-codes:
+      - FACT-422-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/conflicts:
+    get:
+      tags:
+      - SIT
+      summary: Fact 충돌 목록
+      operationId: une_sit_010
+      description: '권한: SITUATION_READ
+
+
+        핵심 요청: status
+
+
+        핵심 응답: Conflict[]
+
+
+        오류: FACT-404-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-010
+      x-permission: SITUATION_READ
+      x-db-tables:
+      - fact_conflict
+      x-error-codes:
+      - FACT-404-002
+      security:
+      - BearerAuth: []
+  /situations/{id}/conflicts/{conflictId}/resolve:
+    post:
+      tags:
+      - SIT
+      summary: Fact 충돌 확정
+      operationId: une_sit_011
+      description: '권한: SITUATION_CONFIRM
+
+
+        핵심 요청: selectedFactId,reason
+
+
+        핵심 응답: ConflictResolution
+
+
+        오류: SIT-412-003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: conflictId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-011
+      x-permission: SITUATION_CONFIRM
+      x-db-tables:
+      - conflict_resolution
+      x-error-codes:
+      - SIT-412-003
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/snapshots:
+    post:
+      tags:
+      - SIT
+      summary: SituationSnapshot 확정
+      operationId: une_sit_012
+      description: '권한: SITUATION_CONFIRM
+
+
+        핵심 요청: factIds,resolutionIds,effectiveAt,reason
+
+
+        핵심 응답: SituationSnapshot
+
+
+        오류: SIT-412-003,SIT-422-006'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SituationSnapshot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-012
+      x-permission: SITUATION_CONFIRM
+      x-db-tables:
+      - situation_snapshot
+      - audit_log
+      x-error-codes:
+      - SIT-412-003
+      - SIT-422-006
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SituationSnapshotCreateRequest'
+      security:
+      - BearerAuth: []
+    get:
+      tags:
+      - SIT
+      summary: Snapshot 목록·Diff
+      operationId: une_sit_013
+      description: '권한: SITUATION_READ
+
+
+        핵심 요청: compareTo
+
+
+        핵심 응답: Snapshot[]
+
+
+        오류: SIT-404-003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SituationSnapshot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SIT-013
+      x-permission: SITUATION_READ
+      x-db-tables:
+      - situation_snapshot
+      x-error-codes:
+      - SIT-404-003
+      security:
+      - BearerAuth: []
+  /situations/{id}/knowledge-documents:
+    post:
+      tags:
+      - KNOW
+      summary: 훈련·매뉴얼 자료 등록
+      operationId: une_know_001
+      description: '권한: KNOWLEDGE_UPLOAD
+
+
+        핵심 요청: fileId,documentType,metadata
+
+
+        핵심 응답: KnowledgeDocument
+
+
+        오류: KNOW-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-KNOW-001
+      x-permission: KNOWLEDGE_UPLOAD
+      x-db-tables:
+      - knowledge_document
+      x-error-codes:
+      - KNOW-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KnowledgeDocumentCreateRequest'
+      security:
+      - BearerAuth: []
+  /knowledge-documents/{id}:
+    get:
+      tags:
+      - KNOW
+      summary: UNI 처리상태 조회
+      operationId: une_know_002
+      description: '권한: KNOWLEDGE_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: KnowledgeDocument
+
+
+        오류: UNI-503-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-KNOW-002
+      x-permission: KNOWLEDGE_READ
+      x-db-tables:
+      - knowledge_document
+      - provider_job
+      x-error-codes:
+      - UNI-503-001
+      security:
+      - BearerAuth: []
+  /knowledge-documents/{id}/retry:
+    post:
+      tags:
+      - KNOW
+      summary: UNI 학습 재시도
+      operationId: une_know_003
+      description: '권한: KNOWLEDGE_UPLOAD
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: KnowledgeDocument
+
+
+        오류: UNI-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-KNOW-003
+      x-permission: KNOWLEDGE_UPLOAD
+      x-db-tables:
+      - knowledge_document
+      - provider_job
+      x-error-codes:
+      - UNI-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/evidence-searches:
+    post:
+      tags:
+      - KNOW
+      summary: UNI RAG 근거 검색
+      operationId: une_know_004
+      description: '권한: EVIDENCE_SEARCH
+
+
+        핵심 요청: snapshotId,query,filters,topK
+
+
+        핵심 응답: EvidenceSet
+
+
+        오류: UNI-422-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-KNOW-004
+      x-permission: EVIDENCE_SEARCH
+      x-db-tables:
+      - evidence_set
+      - evidence_item
+      x-error-codes:
+      - UNI-422-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvidenceSearchRequest'
+      security:
+      - BearerAuth: []
+  /evidence-sets/{id}:
+    get:
+      tags:
+      - KNOW
+      summary: EvidenceSet 조회
+      operationId: une_know_005
+      description: '권한: EVIDENCE_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: EvidenceSet
+
+
+        오류: EVID-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-KNOW-005
+      x-permission: EVIDENCE_READ
+      x-db-tables:
+      - evidence_set
+      - evidence_item
+      x-error-codes:
+      - EVID-404-001
+      security:
+      - BearerAuth: []
+  /evidence-sets/{id}/lock:
+    post:
+      tags:
+      - KNOW
+      summary: EvidenceSet 고정
+      operationId: une_know_006
+      description: '권한: EVIDENCE_LOCK
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: EvidenceSet
+
+
+        오류: EVID-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-KNOW-006
+      x-permission: EVIDENCE_LOCK
+      x-db-tables:
+      - evidence_set
+      - audit_log
+      x-error-codes:
+      - EVID-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /evidence-items/{id}/source:
+    get:
+      tags:
+      - KNOW
+      summary: 근거 원문 위치 조회
+      operationId: une_know_007
+      description: '권한: EVIDENCE_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: SourceLocator
+
+
+        오류: EVID-404-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-KNOW-007
+      x-permission: EVIDENCE_READ
+      x-db-tables:
+      - evidence_item
+      - knowledge_document
+      x-error-codes:
+      - EVID-404-002
+      security:
+      - BearerAuth: []
+  /situations/{id}/sop-generation-jobs:
+    post:
+      tags:
+      - SOP
+      summary: UNI 구조화 SOP 생성
+      operationId: une_sop_001
+      description: '권한: SOP_GENERATE
+
+
+        핵심 요청: snapshotId,evidenceSetId,schemaVersion
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: UNI-422-003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-001
+      x-permission: SOP_GENERATE
+      x-db-tables:
+      - generation_job
+      x-error-codes:
+      - UNI-422-003
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SopGenerationRequest'
+      security:
+      - BearerAuth: []
+  /sop-generation-jobs/{jobId}/events:
+    get:
+      tags:
+      - SOP
+      summary: SOP 생성 SSE
+      operationId: une_sop_002
+      description: '권한: SOP_READ
+
+
+        핵심 요청: Last-Event-ID
+
+
+        핵심 응답: SSE<SopGenerationEvent>
+
+
+        오류: UNI-503-003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-002
+      x-permission: SOP_READ
+      x-db-tables:
+      - generation_job
+      - job_event
+      x-error-codes:
+      - UNI-503-003
+      security:
+      - BearerAuth: []
+  /sops:
+    post:
+      tags:
+      - SOP
+      summary: SOP 정의 생성
+      operationId: une_sop_003
+      description: '권한: SOP_EDIT
+
+
+        핵심 요청: situationId,title,hazardType
+
+
+        핵심 응답: Sop
+
+
+        오류: SOP-6001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-003
+      x-permission: SOP_EDIT
+      x-db-tables:
+      - sop
+      x-error-codes:
+      - SOP-6001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SopCreateRequest'
+      security:
+      - BearerAuth: []
+    get:
+      tags:
+      - SOP
+      summary: SOP 목록
+      operationId: une_sop_004
+      description: '권한: SOP_READ
+
+
+        핵심 요청: status,hazardType,page
+
+
+        핵심 응답: Page<Sop>
+
+
+        오류: SOP-6002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-004
+      x-permission: SOP_READ
+      x-db-tables:
+      - sop
+      x-error-codes:
+      - SOP-6002
+      security:
+      - BearerAuth: []
+  /sops/{sopId}:
+    get:
+      tags:
+      - SOP
+      summary: SOP 그래프 조회
+      operationId: une_sop_005
+      description: '권한: SOP_READ
+
+
+        핵심 요청: versionId
+
+
+        핵심 응답: SopGraph
+
+
+        오류: SOP-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: sopId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-005
+      x-permission: SOP_READ
+      x-db-tables:
+      - sop
+      - sop_version
+      - sop_node
+      - sop_edge
+      x-error-codes:
+      - SOP-404-001
+      security:
+      - BearerAuth: []
+  /sops/{sopId}/versions:
+    post:
+      tags:
+      - SOP
+      summary: SOP Draft 버전 저장
+      operationId: une_sop_006
+      description: '권한: SOP_EDIT
+
+
+        핵심 요청: baseVersionId,nodes,edges
+
+
+        핵심 응답: SopVersion
+
+
+        오류: SOP-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: sopId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-006
+      x-permission: SOP_EDIT
+      x-db-tables:
+      - sop_version
+      - sop_node
+      - sop_edge
+      x-error-codes:
+      - SOP-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SopGraph'
+      security:
+      - BearerAuth: []
+  /sops/{sopId}/validate:
+    post:
+      tags:
+      - SOP
+      summary: DAG·임무·분기 검증
+      operationId: une_sop_007
+      description: '권한: SOP_EDIT
+
+
+        핵심 요청: versionId
+
+
+        핵심 응답: SopValidationReport
+
+
+        오류: SOP-422-007'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: sopId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-007
+      x-permission: SOP_EDIT
+      x-db-tables:
+      - sop_validation
+      x-error-codes:
+      - SOP-422-007
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /sops/{sopId}/submit-review:
+    post:
+      tags:
+      - SOP
+      summary: SOP 검토 요청
+      operationId: une_sop_008
+      description: '권한: SOP_EDIT
+
+
+        핵심 요청: versionId,reviewers
+
+
+        핵심 응답: ReviewRequest
+
+
+        오류: SOP-412-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: sopId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-008
+      x-permission: SOP_EDIT
+      x-db-tables:
+      - review_request
+      x-error-codes:
+      - SOP-412-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /sops/{sopId}/approve:
+    post:
+      tags:
+      - SOP
+      summary: SOP 승인·버전 고정
+      operationId: une_sop_009
+      description: '권한: SOP_APPROVE
+
+
+        핵심 요청: versionId,comment
+
+
+        핵심 응답: SopVersion
+
+
+        오류: SOP-412-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: sopId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-009
+      x-permission: SOP_APPROVE
+      x-db-tables:
+      - sop_version
+      - approval
+      - audit_log
+      x-error-codes:
+      - SOP-412-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /sops/{sopId}/simulations:
+    post:
+      tags:
+      - SOP
+      summary: Dry-run 시작
+      operationId: une_sop_010
+      description: '권한: SOP_RUN
+
+
+        핵심 요청: versionId,snapshotId,scenario
+
+
+        핵심 응답: SopRun
+
+
+        오류: SOP-422-008'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: sopId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-010
+      x-permission: SOP_RUN
+      x-db-tables:
+      - sop_run
+      - task
+      x-error-codes:
+      - SOP-422-008
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /sops/{sopId}/runs:
+    post:
+      tags:
+      - SOP
+      summary: 실행 시작
+      operationId: une_sop_011
+      description: '권한: SOP_RUN
+
+
+        핵심 요청: approvedVersionId,snapshotId,mode,startPolicy
+
+
+        핵심 응답: SopRun
+
+
+        오류: SOP-409-005'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: sopId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-011
+      x-permission: SOP_RUN
+      x-db-tables:
+      - sop_run
+      - task
+      - execution_event
+      - outbox_message
+      x-error-codes:
+      - SOP-409-005
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SopRunCreateRequest'
+      security:
+      - BearerAuth: []
+  /sop-runs/{runId}:
+    get:
+      tags:
+      - SOP
+      summary: 실행 상세
+      operationId: une_sop_012
+      description: '권한: SOP_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: SopRunDetail
+
+
+        오류: SOP-404-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-012
+      x-permission: SOP_READ
+      x-db-tables:
+      - sop_run
+      - task
+      x-error-codes:
+      - SOP-404-002
+      security:
+      - BearerAuth: []
+  /sop-runs/{runId}/events:
+    get:
+      tags:
+      - SOP
+      summary: 실행 SSE
+      operationId: une_sop_013
+      description: '권한: SOP_READ
+
+
+        핵심 요청: Last-Event-ID
+
+
+        핵심 응답: SSE<ExecutionEvent>
+
+
+        오류: SOP-503-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-013
+      x-permission: SOP_READ
+      x-db-tables:
+      - execution_event
+      x-error-codes:
+      - SOP-503-001
+      security:
+      - BearerAuth: []
+  /sop-runs/{runId}/pause:
+    post:
+      tags:
+      - SOP
+      summary: 실행 일시중지
+      operationId: une_sop_014
+      description: '권한: SOP_RUN_CONTROL
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: SopRun
+
+
+        오류: SOP-409-006'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-014
+      x-permission: SOP_RUN_CONTROL
+      x-db-tables:
+      - sop_run
+      - execution_event
+      x-error-codes:
+      - SOP-409-006
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /sop-runs/{runId}/resume:
+    post:
+      tags:
+      - SOP
+      summary: 실행 재개
+      operationId: une_sop_015
+      description: '권한: SOP_RUN_CONTROL
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: SopRun
+
+
+        오류: SOP-409-007'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-015
+      x-permission: SOP_RUN_CONTROL
+      x-db-tables:
+      - sop_run
+      - execution_event
+      x-error-codes:
+      - SOP-409-007
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /sop-runs/{runId}/terminate:
+    post:
+      tags:
+      - SOP
+      summary: 실행 강제종료
+      operationId: une_sop_016
+      description: '권한: SOP_RUN_CONTROL
+
+
+        핵심 요청: reason,confirmCode
+
+
+        핵심 응답: SopRun
+
+
+        오류: SOP-409-008'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-SOP-016
+      x-permission: SOP_RUN_CONTROL
+      x-db-tables:
+      - sop_run
+      - task
+      - execution_event
+      - outbox_message
+      x-error-codes:
+      - SOP-409-008
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /tasks:
+    get:
+      tags:
+      - TASK
+      summary: 임무 목록
+      operationId: une_task_001
+      description: '권한: TASK_READ
+
+
+        핵심 요청: assignee,status,situationId,due,page
+
+
+        핵심 응답: Page<Task>
+
+
+        오류: TASK-7001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-001
+      x-permission: TASK_READ
+      x-db-tables:
+      - task
+      - task_assignment
+      x-error-codes:
+      - TASK-7001
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}:
+    get:
+      tags:
+      - TASK
+      summary: 임무 상세
+      operationId: une_task_002
+      description: '권한: TASK_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: TaskDetail
+
+
+        오류: TASK-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-002
+      x-permission: TASK_READ
+      x-db-tables:
+      - task
+      - task_event
+      - task_attachment
+      x-error-codes:
+      - TASK-404-001
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/dispatch:
+    post:
+      tags:
+      - TASK
+      summary: 임무·상황 전파
+      operationId: une_task_003
+      description: '권한: TASK_DISPATCH
+
+
+        핵심 요청: channels,recipients,messageTemplate
+
+
+        핵심 응답: Dispatch
+
+
+        오류: OUTBOX-503-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-003
+      x-permission: TASK_DISPATCH
+      x-db-tables:
+      - dispatch
+      - dispatch_recipient
+      - outbox_message
+      x-error-codes:
+      - OUTBOX-503-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/acknowledge:
+    post:
+      tags:
+      - TASK
+      summary: 수신확인
+      operationId: une_task_004
+      description: '권한: TASK_ASSIGNEE
+
+
+        핵심 요청: receivedAt,deviceInfo
+
+
+        핵심 응답: TaskEvent
+
+
+        오류: TASK-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-004
+      x-permission: TASK_ASSIGNEE
+      x-db-tables:
+      - task
+      - task_event
+      - execution_event
+      x-error-codes:
+      - TASK-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/start:
+    post:
+      tags:
+      - TASK
+      summary: 임무 착수
+      operationId: une_task_005
+      description: '권한: TASK_ASSIGNEE
+
+
+        핵심 요청: startedAt,note
+
+
+        핵심 응답: TaskEvent
+
+
+        오류: TASK-409-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-005
+      x-permission: TASK_ASSIGNEE
+      x-db-tables:
+      - task
+      - task_event
+      - execution_event
+      x-error-codes:
+      - TASK-409-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/progress:
+    post:
+      tags:
+      - TASK
+      summary: 진행보고
+      operationId: une_task_006
+      description: '권한: TASK_ASSIGNEE
+
+
+        핵심 요청: progress,note,attachmentIds
+
+
+        핵심 응답: TaskEvent
+
+
+        오류: TASK-422-006'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-006
+      x-permission: TASK_ASSIGNEE
+      x-db-tables:
+      - task_event
+      - execution_event
+      x-error-codes:
+      - TASK-422-006
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/complete:
+    post:
+      tags:
+      - TASK
+      summary: 완료보고
+      operationId: une_task_007
+      description: '권한: TASK_ASSIGNEE
+
+
+        핵심 요청: completedAt,result,evidenceIds,checklist
+
+
+        핵심 응답: TaskEvent
+
+
+        오류: TASK-422-008'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-007
+      x-permission: TASK_ASSIGNEE
+      x-db-tables:
+      - task
+      - task_event
+      - execution_event
+      x-error-codes:
+      - TASK-422-008
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/approve-completion:
+    post:
+      tags:
+      - TASK
+      summary: 완료 승인
+      operationId: une_task_008
+      description: '권한: TASK_SUPERVISE
+
+
+        핵심 요청: comment
+
+
+        핵심 응답: TaskEvent
+
+
+        오류: TASK-409-004'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-008
+      x-permission: TASK_SUPERVISE
+      x-db-tables:
+      - task
+      - task_event
+      - execution_event
+      x-error-codes:
+      - TASK-409-004
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/reject-completion:
+    post:
+      tags:
+      - TASK
+      summary: 완료 반려
+      operationId: une_task_009
+      description: '권한: TASK_SUPERVISE
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: TaskEvent
+
+
+        오류: TASK-409-005'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-009
+      x-permission: TASK_SUPERVISE
+      x-db-tables:
+      - task
+      - task_event
+      - execution_event
+      - outbox_message
+      x-error-codes:
+      - TASK-409-005
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/reassign:
+    post:
+      tags:
+      - TASK
+      summary: 임무 재배정
+      operationId: une_task_010
+      description: '권한: TASK_SUPERVISE
+
+
+        핵심 요청: assigneeId,reason
+
+
+        핵심 응답: TaskEvent
+
+
+        오류: TASK-409-006'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-010
+      x-permission: TASK_SUPERVISE
+      x-db-tables:
+      - task
+      - task_assignment
+      - execution_event
+      - outbox_message
+      x-error-codes:
+      - TASK-409-006
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/escalate:
+    post:
+      tags:
+      - TASK
+      summary: Escalation
+      operationId: une_task_011
+      description: '권한: TASK_SUPERVISE
+
+
+        핵심 요청: level,reason,targetIds
+
+
+        핵심 응답: TaskEvent
+
+
+        오류: TASK-409-007'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-011
+      x-permission: TASK_SUPERVISE
+      x-db-tables:
+      - task_event
+      - execution_event
+      - outbox_message
+      x-error-codes:
+      - TASK-409-007
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /tasks/{taskId}/attachments:
+    post:
+      tags:
+      - TASK
+      summary: 현장 파일 등록
+      operationId: une_task_012
+      description: '권한: TASK_ASSIGNEE
+
+
+        핵심 요청: fileId,category,caption,geo
+
+
+        핵심 응답: TaskAttachment
+
+
+        오류: FILE-422-003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-012
+      x-permission: TASK_ASSIGNEE
+      x-db-tables:
+      - task_attachment
+      - file_object
+      x-error-codes:
+      - FILE-422-003
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      security:
+      - BearerAuth: []
+  /dispatches/{id}:
+    get:
+      tags:
+      - TASK
+      summary: 전파·수신 상태 조회
+      operationId: une_task_013
+      description: '권한: TASK_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: DispatchStatus
+
+
+        오류: DISP-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-013
+      x-permission: TASK_READ
+      x-db-tables:
+      - dispatch
+      - dispatch_recipient
+      - channel_delivery
+      x-error-codes:
+      - DISP-404-001
+      security:
+      - BearerAuth: []
+  /dispatches/{id}/retry:
+    post:
+      tags:
+      - TASK
+      summary: 실패 수신자 재전파
+      operationId: une_task_014
+      description: '권한: TASK_DISPATCH
+
+
+        핵심 요청: recipientIds,channelOverride
+
+
+        핵심 응답: Dispatch
+
+
+        오류: DISP-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-TASK-014
+      x-permission: TASK_DISPATCH
+      x-db-tables:
+      - outbox_message
+      - outbox_attempt
+      x-error-codes:
+      - DISP-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/dashboard:
+    get:
+      tags:
+      - JNL
+      summary: 전자상황판 집계
+      operationId: une_jnl_001
+      description: '권한: DASHBOARD_READ
+
+
+        핵심 요청: at,runId
+
+
+        핵심 응답: DashboardView
+
+
+        오류: DASH-8001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-001
+      x-permission: DASHBOARD_READ
+      x-db-tables:
+      - situation_snapshot
+      - task
+      - execution_event
+      x-error-codes:
+      - DASH-8001
+      security:
+      - BearerAuth: []
+  /situations/{id}/execution-events:
+    get:
+      tags:
+      - JNL
+      summary: Execution Log 조회
+      operationId: une_jnl_002
+      description: '권한: EXECUTION_READ
+
+
+        핵심 요청: from,to,type,actor,page
+
+
+        핵심 응답: Page<ExecutionEvent>
+
+
+        오류: EXEC-8002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-002
+      x-permission: EXECUTION_READ
+      x-db-tables:
+      - execution_event
+      x-error-codes:
+      - EXEC-8002
+      security:
+      - BearerAuth: []
+  /execution-events/{eventId}:
+    get:
+      tags:
+      - JNL
+      summary: 원본 Event 상세
+      operationId: une_jnl_003
+      description: '권한: EXECUTION_READ
+
+
+        핵심 요청: -
+
+
+        핵심 응답: ExecutionEventDetail
+
+
+        오류: EXEC-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-003
+      x-permission: EXECUTION_READ
+      x-db-tables:
+      - execution_event
+      - task_event
+      - dispatch
+      x-error-codes:
+      - EXEC-404-001
+      security:
+      - BearerAuth: []
+  /execution-events/{eventId}/corrections:
+    post:
+      tags:
+      - JNL
+      summary: 정정 Event 추가
+      operationId: une_jnl_004
+      description: '권한: EXECUTION_CORRECT
+
+
+        핵심 요청: reason,replacementFields
+
+
+        핵심 응답: ExecutionEvent
+
+
+        오류: EXEC-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-004
+      x-permission: EXECUTION_CORRECT
+      x-db-tables:
+      - execution_event
+      - audit_log
+      x-error-codes:
+      - EXEC-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/journal-projections:
+    post:
+      tags:
+      - JNL
+      summary: 상황일지 Projection 생성
+      operationId: une_jnl_005
+      description: '권한: JOURNAL_CREATE
+
+
+        핵심 요청: snapshotId,from,to,templateId,eventTypes
+
+
+        핵심 응답: Journal
+
+
+        오류: JOURNAL-412-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-005
+      x-permission: JOURNAL_CREATE
+      x-db-tables:
+      - journal
+      - journal_revision
+      - journal_section
+      x-error-codes:
+      - JOURNAL-412-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JournalProjectionRequest'
+      security:
+      - BearerAuth: []
+  /journals/{journalId}:
+    get:
+      tags:
+      - JNL
+      summary: 상황일지 상세
+      operationId: une_jnl_006
+      description: '권한: JOURNAL_READ
+
+
+        핵심 요청: revisionId
+
+
+        핵심 응답: JournalDetail
+
+
+        오류: JOURNAL-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: journalId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Journal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-006
+      x-permission: JOURNAL_READ
+      x-db-tables:
+      - journal
+      - journal_revision
+      x-error-codes:
+      - JOURNAL-404-001
+      security:
+      - BearerAuth: []
+  /journals/{journalId}/ai-draft-jobs:
+    post:
+      tags:
+      - JNL
+      summary: 상황일지 서술 제안
+      operationId: une_jnl_007
+      description: '권한: JOURNAL_AI_EDIT
+
+
+        핵심 요청: sections,styleRules
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: JOURNAL-422-004'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: journalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-007
+      x-permission: JOURNAL_AI_EDIT
+      x-db-tables:
+      - generation_job
+      - ai_edit_proposal
+      x-error-codes:
+      - JOURNAL-422-004
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /journals/{journalId}/changesets:
+    post:
+      tags:
+      - JNL
+      summary: 상황일지 편집
+      operationId: une_jnl_008
+      description: '권한: JOURNAL_EDIT
+
+
+        핵심 요청: baseRevisionId,operations
+
+
+        핵심 응답: JournalRevision
+
+
+        오류: JOURNAL-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: journalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Journal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-008
+      x-permission: JOURNAL_EDIT
+      x-db-tables:
+      - journal_revision
+      - change_set
+      x-error-codes:
+      - JOURNAL-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeSetRequest'
+      security:
+      - BearerAuth: []
+  /journals/{journalId}/submit-review:
+    post:
+      tags:
+      - JNL
+      summary: 상황일지 검토요청
+      operationId: une_jnl_009
+      description: '권한: JOURNAL_EDIT
+
+
+        핵심 요청: reviewers,message
+
+
+        핵심 응답: ReviewRequest
+
+
+        오류: JOURNAL-412-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: journalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Journal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-009
+      x-permission: JOURNAL_EDIT
+      x-db-tables:
+      - review_request
+      x-error-codes:
+      - JOURNAL-412-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /journals/{journalId}/approve:
+    post:
+      tags:
+      - JNL
+      summary: 상황일지 승인
+      operationId: une_jnl_010
+      description: '권한: JOURNAL_APPROVE
+
+
+        핵심 요청: revisionId,comment
+
+
+        핵심 응답: Journal
+
+
+        오류: JOURNAL-412-003'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: journalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Journal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-010
+      x-permission: JOURNAL_APPROVE
+      x-db-tables:
+      - journal
+      - approval
+      x-error-codes:
+      - JOURNAL-412-003
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /journals/{journalId}/exports:
+    post:
+      tags:
+      - JNL
+      summary: 상황일지 HWPX/PDF/DOCX
+      operationId: une_jnl_011
+      description: '권한: JOURNAL_EXPORT
+
+
+        핵심 요청: format,revisionId
+
+
+        핵심 응답: ExportJob
+
+
+        오류: EXPORT-422-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: journalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Journal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-011
+      x-permission: JOURNAL_EXPORT
+      x-db-tables:
+      - export_job
+      x-error-codes:
+      - EXPORT-422-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/close:
+    post:
+      tags:
+      - JNL
+      summary: 상황·훈련 종료
+      operationId: une_jnl_012
+      description: '권한: SITUATION_CLOSE
+
+
+        핵심 요청: resultSummary,openTaskPolicy
+
+
+        핵심 응답: Situation
+
+
+        오류: SIT-412-010'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-012
+      x-permission: SITUATION_CLOSE
+      x-db-tables:
+      - situation
+      - sop_run
+      - execution_event
+      x-error-codes:
+      - SIT-412-010
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /situations/{id}/evaluations:
+    post:
+      tags:
+      - JNL
+      summary: 훈련 평가 생성
+      operationId: une_jnl_013
+      description: '권한: EVALUATION_EDIT
+
+
+        핵심 요청: criteria,scores,comments,evidenceEventIds
+
+
+        핵심 응답: Evaluation
+
+
+        오류: EVAL-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Situation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-013
+      x-permission: EVALUATION_EDIT
+      x-db-tables:
+      - evaluation
+      - evaluation_score
+      x-error-codes:
+      - EVAL-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvaluationRequest'
+      security:
+      - BearerAuth: []
+  /evaluations/{id}/improvements:
+    post:
+      tags:
+      - JNL
+      summary: 개선조치 등록
+      operationId: une_jnl_014
+      description: '권한: EVALUATION_EDIT
+
+
+        핵심 요청: actions,owners,dueDates
+
+
+        핵심 응답: ImprovementPlan
+
+
+        오류: EVAL-422-002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-014
+      x-permission: EVALUATION_EDIT
+      x-db-tables:
+      - improvement_action
+      x-error-codes:
+      - EVAL-422-002
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /evaluations/{id}/report:
+    get:
+      tags:
+      - JNL
+      summary: 만족도·잠재가치·평가보고서
+      operationId: une_jnl_015
+      description: '권한: EVALUATION_READ
+
+
+        핵심 요청: format
+
+
+        핵심 응답: EvaluationReport
+
+
+        오류: EVAL-404-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-JNL-015
+      x-permission: EVALUATION_READ
+      x-db-tables:
+      - evaluation
+      - survey_response
+      - improvement_action
+      x-error-codes:
+      - EVAL-404-001
+      security:
+      - BearerAuth: []
+  /admin/access/summary:
+    get:
+      tags:
+      - ADMIN
+      summary: 기관·사용자·RBAC 요약
+      operationId: une_admin_001
+      description: '권한: ADMIN_ACCESS
+
+
+        핵심 요청: -
+
+
+        핵심 응답: AccessSummary
+
+
+        오류: ADMIN-9001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-001
+      x-permission: ADMIN_ACCESS
+      x-db-tables:
+      - tenant
+      - app_user
+      - role
+      x-error-codes:
+      - ADMIN-9001
+      security:
+      - BearerAuth: []
+  /admin/users/{id}/roles:
+    put:
+      tags:
+      - ADMIN
+      summary: 사용자 역할 Binding
+      operationId: une_admin_002
+      description: '권한: ADMIN_ACCESS
+
+
+        핵심 요청: roleIds,scope
+
+
+        핵심 응답: UserRole[]
+
+
+        오류: ADMIN-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-002
+      x-permission: ADMIN_ACCESS
+      x-db-tables:
+      - user_role
+      - audit_log
+      x-error-codes:
+      - ADMIN-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /admin/organization-bindings:
+    get:
+      tags:
+      - ADMIN
+      summary: 조직·수신자 Binding 조회
+      operationId: une_admin_003
+      description: '권한: ADMIN_ORG
+
+
+        핵심 요청: -
+
+
+        핵심 응답: Binding[]
+
+
+        오류: ADMIN-9002'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-003
+      x-permission: ADMIN_ORG
+      x-db-tables:
+      - organization
+      - recipient_binding
+      x-error-codes:
+      - ADMIN-9002
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - ADMIN
+      summary: 조직·채널 Binding 생성
+      operationId: une_admin_004
+      description: '권한: ADMIN_ORG
+
+
+        핵심 요청: orgId,recipientId,channels
+
+
+        핵심 응답: Binding
+
+
+        오류: ADMIN-422-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-004
+      x-permission: ADMIN_ORG
+      x-db-tables:
+      - recipient_binding
+      x-error-codes:
+      - ADMIN-422-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /admin/audit-logs:
+    get:
+      tags:
+      - ADMIN
+      summary: 감사로그 검색
+      operationId: une_admin_005
+      description: '권한: AUDIT_READ
+
+
+        핵심 요청: actor,action,resource,from,to,page
+
+
+        핵심 응답: Page<AuditLog>
+
+
+        오류: AUDIT-9001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-005
+      x-permission: AUDIT_READ
+      x-db-tables:
+      - audit_log
+      x-error-codes:
+      - AUDIT-9001
+      security:
+      - BearerAuth: []
+  /admin/outbox:
+    get:
+      tags:
+      - ADMIN
+      summary: Outbox 운영조회
+      operationId: une_admin_006
+      description: '권한: ADMIN_OUTBOX
+
+
+        핵심 요청: status,channel,page
+
+
+        핵심 응답: Page<OutboxMessage>
+
+
+        오류: OUTBOX-9001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-006
+      x-permission: ADMIN_OUTBOX
+      x-db-tables:
+      - outbox_message
+      - outbox_attempt
+      x-error-codes:
+      - OUTBOX-9001
+      security:
+      - BearerAuth: []
+  /admin/outbox/{id}/retry:
+    post:
+      tags:
+      - ADMIN
+      summary: Outbox 수동 재처리
+      operationId: une_admin_007
+      description: '권한: ADMIN_OUTBOX
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: OutboxMessage
+
+
+        오류: OUTBOX-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-007
+      x-permission: ADMIN_OUTBOX
+      x-db-tables:
+      - outbox_message
+      - outbox_attempt
+      x-error-codes:
+      - OUTBOX-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /admin/provider-configs:
+    get:
+      tags:
+      - ADMIN
+      summary: Provider·T3Q·UNI 설정조회
+      operationId: une_admin_008
+      description: '권한: ADMIN_INTEGRATION
+
+
+        핵심 요청: -
+
+
+        핵심 응답: ProviderConfig[]
+
+
+        오류: PROV-9001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-008
+      x-permission: ADMIN_INTEGRATION
+      x-db-tables:
+      - provider_config
+      x-error-codes:
+      - PROV-9001
+      security:
+      - BearerAuth: []
+  /admin/provider-configs/{id}:
+    patch:
+      tags:
+      - ADMIN
+      summary: Provider 설정변경
+      operationId: une_admin_009
+      description: '권한: ADMIN_INTEGRATION
+
+
+        핵심 요청: If-Match,patch
+
+
+        핵심 응답: ProviderConfig
+
+
+        오류: PROV-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-009
+      x-permission: ADMIN_INTEGRATION
+      x-db-tables:
+      - provider_config
+      - audit_log
+      x-error-codes:
+      - PROV-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /admin/provider-configs/{id}/test:
+    post:
+      tags:
+      - ADMIN
+      summary: Provider 연결시험
+      operationId: une_admin_010
+      description: '권한: ADMIN_INTEGRATION
+
+
+        핵심 요청: testMode
+
+
+        핵심 응답: ProviderHealth
+
+
+        오류: PROV-503-010'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-010
+      x-permission: ADMIN_INTEGRATION
+      x-db-tables:
+      - provider_health
+      x-error-codes:
+      - PROV-503-010
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+  /admin/retention-policies:
+    get:
+      tags:
+      - ADMIN
+      summary: 보존정책 조회
+      operationId: une_admin_011
+      description: '권한: ADMIN_SECURITY
+
+
+        핵심 요청: -
+
+
+        핵심 응답: RetentionPolicy[]
+
+
+        오류: RET-9001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-011
+      x-permission: ADMIN_SECURITY
+      x-db-tables:
+      - retention_policy
+      x-error-codes:
+      - RET-9001
+      security:
+      - BearerAuth: []
+  /admin/retention-policies/{id}:
+    patch:
+      tags:
+      - ADMIN
+      summary: 보존정책 변경
+      operationId: une_admin_012
+      description: '권한: ADMIN_SECURITY
+
+
+        핵심 요청: If-Match,patch
+
+
+        핵심 응답: RetentionPolicy
+
+
+        오류: RET-409-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-une-api-id: UNE-ADMIN-012
+      x-permission: ADMIN_SECURITY
+      x-db-tables:
+      - retention_policy
+      - audit_log
+      x-error-codes:
+      - RET-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericRequest'
+      security:
+      - BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 100
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 100
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      schema:
+        type: string
+  schemas:
+    Meta:
+      type: object
+      required:
+      - requestId
+      - correlationId
+      - timestamp
+      - schemaVersion
+      properties:
+        requestId:
+          type: string
+        correlationId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        schemaVersion:
+          type: string
+    Error:
+      type: object
+      required:
+      - code
+      - message
+      - recoverable
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        detail:
+          type: string
+          nullable: true
+        recoverable:
+          type: boolean
+        userAction:
+          type: string
+          nullable: true
+    ErrorEnvelope:
+      type: object
+      required:
+      - success
+      - error
+      - meta
+      properties:
+        success:
+          type: boolean
+          enum:
+          - false
+        error:
+          $ref: '#/components/schemas/Error'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    GenericRequest:
+      type: object
+      additionalProperties: true
+    GenericResponse:
+      type: object
+      additionalProperties: true
+    PageResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: {}
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+    SsoExchangeRequest:
+      type: object
+      required:
+      - externalToken
+      properties:
+        externalToken:
+          type: string
+        returnUrl:
+          type: string
+          format: uri
+    TokenResponse:
+      type: object
+      required:
+      - accessToken
+      - refreshToken
+      - expiresIn
+      - userContext
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+        userContext:
+          type: object
+    PlanCreateRequest:
+      type: object
+      required:
+      - title
+      - startMode
+      properties:
+        title:
+          type: string
+          maxLength: 300
+        startMode:
+          type: string
+          enum:
+          - BLANK
+          - UPLOAD_HWPX
+          - RECENT
+        templateFileId:
+          type: string
+          format: uuid
+          nullable: true
+    PlanContext:
+      type: object
+      description: See 03_json-schema/plan-context.schema.json
+      additionalProperties: true
+    TocGenerationRequest:
+      type: object
+      required:
+      - contextSnapshotId
+      properties:
+        contextSnapshotId:
+          type: string
+          format: uuid
+        generationOption:
+          type: object
+    ContentGenerationRequest:
+      type: object
+      required:
+      - contextSnapshotId
+      - tocVersionId
+      properties:
+        contextSnapshotId:
+          type: string
+          format: uuid
+        tocVersionId:
+          type: string
+          format: uuid
+        protectedBlockIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    HwpImportRequest:
+      type: object
+      required:
+      - fileId
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+          format: uuid
+          nullable: true
+    ChangeSetRequest:
+      type: object
+      required:
+      - baseRevisionId
+      - operations
+      - clientMutationId
+      properties:
+        baseRevisionId:
+          type: string
+          format: uuid
+        operations:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: true
+        clientMutationId:
+          type: string
+    ExportRequest:
+      type: object
+      required:
+      - format
+      properties:
+        format:
+          type: string
+          enum:
+          - HWPX
+          - PDF
+          - DOCX
+          - JSON
+        revisionId:
+          type: string
+          format: uuid
+          nullable: true
+    SituationCreateRequest:
+      type: object
+      required:
+      - mode
+      - title
+      - hazardType
+      properties:
+        mode:
+          type: string
+          enum:
+          - LIVE
+          - EXERCISE
+        title:
+          type: string
+          maxLength: 300
+        hazardType:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+          nullable: true
+        location:
+          type: string
+          nullable: true
+    ProviderQueryRequest:
+      type: object
+      required:
+      - providers
+      - query
+      properties:
+        providers:
+          type: array
+          items:
+            type: string
+            enum:
+            - KMA
+            - MOIS
+            - SAFEKOREA
+            - NAVER
+            - T3Q
+        query:
+          type: object
+        from:
+          type: string
+          format: date-time
+          nullable: true
+        to:
+          type: string
+          format: date-time
+          nullable: true
+    SituationSnapshotCreateRequest:
+      type: object
+      required:
+      - factIds
+      - effectiveAt
+      properties:
+        factIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+        conflictResolutionIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        effectiveAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          nullable: true
+    KnowledgeDocumentCreateRequest:
+      type: object
+      required:
+      - fileId
+      - documentType
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        documentType:
+          type: string
+        metadata:
+          type: object
+    EvidenceSearchRequest:
+      type: object
+      required:
+      - query
+      - topK
+      properties:
+        query:
+          type: string
+        filters:
+          type: object
+        topK:
+          type: integer
+          minimum: 1
+          maximum: 50
+    SopGenerationRequest:
+      type: object
+      required:
+      - snapshotId
+      - evidenceSetId
+      - schemaVersion
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        evidenceSetId:
+          type: string
+          format: uuid
+        schemaVersion:
+          type: string
+          enum:
+          - '1.0'
+    SopCreateRequest:
+      type: object
+      required:
+      - title
+      - hazardType
+      properties:
+        situationId:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        hazardType:
+          type: string
+    SopGraph:
+      type: object
+      description: See 03_json-schema/sop-graph.schema.json
+      additionalProperties: true
+    SopRunCreateRequest:
+      type: object
+      required:
+      - approvedVersionId
+      - snapshotId
+      - mode
+      properties:
+        approvedVersionId:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          enum:
+          - LIVE
+          - EXERCISE
+          - DRY_RUN
+        startPolicy:
+          type: string
+          enum:
+          - AUTO
+          - MANUAL
+    TaskActionRequest:
+      type: object
+      additionalProperties: true
+    JournalProjectionRequest:
+      type: object
+      required:
+      - snapshotId
+      - from
+      - to
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        templateId:
+          type: string
+          format: uuid
+          nullable: true
+    EvaluationRequest:
+      type: object
+      required:
+      - criteria
+      properties:
+        criteria:
+          type: array
+          items:
+            type: object
+        comments:
+          type: string
+          nullable: true
+    Plan:
+      type: object
+      additionalProperties: true
+    GenerationJob:
+      type: object
+      additionalProperties: true
+    Situation:
+      type: object
+      additionalProperties: true
+    SituationSnapshot:
+      type: object
+      additionalProperties: true
+    SopRun:
+      type: object
+      additionalProperties: true
+    Task:
+      type: object
+      additionalProperties: true
+    Journal:
+      type: object
+      additionalProperties: true
+    ExportJob:
+      type: object
+      additionalProperties: true
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unprocessable:
+      description: Unprocessable Entity
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ProviderError:
+      description: Provider Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+security:
+- BearerAuth: []
+x-baseline:
+  adr: v1.1
+  api-db-sequence: v1.0
+  api-count: 121
+  generatedAt: '2026-07-27T23:49:33.526318+09:00'

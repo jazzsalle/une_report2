@@ -1,0 +1,11 @@
+upstream_url: OPEN
+tag: OPEN
+commit: OPEN
+archive_filename: OPEN
+archive_sha256: OPEN
+license: OPEN
+license_file: OPEN
+imported_at: OPEN
+imported_by: OPEN
+sbom_file: OPEN
+patch_manifest: patches/PATCHES.yaml

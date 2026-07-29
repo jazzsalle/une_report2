@@ -1,0 +1,20 @@
+version: 1.1
+providers:
+  t3q_plan:
+    mode: mock-target-v2 # legacy | mock-target-v2 | actual-target-v2
+    base_url_env: T3Q_API_BASE_URL
+    model_id_env: T3Q_MODEL_ID
+    legacy_contract: contracts/openapi/t3q-report-adapter-v0.8.5-une1.yaml
+    target_contract: contracts/openapi/t3q-plan-api-change-request-v1.yaml
+    automatic_uni_fallback: false
+  uni:
+    enabled_for_plan: false
+    enabled_for_situation_poc: true
+    base_url_env: UNI_API_BASE_URL
+    openapi_url_env: UNI_OPENAPI_URL
+  process_gpt:
+    enabled: false
+    purpose: evaluation_only
+  rhwp:
+    repository: https://github.com/edwardkim/rhwp
+    pin_required: true

@@ -1,0 +1,505 @@
+openapi: 3.1.0
+info:
+  title: UNE Request Specification for T3Q Plan Generation API v2
+  version: 1.0.0-request
+  description: >-
+    Target contract requested by UNE. This is not evidence of T3Q implementation.
+    UNE must keep LegacyT3qPlanAdapter for current RPT-001/002 and use
+    TargetV2T3qPlanAdapter with mocks until the provider contract is accepted.
+servers:
+  - url: https://plf.mois-disaster.t3q.ai
+    description: Candidate host from current v0.8.5 specification; final binding is OPEN.
+tags:
+  - name: PlanGeneration
+  - name: GenerationJob
+  - name: SemanticEdit
+  - name: Evidence
+  - name: Validation
+  - name: ReferenceDocument
+  - name: Capability
+paths:
+  /model-api/{modelId}/v2/reports/plan/toc:
+    post:
+      tags: [PlanGeneration]
+      operationId: requestPlanTocV2
+      summary: Request structured plan table-of-contents generation
+      parameters: [{ $ref: '#/components/parameters/ModelId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TocGenerationRequest' }
+            examples:
+              default:
+                value:
+                  schemaVersion: '2.0'
+                  requestId: req-20260728-001
+                  correlationId: corr-001
+                  planId: 018f-plan
+                  documentId: 018f-doc
+                  baseRevisionId: 018f-rev
+                  planContextSnapshotId: 018f-snapshot
+                  contextHash: sha256:abc
+                  subject: 코로나19 재유행 대비계획
+                  backgroundInfo: { hazardType: INFECTIOUS_DISEASE, phase: PREPAREDNESS }
+                  contentInstruction: { requiredElements: [법적 근거, 최근 통계] }
+                  expressionRule: { style: BULLET, scope: body_only }
+                  purposeOfDocument: { role: 재난안전계획 수립 담당자, audiences: [중앙정부] }
+      responses:
+        '202': { $ref: '#/components/responses/GenerationAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /model-api/{modelId}/v2/reports/plan/content:
+    post:
+      tags: [PlanGeneration]
+      operationId: requestPlanContentV2
+      summary: Request all, section, or block content generation
+      parameters: [{ $ref: '#/components/parameters/ModelId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentGenerationRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/GenerationAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /model-api/{modelId}/v2/reports/plan/edit:
+    post:
+      tags: [SemanticEdit]
+      operationId: requestPlanSemanticEdit
+      summary: Create a semantic edit proposal for a range, block, or section
+      parameters: [{ $ref: '#/components/parameters/ModelId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SemanticEditRequest' }
+      responses:
+        '200':
+          description: Change proposal
+          content: { application/json: { schema: { $ref: '#/components/schemas/ChangeProposal' } } }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /model-api/{modelId}/v2/reports/plan/evidence/search:
+    post:
+      tags: [Evidence]
+      operationId: searchPlanEvidence
+      summary: Search evidence with page/chunk provenance
+      parameters: [{ $ref: '#/components/parameters/ModelId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EvidenceSearchRequest' }
+      responses:
+        '200':
+          description: Evidence results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requestId, items]
+                properties:
+                  requestId: { type: string }
+                  items: { type: array, items: { $ref: '#/components/schemas/Citation' } }
+        '422': { $ref: '#/components/responses/Error' }
+  /model-api/{modelId}/v2/reports/plan/validate:
+    post:
+      tags: [Validation]
+      operationId: validatePlanSemanticContent
+      summary: Validate structure, evidence coverage, claims, duplication, and expression rules
+      parameters: [{ $ref: '#/components/parameters/ModelId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ValidationRequest' }
+      responses:
+        '200':
+          description: Validation report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid, issues]
+                properties:
+                  valid: { type: boolean }
+                  issues: { type: array, items: { $ref: '#/components/schemas/ValidationIssue' } }
+  /model-api/{modelId}/v2/generation-jobs/{generationId}:
+    get:
+      tags: [GenerationJob]
+      operationId: getGenerationJob
+      parameters:
+        - { $ref: '#/components/parameters/ModelId' }
+        - { $ref: '#/components/parameters/GenerationId' }
+      responses:
+        '200':
+          description: Job status
+          content: { application/json: { schema: { $ref: '#/components/schemas/GenerationStatus' } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /model-api/{modelId}/v2/generation-jobs/{generationId}/events:
+    get:
+      tags: [GenerationJob]
+      operationId: streamGenerationEvents
+      summary: SSE with id, sequence, heartbeat, partial blocks, warnings, and terminal event
+      parameters:
+        - { $ref: '#/components/parameters/ModelId' }
+        - { $ref: '#/components/parameters/GenerationId' }
+        - in: header
+          name: Last-Event-ID
+          schema: { type: string }
+      responses:
+        '200':
+          description: text/event-stream; events include job.started, toc.section, content.block, job.warning, job.completed, job.failed, heartbeat
+          content: { text/event-stream: { schema: { type: string } } }
+  /model-api/{modelId}/v2/generation-jobs/{generationId}/cancel:
+    post:
+      tags: [GenerationJob]
+      operationId: cancelGenerationJob
+      parameters:
+        - { $ref: '#/components/parameters/ModelId' }
+        - { $ref: '#/components/parameters/GenerationId' }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { reason: { type: string, maxLength: 500 } }
+      responses:
+        '200': { description: Cancel accepted, content: { application/json: { schema: { $ref: '#/components/schemas/GenerationStatus' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /model-api/{modelId}/v2/generation-jobs/{generationId}/retry:
+    post:
+      tags: [GenerationJob]
+      operationId: retryGenerationJobTargets
+      parameters:
+        - { $ref: '#/components/parameters/ModelId' }
+        - { $ref: '#/components/parameters/GenerationId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetType, targetIds]
+              properties:
+                targetType: { type: string, enum: [SECTION, BLOCK] }
+                targetIds: { type: array, minItems: 1, items: { type: string } }
+                instructionOverride: { type: string, maxLength: 2000 }
+      responses:
+        '202': { $ref: '#/components/responses/GenerationAccepted' }
+        '409': { $ref: '#/components/responses/Error' }
+  /model-api/{modelId}/v2/reports/plan/references:
+    post:
+      tags: [ReferenceDocument]
+      operationId: registerPlanReferenceDocument
+      summary: Conditional API; use only when no common T3Q ingestion API exists
+      parameters: [{ $ref: '#/components/parameters/ModelId' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, planId]
+              properties:
+                file: { type: string, format: binary }
+                planId: { type: string }
+                documentType: { type: string }
+                metadataJson: { type: string }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [referenceDocumentId, status]
+                properties:
+                  referenceDocumentId: { type: string }
+                  status: { type: string, enum: [UPLOADED, PROCESSING, READY, FAILED] }
+  /model-api/{modelId}/v2/capabilities:
+    get:
+      tags: [Capability]
+      operationId: getPlanProviderCapabilities
+      parameters: [{ $ref: '#/components/parameters/ModelId' }]
+      responses:
+        '200':
+          description: Contract versions, feature flags, and limits
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderCapabilities' }
+components:
+  parameters:
+    ModelId:
+      in: path
+      name: modelId
+      required: true
+      schema: { type: string }
+    GenerationId:
+      in: path
+      name: generationId
+      required: true
+      schema: { type: string }
+  responses:
+    GenerationAccepted:
+      description: Asynchronous generation accepted
+      content: { application/json: { schema: { $ref: '#/components/schemas/GenerationAccepted' } } }
+    Error:
+      description: Standard error
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+  schemas:
+    ClientContext:
+      type: object
+      additionalProperties: false
+      required: [tenantId, userId, locale, timezone]
+      properties:
+        tenantId: { type: string }
+        userId: { type: string }
+        organizationId: { type: [string, 'null'] }
+        locale: { type: string, default: ko-KR }
+        timezone: { type: string, default: Asia/Seoul }
+        clientVersion: { type: string }
+    PlanRequestBase:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, requestId, correlationId, clientContext, planId, documentId, baseRevisionId, planContextSnapshotId, contextHash, subject, backgroundInfo, contentInstruction, expressionRule, purposeOfDocument, requestedAt]
+      properties:
+        schemaVersion: { type: string, const: '2.0' }
+        requestId: { type: string }
+        correlationId: { type: string }
+        clientContext: { $ref: '#/components/schemas/ClientContext' }
+        planId: { type: string }
+        documentId: { type: string }
+        baseRevisionId: { type: string }
+        planContextSnapshotId: { type: string }
+        contextHash: { type: string }
+        subject: { type: string, minLength: 1, maxLength: 300 }
+        backgroundInfo: { type: object, additionalProperties: true }
+        contentInstruction: { type: object, additionalProperties: true }
+        expressionRule:
+          type: object
+          additionalProperties: true
+          required: [scope]
+          properties:
+            scope: { type: string, const: body_only }
+        purposeOfDocument: { type: object, additionalProperties: true }
+        referenceDocumentIds: { type: array, uniqueItems: true, items: { type: string } }
+        systemPromptVersion: { type: string }
+        requestedAt: { type: string, format: date-time }
+    TocGenerationRequest:
+      allOf:
+        - { $ref: '#/components/schemas/PlanRequestBase' }
+        - type: object
+          properties:
+            existingOutline: { type: array, items: { $ref: '#/components/schemas/OutlineSection' } }
+            generationOption:
+              type: object
+              properties:
+                preserveSectionIds: { type: array, items: { type: string } }
+                maxDepth: { type: integer, minimum: 1, maximum: 10 }
+    ContentGenerationRequest:
+      allOf:
+        - { $ref: '#/components/schemas/PlanRequestBase' }
+        - type: object
+          required: [outline, generationScope]
+          properties:
+            outline: { type: array, minItems: 1, items: { $ref: '#/components/schemas/OutlineSection' } }
+            generationScope: { type: string, enum: [ALL, SECTIONS, BLOCKS] }
+            targetSectionIds: { type: array, items: { type: string } }
+            targetBlockIds: { type: array, items: { type: string } }
+            protectedBlockIds: { type: array, uniqueItems: true, items: { type: string } }
+            existingBlocks: { type: array, items: { $ref: '#/components/schemas/ContentBlock' } }
+            generationOption:
+              type: object
+              properties:
+                stream: { type: boolean, default: true }
+                citationRequired: { type: boolean, default: true }
+                partialResultAllowed: { type: boolean, default: true }
+    OutlineSection:
+      type: object
+      additionalProperties: false
+      required: [sectionId, outlineLevel, order, title, semanticRole, generationPolicy]
+      properties:
+        sectionId: { type: string }
+        parentSectionId: { type: [string, 'null'] }
+        outlineLevel: { type: integer, minimum: 1, maximum: 10 }
+        order: { type: integer, minimum: 0 }
+        title: { type: string, minLength: 1, maxLength: 300 }
+        semanticRole: { type: string, examples: [BACKGROUND, CURRENT_STATUS, OUTLOOK, ACTION_PLAN, SCHEDULE, APPENDIX] }
+        generationPolicy: { type: string, enum: [GENERATE, PRESERVE, USER_ONLY, REFERENCE_ONLY] }
+        required: { type: boolean, default: false }
+        instruction: { type: string, maxLength: 2000 }
+    ContentBlock:
+      type: object
+      additionalProperties: false
+      required: [blockId, sectionId, blockType, order, text, citations, warnings, status]
+      properties:
+        blockId: { type: string }
+        sectionId: { type: string }
+        blockType: { type: string, enum: [PARAGRAPH, BULLET, TABLE, NOTE, CAPTION, PLACEHOLDER] }
+        order: { type: integer, minimum: 0 }
+        text: { type: string }
+        structuredData: { type: [object, 'null'], additionalProperties: true }
+        citations: { type: array, items: { $ref: '#/components/schemas/Citation' } }
+        warnings: { type: array, items: { type: string } }
+        status: { type: string, enum: [GENERATED, PARTIAL, FAILED, PRESERVED, PROTECTED] }
+        contentHash: { type: string }
+    Citation:
+      type: object
+      additionalProperties: false
+      required: [citationId, sourceId, documentId, fileName, excerpt, score, retrievedAt]
+      properties:
+        citationId: { type: string }
+        sourceId: { type: string }
+        documentId: { type: string }
+        fileName: { type: string }
+        page: { type: [integer, 'null'], minimum: 1 }
+        chunkId: { type: [string, 'null'] }
+        excerpt: { type: string }
+        score: { type: number, minimum: 0, maximum: 1 }
+        supportsBlockIds: { type: array, items: { type: string } }
+        retrievedAt: { type: string, format: date-time }
+    GenerationAccepted:
+      type: object
+      required: [generationId, status, statusUrl, eventStreamUrl, acceptedAt]
+      properties:
+        generationId: { type: string }
+        status: { type: string, const: QUEUED }
+        statusUrl: { type: string, format: uri-reference }
+        eventStreamUrl: { type: string, format: uri-reference }
+        acceptedAt: { type: string, format: date-time }
+        requestId: { type: string }
+        correlationId: { type: string }
+    GenerationStatus:
+      type: object
+      required: [generationId, status, progress, completedTargetIds, failedTargetIds]
+      properties:
+        generationId: { type: string }
+        status: { type: string, enum: [QUEUED, RUNNING, PARTIAL, COMPLETED, CANCELLED, FAILED] }
+        progress: { type: number, minimum: 0, maximum: 100 }
+        completedTargetIds: { type: array, items: { type: string } }
+        failedTargetIds: { type: array, items: { type: string } }
+        outline: { type: array, items: { $ref: '#/components/schemas/OutlineSection' } }
+        blocks: { type: array, items: { $ref: '#/components/schemas/ContentBlock' } }
+        warnings: { type: array, items: { type: string } }
+        error: { anyOf: [{ $ref: '#/components/schemas/ErrorResponse' }, { type: 'null' }] }
+        updatedAt: { type: string, format: date-time }
+    SemanticEditRequest:
+      allOf:
+        - { $ref: '#/components/schemas/PlanRequestBase' }
+        - type: object
+          required: [target, instruction]
+          properties:
+            target: { $ref: '#/components/schemas/EditTarget' }
+            instruction: { type: string, minLength: 1, maxLength: 4000 }
+            selectedText: { type: string }
+            surroundingContext:
+              type: object
+              properties: { before: { type: string }, after: { type: string } }
+            preserveCitationIds: { type: array, items: { type: string } }
+            protectedBlockIds: { type: array, items: { type: string } }
+    EditTarget:
+      type: object
+      required: [targetType]
+      properties:
+        targetType: { type: string, enum: [RANGE, BLOCK, SECTION] }
+        sectionId: { type: [string, 'null'] }
+        blockId: { type: [string, 'null'] }
+        range:
+          type: [object, 'null']
+          properties:
+            start: { type: integer, minimum: 0 }
+            end: { type: integer, minimum: 0 }
+    ChangeProposal:
+      type: object
+      required: [proposalId, baseRevisionId, operations, proposedBlocks, citations, warnings]
+      properties:
+        proposalId: { type: string }
+        baseRevisionId: { type: string }
+        operations:
+          type: array
+          items:
+            type: object
+            required: [operationType]
+            properties:
+              operationType: { type: string, enum: [REPLACE_RANGE, REPLACE_BLOCK, INSERT_BLOCK, DELETE_BLOCK] }
+              targetId: { type: [string, 'null'] }
+              payload: { type: object, additionalProperties: true }
+        proposedBlocks: { type: array, items: { $ref: '#/components/schemas/ContentBlock' } }
+        citations: { type: array, items: { $ref: '#/components/schemas/Citation' } }
+        warnings: { type: array, items: { type: string } }
+    EvidenceSearchRequest:
+      allOf:
+        - { $ref: '#/components/schemas/PlanRequestBase' }
+        - type: object
+          required: [query, topK]
+          properties:
+            query: { type: string, minLength: 1, maxLength: 4000 }
+            topK: { type: integer, minimum: 1, maximum: 100 }
+            filters: { type: object, additionalProperties: true }
+            supportsBlockIds: { type: array, items: { type: string } }
+    ValidationRequest:
+      allOf:
+        - { $ref: '#/components/schemas/PlanRequestBase' }
+        - type: object
+          required: [validationTypes, outline, blocks]
+          properties:
+            validationTypes:
+              type: array
+              uniqueItems: true
+              items: { type: string, enum: [SCHEMA, CITATION_COVERAGE, UNSUPPORTED_CLAIM, DUPLICATE_CONTENT, EXPRESSION_RULE, MISSING_REQUIRED_SECTION] }
+            outline: { type: array, items: { $ref: '#/components/schemas/OutlineSection' } }
+            blocks: { type: array, items: { $ref: '#/components/schemas/ContentBlock' } }
+    ValidationIssue:
+      type: object
+      required: [issueId, type, severity, message]
+      properties:
+        issueId: { type: string }
+        type: { type: string }
+        severity: { type: string, enum: [INFO, WARNING, ERROR] }
+        message: { type: string }
+        sectionId: { type: [string, 'null'] }
+        blockId: { type: [string, 'null'] }
+        citationId: { type: [string, 'null'] }
+        suggestedAction: { type: string }
+    ProviderCapabilities:
+      type: object
+      required: [providerBuild, contractVersions, features, limits]
+      properties:
+        providerBuild: { type: string }
+        contractVersions: { type: array, items: { type: string } }
+        features:
+          type: object
+          required: [tocV2, contentV2, semanticEdit, evidenceSearch, validation, jobSse, partialRetry]
+          properties:
+            tocV2: { type: boolean }
+            contentV2: { type: boolean }
+            semanticEdit: { type: boolean }
+            evidenceSearch: { type: boolean }
+            validation: { type: boolean }
+            referenceUpload: { type: boolean }
+            jobSse: { type: boolean }
+            partialRetry: { type: boolean }
+        limits:
+          type: object
+          properties:
+            maxInputChars: { type: integer }
+            maxSections: { type: integer }
+            maxBlocks: { type: integer }
+            maxConcurrentJobsPerTenant: { type: integer }
+            maxReferenceFileBytes: { type: integer }
+            supportedReferenceMimeTypes: { type: array, items: { type: string } }
+    ErrorResponse:
+      type: object
+      required: [code, message, retryable, correlationId]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        retryable: { type: boolean }
+        field: { type: [string, 'null'] }
+        correlationId: { type: string }
+        details: { type: object, additionalProperties: true }

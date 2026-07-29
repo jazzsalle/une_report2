@@ -1,0 +1,23 @@
+version: 1.0
+status: OPEN
+required_before: CC-001
+decisions:
+  repository_url: https://github.com/jazzsalle/une_report2
+  default_branch: main
+  backend_profile: recommended-dotnet8-awaiting-approval
+  frontend_profile: react-typescript
+  package_manager: OPEN
+  database_version: postgresql-16
+  object_storage: OPEN
+  local_container_runtime: docker-compose
+  poc_auth_mode: mock-jwt
+  integration_auth_mode: t3q-sso-token-exchange-awaiting-contract
+  ci_platform: OPEN
+  deployment_target: OPEN
+  supported_browsers: OPEN
+  hancom_test_version: OPEN
+  windows_qa_environment: OPEN
+approval:
+  approved_by: OPEN
+  approved_at: OPEN
+  notes: ""

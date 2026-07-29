@@ -1,0 +1,120 @@
+from __future__ import annotations
+from datetime import datetime, timezone
+from typing import Any
+from uuid import uuid4
+
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field
+
+app = FastAPI(title="UNE Platform Mock", version="1.0.0")
+DB: dict[str, dict[str, Any]] = {"plans": {}, "jobs": {}, "situations": {}, "snapshots": {}, "sops": {}, "runs": {}, "tasks": {}, "journals": {}}
+
+def now(): return datetime.now(timezone.utc).isoformat()
+def envelope(data: Any, correlation_id: str | None = None):
+    return {"success": True, "data": data, "meta": {"requestId": f"req_{uuid4().hex[:12]}", "correlationId": correlation_id or f"corr_{uuid4().hex[:12]}", "timestamp": now(), "schemaVersion": "1.0"}}
+
+def require_idempotency(key: str | None):
+    if not key: raise HTTPException(status_code=400, detail="Idempotency-Key required")
+
+class PlanCreate(BaseModel):
+    title: str
+    startMode: str = "BLANK"
+    templateFileId: str | None = None
+
+class SituationCreate(BaseModel):
+    mode: str
+    title: str
+    hazardType: str
+    occurredAt: str | None = None
+    location: str | None = None
+
+@app.get("/health")
+def health(): return {"status":"UP","time":now()}
+
+@app.post("/api/v1/auth/sso/exchange")
+def sso(body: dict[str,Any]):
+    return envelope({"accessToken":"mock-access-token","refreshToken":"mock-refresh-token","expiresIn":3600,"userContext":{"userId":str(uuid4()),"tenantId":str(uuid4()),"roles":["SYSTEM_ADMIN"]}})
+
+@app.post("/api/v1/plans")
+def create_plan(body: PlanCreate, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    pid=str(uuid4()); item={"planId":pid,"title":body.title,"startMode":body.startMode,"status":"DRAFT","versionNo":1,"createdAt":now()}; DB["plans"][pid]=item
+    return JSONResponse(envelope(item), status_code=201)
+
+@app.get("/api/v1/plans/{plan_id}")
+def get_plan(plan_id: str):
+    if plan_id not in DB["plans"]: raise HTTPException(404,"Plan not found")
+    return envelope(DB["plans"][plan_id])
+
+@app.post("/api/v1/plans/{plan_id}/context-snapshots")
+def context_snapshot(plan_id: str, body: dict[str,Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    if plan_id not in DB["plans"]: raise HTTPException(404,"Plan not found")
+    sid=str(uuid4()); snap={"contextSnapshotId":sid,"planId":plan_id,"versionNo":1,"context":body,"contentHash":"0"*64,"confirmedAt":now()}
+    DB["plans"][plan_id]["status"]="CONTEXT_CONFIRMED"; DB["plans"][plan_id]["contextSnapshotId"]=sid
+    return JSONResponse(envelope(snap),status_code=201)
+
+@app.post("/api/v1/plans/{plan_id}/toc-jobs")
+def toc_job(plan_id: str, body: dict[str,Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    if plan_id not in DB["plans"]: raise HTTPException(404,"Plan not found")
+    jid=str(uuid4()); job={"jobId":jid,"jobType":"TOC","status":"COMPLETED","progress":100,"result":{"title":DB["plans"][plan_id]["title"],"sections":[{"name":"1. 개요","children":[{"name":"1.1. 목적","children":[]}]}]}}
+    DB["jobs"][jid]=job; return JSONResponse(envelope(job),status_code=202)
+
+@app.get("/api/v1/plan-jobs/{job_id}/events")
+def job_events(job_id: str):
+    if job_id not in DB["jobs"]: raise HTTPException(404,"Job not found")
+    def gen():
+        yield f"event: status\ndata: {{\"jobId\":\"{job_id}\",\"status\":\"RUNNING\",\"progress\":50}}\n\n"
+        yield f"event: completed\ndata: {{\"jobId\":\"{job_id}\",\"status\":\"COMPLETED\"}}\n\n"
+    return StreamingResponse(gen(),media_type="text/event-stream")
+
+@app.post("/api/v1/situations")
+def create_situation(body: SituationCreate, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    sid=str(uuid4()); item={"situationId":sid,**body.model_dump(),"status":"REGISTERED","versionNo":1,"createdAt":now()}; DB["situations"][sid]=item
+    return JSONResponse(envelope(item),status_code=201)
+
+@app.post("/api/v1/situations/{situation_id}/snapshots")
+def create_situation_snapshot(situation_id: str, body: dict[str,Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    if situation_id not in DB["situations"]: raise HTTPException(404,"Situation not found")
+    sid=str(uuid4()); snap={"snapshotId":sid,"situationId":situation_id,"versionNo":1,"factIds":body.get("factIds",[]),"effectiveAt":body.get("effectiveAt",now()),"contentHash":"1"*64,"confirmedAt":now()}; DB["snapshots"][sid]=snap; DB["situations"][situation_id]["status"]="SNAPSHOT_CONFIRMED"
+    return JSONResponse(envelope(snap),status_code=201)
+
+@app.post("/api/v1/sops")
+def create_sop(body: dict[str,Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    sid=str(uuid4()); sop={"sopId":sid,"title":body.get("title","Mock SOP"),"hazardType":body.get("hazardType","태풍/호우"),"status":"DRAFT","versionNo":1}; DB["sops"][sid]=sop
+    return JSONResponse(envelope(sop),status_code=201)
+
+@app.post("/api/v1/sops/{sop_id}/runs")
+def run_sop(sop_id: str, body: dict[str,Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    if sop_id not in DB["sops"]: raise HTTPException(404,"SOP not found")
+    rid=str(uuid4()); tid=str(uuid4()); run={"runId":rid,"sopId":sop_id,"status":"RUNNING","mode":body.get("mode","DRY_RUN"),"startedAt":now(),"taskIds":[tid]}; task={"taskId":tid,"runId":rid,"title":"상황전파 및 초기조치","status":"DISPATCHED"}; DB["runs"][rid]=run; DB["tasks"][tid]=task
+    return JSONResponse(envelope(run),status_code=202)
+
+@app.post("/api/v1/tasks/{task_id}/acknowledge")
+def ack(task_id: str, body: dict[str,Any] | None = None, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    if task_id not in DB["tasks"]: raise HTTPException(404,"Task not found")
+    DB["tasks"][task_id]["status"]="ACKNOWLEDGED"; return envelope(DB["tasks"][task_id])
+
+@app.post("/api/v1/tasks/{task_id}/complete")
+def complete(task_id: str, body: dict[str,Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    if task_id not in DB["tasks"]: raise HTTPException(404,"Task not found")
+    DB["tasks"][task_id]["status"]="COMPLETION_REPORTED"; DB["tasks"][task_id]["result"]=body; return envelope(DB["tasks"][task_id])
+
+@app.post("/api/v1/situations/{situation_id}/journal-projections")
+def journal(situation_id: str, body: dict[str,Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    if situation_id not in DB["situations"]: raise HTTPException(404,"Situation not found")
+    jid=str(uuid4()); item={"journalId":jid,"situationId":situation_id,"snapshotId":body.get("snapshotId"),"status":"DRAFT","sections":[{"title":"시간대별 주요 조치","lockedFacts":[],"narrative":"Mock projection"}],"projectionHash":"2"*64}; DB["journals"][jid]=item
+    return JSONResponse(envelope(item),status_code=201)
+
+@app.api_route("/api/v1/{path:path}", methods=["GET","POST","PUT","PATCH","DELETE"])
+async def fallback(path: str, request: Request):
+    return envelope({"mock":True,"path":"/api/v1/"+path,"method":request.method,"note":"Generic fallback. Implement domain behavior as development advances."})

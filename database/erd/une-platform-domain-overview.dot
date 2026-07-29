@@ -1,0 +1,22 @@
+digraph D {
+  graph [rankdir=LR, splines=ortho, bgcolor="white", fontname="Malgun Gothic", nodesep=0.55, ranksep=0.8];
+  node [shape=box, style="rounded,filled", fontname="Malgun Gothic", fontsize=11, margin="0.18,0.10"];
+  edge [color="#7F8C8D", penwidth=1.3, arrowsize=0.8];
+  IAM [fillcolor="#D9EAF7", label="IAM / 기관·조직·RBAC
+7 tables"];
+  PLAN [fillcolor="#E2F0D9", label="PLAN & DOCUMENT / 계획서·HWPX
+17 tables"];
+  SIT [fillcolor="#FFF2CC", label="SITUATION & KNOWLEDGE / Fact·Snapshot·UNI
+10 tables"];
+  SOP [fillcolor="#FCE4D6", label="SOP & TASK / 실행·전파·현장보고
+12 tables"];
+  EVT [fillcolor="#E4DFEC", label="EVENT & JOURNAL & ADMIN / 원장·일지·감사
+11 tables"];
+  IAM -> PLAN [label="tenant / user"];
+  IAM -> SIT [label="tenant / actor"];
+  IAM -> SOP [label="assignee / approver"];
+  PLAN -> EVT [label="revision / audit"];
+  SIT -> SOP [label="snapshot / evidence"];
+  SOP -> EVT [label="execution / outbox"];
+  SIT -> EVT [label="journal projection"];
+}

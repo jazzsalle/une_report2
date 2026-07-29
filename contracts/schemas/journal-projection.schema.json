@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.une.local/journal-projection.schema.json",
+  "title": "Journal Projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "situationId",
+    "snapshotId",
+    "period",
+    "sections",
+    "sourceEventIds",
+    "projectionHash"
+  ],
+  "properties": {
+    "situationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "snapshotId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "sectionKey",
+          "title",
+          "lockedFacts",
+          "narrative"
+        ],
+        "properties": {
+          "sectionKey": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "lockedFacts": {
+            "type": "array",
+            "items": {}
+          },
+          "narrative": {
+            "type": "string"
+          },
+          "evidenceEventIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sourceEventIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "uniqueItems": true
+    },
+    "projectionHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

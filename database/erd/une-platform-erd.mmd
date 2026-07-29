@@ -1,0 +1,756 @@
+erDiagram
+  tenant ||--o{ organization : "tenant_id"
+  organization ||--o{ organization : "parent_id"
+  tenant ||--o{ app_user : "tenant_id"
+  organization ||--o{ app_user : "organization_id"
+  tenant ||--o{ role : "tenant_id"
+  app_user ||--o{ user_role : "user_id"
+  role ||--o{ user_role : "role_id"
+  app_user ||--o{ user_role : "granted_by"
+  app_user ||--o{ user_session : "user_id"
+  tenant ||--o{ plan : "tenant_id"
+  document ||--o{ plan : "document_id"
+  plan_context_snapshot ||--o{ plan : "current_context_snapshot_id"
+  app_user ||--o{ plan : "created_by"
+  plan ||--o{ plan_context_draft : "plan_id"
+  app_user ||--o{ plan_context_draft : "updated_by"
+  plan ||--o{ plan_context_snapshot : "plan_id"
+  app_user ||--o{ plan_context_snapshot : "confirmed_by"
+  plan_context_snapshot ||--o{ plan_context_snapshot : "supersedes_id"
+  plan ||--o{ toc_version : "plan_id"
+  plan_context_snapshot ||--o{ toc_version : "context_snapshot_id"
+  app_user ||--o{ toc_version : "created_by"
+  toc_version ||--o{ toc_node : "toc_version_id"
+  toc_node ||--o{ toc_node : "parent_id"
+  tenant ||--o{ generation_job : "tenant_id"
+  app_user ||--o{ generation_job : "requested_by"
+  generation_job ||--o{ job_event : "job_id"
+  tenant ||--o{ document : "tenant_id"
+  file_object ||--o{ document : "source_file_id"
+  document_revision ||--o{ document : "current_revision_id"
+  app_user ||--o{ document : "created_by"
+  document ||--o{ document_revision : "document_id"
+  document_revision ||--o{ document_revision : "parent_revision_id"
+  app_user ||--o{ document_revision : "created_by"
+  document_revision ||--o{ document_block : "revision_id"
+  document_block ||--o{ document_block : "parent_block_id"
+  document ||--o{ change_set : "document_id"
+  document_revision ||--o{ change_set : "base_revision_id"
+  document_revision ||--o{ change_set : "result_revision_id"
+  app_user ||--o{ change_set : "actor_id"
+  change_set ||--o{ change_operation : "change_set_id"
+  document ||--o{ template_profile : "document_id"
+  app_user ||--o{ template_profile : "created_by"
+  template_profile ||--o{ style_prototype : "template_profile_id"
+  tenant ||--o{ file_object : "tenant_id"
+  app_user ||--o{ file_object : "uploaded_by"
+  document ||--o{ export_job : "document_id"
+  document_revision ||--o{ export_job : "revision_id"
+  file_object ||--o{ export_job : "result_file_id"
+  app_user ||--o{ export_job : "requested_by"
+  app_user ||--o{ validation_report : "created_by"
+  tenant ||--o{ situation : "tenant_id"
+  situation_snapshot ||--o{ situation : "current_snapshot_id"
+  app_user ||--o{ situation : "created_by"
+  tenant ||--o{ fact_source : "tenant_id"
+  situation ||--o{ situation_fact : "situation_id"
+  fact_source ||--o{ situation_fact : "source_id"
+  situation ||--o{ fact_conflict : "situation_id"
+  fact_conflict ||--o{ conflict_resolution : "conflict_id"
+  situation_fact ||--o{ conflict_resolution : "selected_fact_id"
+  app_user ||--o{ conflict_resolution : "resolved_by"
+  situation ||--o{ situation_snapshot : "situation_id"
+  app_user ||--o{ situation_snapshot : "confirmed_by"
+  situation_snapshot ||--o{ situation_snapshot : "supersedes_id"
+  situation ||--o{ provider_job : "situation_id"
+  app_user ||--o{ provider_job : "requested_by"
+  tenant ||--o{ knowledge_document : "tenant_id"
+  situation ||--o{ knowledge_document : "situation_id"
+  file_object ||--o{ knowledge_document : "file_id"
+  app_user ||--o{ knowledge_document : "uploaded_by"
+  situation ||--o{ evidence_set : "situation_id"
+  situation_snapshot ||--o{ evidence_set : "snapshot_id"
+  app_user ||--o{ evidence_set : "created_by"
+  evidence_set ||--o{ evidence_item : "evidence_set_id"
+  knowledge_document ||--o{ evidence_item : "knowledge_document_id"
+  tenant ||--o{ sop : "tenant_id"
+  situation ||--o{ sop : "situation_id"
+  sop_version ||--o{ sop : "current_version_id"
+  app_user ||--o{ sop : "created_by"
+  sop ||--o{ sop_version : "sop_id"
+  evidence_set ||--o{ sop_version : "source_evidence_set_id"
+  app_user ||--o{ sop_version : "created_by"
+  app_user ||--o{ sop_version : "approved_by"
+  sop_version ||--o{ sop_node : "sop_version_id"
+  sop_version ||--o{ sop_edge : "sop_version_id"
+  sop_node ||--o{ sop_edge : "from_node_id"
+  sop_node ||--o{ sop_edge : "to_node_id"
+  sop_version ||--o{ sop_validation : "sop_version_id"
+  app_user ||--o{ sop_validation : "validated_by"
+  sop_version ||--o{ sop_run : "sop_version_id"
+  situation ||--o{ sop_run : "situation_id"
+  situation_snapshot ||--o{ sop_run : "snapshot_id"
+  app_user ||--o{ sop_run : "started_by"
+  sop_run ||--o{ task : "run_id"
+  sop_node ||--o{ task : "node_id"
+  app_user ||--o{ task : "assignee_user_id"
+  organization ||--o{ task : "assignee_org_id"
+  task ||--o{ task_event : "task_id"
+  app_user ||--o{ task_event : "actor_id"
+  task ||--o{ task_attachment : "task_id"
+  file_object ||--o{ task_attachment : "file_id"
+  app_user ||--o{ task_attachment : "uploaded_by"
+  task ||--o{ dispatch : "task_id"
+  situation ||--o{ dispatch : "situation_id"
+  app_user ||--o{ dispatch : "created_by"
+  dispatch ||--o{ dispatch_recipient : "dispatch_id"
+  app_user ||--o{ dispatch_recipient : "user_id"
+  organization ||--o{ dispatch_recipient : "organization_id"
+  tenant ||--o{ execution_event : "tenant_id"
+  situation ||--o{ execution_event : "situation_id"
+  app_user ||--o{ execution_event : "actor_id"
+  execution_event ||--o{ execution_event : "corrects_event_id"
+  tenant ||--o{ outbox_message : "tenant_id"
+  outbox_message ||--o{ outbox_attempt : "outbox_id"
+  situation ||--o{ journal : "situation_id"
+  situation_snapshot ||--o{ journal : "snapshot_id"
+  document ||--o{ journal : "document_id"
+  app_user ||--o{ journal : "created_by"
+  journal ||--o{ journal_projection_item : "journal_id"
+  execution_event ||--o{ journal_projection_item : "execution_event_id"
+  situation ||--o{ evaluation : "situation_id"
+  app_user ||--o{ evaluation : "created_by"
+  evaluation ||--o{ evaluation_score : "evaluation_id"
+  evaluation ||--o{ improvement_action : "evaluation_id"
+  app_user ||--o{ improvement_action : "owner_user_id"
+  tenant ||--o{ provider_config : "tenant_id"
+  app_user ||--o{ provider_config : "updated_by"
+  tenant ||--o{ audit_log : "tenant_id"
+  app_user ||--o{ audit_log : "actor_id"
+  tenant ||--o{ retention_policy : "tenant_id"
+  tenant ||--o{ notification : "tenant_id"
+  app_user ||--o{ notification : "user_id"
+  tenant {
+    uuid tenant_id PK
+    varchar_30 tenant_code
+    varchar_200 tenant_name
+    varchar_20 status
+    varchar_50 timezone
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  organization {
+    uuid organization_id PK
+    uuid tenant_id FK
+    uuid parent_id FK
+    varchar_50 org_code
+    varchar_200 org_name
+    text org_path
+    int sort_order
+    varchar_20 status
+    int version_no
+  }
+  app_user {
+    uuid user_id PK
+    uuid tenant_id FK
+    varchar_100 external_user_id
+    varchar_100 login_id
+    varchar_100 display_name
+    uuid organization_id FK
+    bytea email_enc
+    bytea phone_enc
+    varchar_20 status
+    timestamptz last_login_at
+  }
+  role {
+    uuid role_id PK
+    uuid tenant_id FK
+    varchar_60 role_code
+    varchar_120 role_name
+    varchar_30 scope_type
+    boolean is_system
+    int version_no
+  }
+  permission {
+    uuid permission_id PK
+    varchar_80 permission_code
+    varchar_40 resource_type
+    varchar_40 action
+    varchar_300 description
+  }
+  user_role {
+    uuid user_role_id PK
+    uuid user_id FK
+    uuid role_id FK
+    uuid scope_id
+    timestamptz valid_from
+    timestamptz valid_to
+    uuid granted_by FK
+    timestamptz created_at
+  }
+  user_session {
+    uuid session_id PK
+    uuid user_id FK
+    char_64 refresh_hash
+    timestamptz issued_at
+    timestamptz expires_at
+    timestamptz revoked_at
+    inet client_ip
+    text user_agent
+  }
+  plan {
+    uuid plan_id PK
+    uuid tenant_id FK
+    varchar_300 title
+    varchar_50 hazard_type
+    varchar_20 management_phase
+    varchar_30 status
+    uuid document_id FK
+    uuid current_context_snapshot_id FK
+    uuid current_toc_version_id FK
+    uuid owner_id FK
+    int version_no
+    timestamptz deleted_at
+  }
+  plan_context_draft {
+    uuid context_draft_id PK
+    uuid plan_id FK
+    jsonb context_json
+    varchar_20 schema_version
+    uuid updated_by FK
+    timestamptz updated_at
+  }
+  plan_context_snapshot {
+    uuid context_snapshot_id PK
+    uuid plan_id FK
+    int version_no
+    jsonb context_json
+    char_64 content_hash
+    uuid supersedes_id FK
+    uuid confirmed_by FK
+    timestamptz confirmed_at
+  }
+  toc_version {
+    uuid toc_version_id PK
+    uuid plan_id FK
+    int version_no
+    varchar_20 source_type
+    uuid base_snapshot_id FK
+    varchar_20 status
+    char_64 content_hash
+    uuid created_by FK
+    timestamptz created_at
+  }
+  toc_node {
+    uuid toc_node_id PK
+    uuid toc_version_id FK
+    uuid parent_node_id FK
+    varchar_80 node_key
+    varchar_500 title
+    smallint level
+    int sort_order
+    jsonb generation_policy
+  }
+  generation_job {
+    uuid job_id PK
+    uuid tenant_id FK
+    varchar_30 job_type
+    varchar_30 aggregate_type
+    uuid aggregate_id
+    varchar_30 provider_code
+    jsonb request_json
+    varchar_20 status
+    numeric_5_2 progress_pct
+    varchar_100 idempotency_key
+    varchar_80 correlation_id
+    jsonb error_json
+    timestamptz started_at
+    timestamptz finished_at
+  }
+  job_event {
+    bigserial job_event_id PK
+    uuid job_id FK
+    bigint sequence_no
+    varchar_40 event_type
+    jsonb payload_json
+    timestamptz created_at
+  }
+  document {
+    uuid document_id PK
+    uuid tenant_id FK
+    varchar_30 document_type
+    varchar_300 title
+    uuid source_file_id FK
+    uuid current_revision_id FK
+    varchar_30 status
+    uuid owner_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  document_revision {
+    uuid revision_id PK
+    uuid document_id FK
+    int revision_no
+    uuid parent_revision_id FK
+    jsonb ir_json
+    char_64 ir_hash
+    text change_summary
+    uuid created_by FK
+    timestamptz created_at
+  }
+  document_block {
+    uuid block_id PK
+    uuid revision_id FK
+    varchar_100 stable_block_key
+    varchar_30 block_type
+    uuid parent_block_id FK
+    int sort_order
+    text text_content
+    varchar_100 style_ref
+    varchar_20 protection_state
+    jsonb payload_json
+  }
+  change_set {
+    uuid change_set_id PK
+    uuid document_id FK
+    uuid base_revision_id FK
+    uuid result_revision_id FK
+    varchar_100 client_mutation_id
+    jsonb selection_json
+    varchar_20 status
+    uuid created_by FK
+    timestamptz created_at
+  }
+  change_operation {
+    uuid operation_id PK
+    uuid change_set_id FK
+    int operation_order
+    varchar_40 operation_type
+    jsonb target_json
+    jsonb before_json
+    jsonb after_json
+  }
+  template_profile {
+    uuid template_profile_id PK
+    uuid document_id FK
+    int profile_version
+    varchar_20 analysis_status
+    jsonb profile_json
+    jsonb unsupported_objects_json
+    char_64 analysis_hash
+    timestamptz created_at
+  }
+  style_prototype {
+    uuid prototype_id PK
+    uuid template_profile_id FK
+    varchar_100 prototype_key
+    varchar_40 prototype_type
+    jsonb source_locator_json
+    jsonb clone_policy_json
+    char_64 style_fingerprint
+  }
+  file_object {
+    uuid file_id PK
+    uuid tenant_id FK
+    varchar_500 storage_key
+    varchar_500 original_name
+    varchar_150 mime_type
+    bigint size_bytes
+    char_64 sha256
+    varchar_20 scan_status
+    uuid created_by FK
+    timestamptz created_at
+  }
+  export_job {
+    uuid export_id PK
+    uuid document_id FK
+    uuid revision_id FK
+    varchar_20 format
+    varchar_20 status
+    uuid output_file_id FK
+    uuid validation_report_id FK
+    uuid requested_by FK
+    timestamptz created_at
+    timestamptz finished_at
+  }
+  validation_report {
+    uuid validation_report_id PK
+    varchar_30 target_type
+    uuid target_id
+    varchar_20 track
+    varchar_20 status
+    jsonb checks_json
+    jsonb environment_json
+    uuid evidence_file_id FK
+    timestamptz created_at
+  }
+  situation {
+    uuid situation_id PK
+    uuid tenant_id FK
+    varchar_20 mode
+    varchar_300 title
+    varchar_50 hazard_type
+    varchar_30 status
+    timestamptz occurred_at
+    varchar_500 location_text
+    uuid current_snapshot_id FK
+    int version_no
+    uuid created_by FK
+    timestamptz created_at
+  }
+  fact_source {
+    uuid source_id PK
+    varchar_30 provider_code
+    varchar_30 source_type
+    varchar_300 source_name
+    text source_uri
+    timestamptz retrieved_at
+    uuid raw_file_id FK
+    jsonb license_json
+  }
+  situation_fact {
+    uuid fact_id PK
+    uuid situation_id FK
+    varchar_50 fact_type
+    varchar_120 fact_key
+    jsonb value_json
+    uuid source_id FK
+    timestamptz observed_at
+    timestamptz collected_at
+    numeric_5_4 confidence
+    varchar_20 status
+    int version_no
+  }
+  fact_conflict {
+    uuid conflict_id PK
+    uuid situation_id FK
+    varchar_120 fact_key
+    uuid[]/jsonb candidate_fact_ids
+    varchar_30 conflict_type
+    varchar_20 status
+    timestamptz detected_at
+  }
+  conflict_resolution {
+    uuid resolution_id PK
+    uuid conflict_id FK
+    uuid selected_fact_id FK
+    text reason
+    uuid resolved_by FK
+    timestamptz resolved_at
+  }
+  situation_snapshot {
+    uuid snapshot_id PK
+    uuid situation_id FK
+    int version_no
+    jsonb facts_json
+    char_64 content_hash
+    timestamptz effective_at
+    uuid supersedes_id FK
+    uuid confirmed_by FK
+    timestamptz confirmed_at
+  }
+  provider_job {
+    uuid provider_job_id PK
+    uuid situation_id FK
+    varchar_30 provider_code
+    jsonb request_json
+    varchar_20 status
+    int result_count
+    jsonb error_json
+    varchar_80 correlation_id
+    timestamptz created_at
+  }
+  knowledge_document {
+    uuid knowledge_document_id PK
+    uuid tenant_id FK
+    uuid situation_id FK
+    uuid file_id FK
+    varchar_40 document_type
+    varchar_150 provider_document_id
+    varchar_20 status
+    jsonb metadata_json
+    uuid created_by FK
+    timestamptz created_at
+  }
+  evidence_set {
+    uuid evidence_set_id PK
+    uuid situation_id FK
+    uuid snapshot_id FK
+    text query_text
+    jsonb filters_json
+    int top_k
+    varchar_20 status
+    char_64 content_hash
+    uuid created_by FK
+    timestamptz created_at
+  }
+  evidence_item {
+    uuid evidence_item_id PK
+    uuid evidence_set_id FK
+    uuid knowledge_document_id FK
+    varchar_150 provider_chunk_id
+    int rank_no
+    numeric_8_6 score
+    text quote_text
+    jsonb source_locator_json
+    varchar_80 citation_key
+  }
+  sop {
+    uuid sop_id PK
+    uuid tenant_id FK
+    uuid situation_id FK
+    varchar_300 title
+    varchar_50 hazard_type
+    varchar_30 status
+    uuid current_version_id FK
+    uuid created_by FK
+    timestamptz created_at
+  }
+  sop_version {
+    uuid sop_version_id PK
+    uuid sop_id FK
+    int version_no
+    varchar_20 status
+    char_64 graph_hash
+    uuid source_snapshot_id FK
+    uuid source_evidence_set_id FK
+    varchar_20 schema_version
+    uuid approved_by FK
+    timestamptz approved_at
+  }
+  sop_node {
+    uuid node_id PK
+    uuid sop_version_id FK
+    varchar_80 node_key
+    varchar_20 node_type
+    varchar_300 title
+    jsonb config_json
+    numeric_10_2 position_x
+    numeric_10_2 position_y
+    int sort_order
+  }
+  sop_edge {
+    uuid edge_id PK
+    uuid sop_version_id FK
+    uuid from_node_id FK
+    uuid to_node_id FK
+    text condition_expr
+    jsonb condition_schema
+    int priority
+    varchar_100 label
+  }
+  sop_validation {
+    uuid validation_id PK
+    uuid sop_version_id FK
+    varchar_20 status
+    jsonb errors_json
+    jsonb warnings_json
+    varchar_30 validator_version
+    uuid validated_by FK
+    timestamptz validated_at
+  }
+  sop_run {
+    uuid run_id PK
+    uuid sop_version_id FK
+    uuid situation_id FK
+    uuid snapshot_id FK
+    varchar_20 mode
+    varchar_20 status
+    uuid started_by FK
+    timestamptz started_at
+    timestamptz ended_at
+    varchar_80 correlation_id
+  }
+  task {
+    uuid task_id PK
+    uuid run_id FK
+    uuid node_id FK
+    varchar_300 title
+    varchar_30 status
+    uuid assignee_user_id FK
+    uuid assignee_org_id FK
+    timestamptz due_at
+    jsonb completion_policy_json
+    numeric_5_2 progress_pct
+    int version_no
+    timestamptz created_at
+  }
+  task_event {
+    uuid task_event_id PK
+    uuid task_id FK
+    varchar_40 event_type
+    timestamptz event_time
+    uuid actor_id FK
+    jsonb payload_json
+    varchar_80 correlation_id
+    timestamptz created_at
+  }
+  task_attachment {
+    uuid task_attachment_id PK
+    uuid task_id FK
+    uuid file_id FK
+    varchar_30 category
+    varchar_500 caption
+    jsonb geo_json
+    timestamptz captured_at
+    uuid uploaded_by FK
+  }
+  dispatch {
+    uuid dispatch_id PK
+    uuid task_id FK
+    uuid situation_id FK
+    varchar_30 message_type
+    text message_body
+    varchar_20 status
+    uuid created_by FK
+    timestamptz created_at
+  }
+  dispatch_recipient {
+    uuid recipient_id PK
+    uuid dispatch_id FK
+    uuid user_id FK
+    uuid organization_id FK
+    varchar_20 channel
+    bytea address_enc
+    varchar_20 delivery_status
+    timestamptz acknowledged_at
+  }
+  execution_event {
+    uuid execution_event_id PK
+    uuid tenant_id FK
+    uuid situation_id FK
+    varchar_30 aggregate_type
+    uuid aggregate_id
+    varchar_50 event_type
+    timestamptz occurred_at
+    timestamptz recorded_at
+    uuid actor_id FK
+    jsonb payload_json
+    uuid corrects_event_id FK
+    varchar_80 correlation_id
+    char_64 event_hash
+  }
+  outbox_message {
+    uuid outbox_id PK
+    uuid tenant_id FK
+    varchar_30 aggregate_type
+    uuid aggregate_id
+    varchar_50 event_type
+    jsonb payload_json
+    varchar_20 channel
+    varchar_20 status
+    int attempt_count
+    timestamptz next_attempt_at
+    varchar_100 idempotency_key
+    timestamptz created_at
+  }
+  outbox_attempt {
+    uuid attempt_id PK
+    uuid outbox_id FK
+    int attempt_no
+    timestamptz started_at
+    timestamptz finished_at
+    varchar_20 result_status
+    varchar_150 provider_message_id
+    jsonb response_json
+    jsonb error_json
+  }
+  journal {
+    uuid journal_id PK
+    uuid situation_id FK
+    uuid snapshot_id FK
+    uuid document_id FK
+    timestamptz period_start
+    timestamptz period_end
+    varchar_20 status
+    char_64 projection_hash
+    uuid created_by FK
+    timestamptz created_at
+  }
+  journal_projection_item {
+    uuid projection_item_id PK
+    uuid journal_id FK
+    varchar_80 section_key
+    uuid[]/jsonb source_event_ids
+    jsonb fact_payload_json
+    text narrative_text
+    int sort_order
+    jsonb locked_fields_json
+  }
+  evaluation {
+    uuid evaluation_id PK
+    uuid situation_id FK
+    varchar_20 status
+    varchar_30 evaluation_type
+    numeric_6_2 overall_score
+    text summary
+    uuid created_by FK
+    timestamptz created_at
+  }
+  evaluation_score {
+    uuid score_id PK
+    uuid evaluation_id FK
+    varchar_60 criterion_code
+    numeric_6_2 score_value
+    numeric_6_3 weight_value
+    text comment
+    uuid[]/jsonb evidence_event_ids
+  }
+  improvement_action {
+    uuid action_id PK
+    uuid evaluation_id FK
+    text action_text
+    uuid owner_user_id FK
+    timestamptz due_at
+    varchar_20 status
+    varchar_30 target_type
+    uuid target_id
+  }
+  provider_config {
+    uuid provider_config_id PK
+    uuid tenant_id FK
+    varchar_30 provider_code
+    boolean enabled
+    int priority_no
+    varchar_500 base_url
+    varchar_300 credential_ref
+    jsonb timeout_json
+    jsonb feature_flags_json
+    int version_no
+  }
+  audit_log {
+    uuid audit_id PK
+    uuid tenant_id FK
+    uuid actor_id FK
+    varchar_80 action
+    varchar_40 resource_type
+    uuid resource_id
+    jsonb before_json
+    jsonb after_json
+    varchar_80 correlation_id
+    inet ip_address
+    text user_agent
+    timestamptz occurred_at
+  }
+  retention_policy {
+    uuid retention_policy_id PK
+    uuid tenant_id FK
+    varchar_40 resource_type
+    int retention_days
+    varchar_30 archive_strategy
+    boolean legal_hold_enabled
+    int version_no
+    uuid updated_by FK
+  }
+  notification {
+    uuid notification_id PK
+    uuid tenant_id FK
+    uuid user_id FK
+    varchar_40 notification_type
+    varchar_20 severity
+    varchar_300 title
+    text body
+    varchar_700 action_url
+    timestamptz read_at
+    timestamptz created_at
+  }

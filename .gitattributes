@@ -1,0 +1,15 @@
+# Shell scripts must stay LF — CRLF breaks bash (SessionStart hook 포함)
+*.sh text eol=lf
+*.py text
+*.yaml text
+*.yml text
+*.json text
+*.md text
+
+# Binary
+*.docx binary
+*.hwpx binary
+*.zip binary
+*.png binary
+*.pdf binary
+*.xlsx binary

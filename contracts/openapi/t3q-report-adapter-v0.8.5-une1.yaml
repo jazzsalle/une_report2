@@ -1,0 +1,266 @@
+openapi: 3.1.0
+info:
+  title: T3Q MOIS Report Adapter Contract
+  version: 0.8.5-une1
+  description: T3Q MOIS API v0.8.5 중 UNE 계획서 생성에 사용하는 RPT-001/002 및 선택적 RPT-003 계약
+servers:
+- url: https://plf.mois-disaster.t3q.ai
+paths:
+  /model-api/ae894/reports/plan/toc:
+    post:
+      operationId: t3q_rpt_001
+      summary: 재난안전계획서 목차 자동생성
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - data
+              properties:
+                data:
+                  $ref: '#/components/schemas/PlanTocData'
+      responses:
+        '200':
+          description: Generated TOC
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TocResponse'
+        '422':
+          description: Validation error
+        '500':
+          description: Provider error
+      x-source-api-id: API-RPT-001
+  /model-api/ae894/reports/plan/content:
+    post:
+      operationId: t3q_rpt_002
+      summary: 재난안전계획서 본문 자동생성
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - data
+              properties:
+                data:
+                  $ref: '#/components/schemas/PlanContentData'
+      responses:
+        '200':
+          description: JSON or SSE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentResponse'
+            text/event-stream:
+              schema:
+                type: string
+        '422':
+          description: Validation error
+        '500':
+          description: Provider error
+      x-source-api-id: API-RPT-002
+      x-sse-done: '[DONE]'
+  /model-api/ae894/reports/daily:
+    post:
+      operationId: t3q_rpt_003
+      summary: 일일상황일지 자동생성(선택적 Adapter)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - data
+              properties:
+                data:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Generated daily report
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - result
+                properties:
+                  result:
+                    type: string
+      x-source-api-id: API-RPT-003
+      x-une-decision: Optional enrichment only; Execution Log remains source of truth
+components:
+  schemas:
+    TocSection:
+      type: object
+      required:
+      - name
+      - children
+      properties:
+        name:
+          type: string
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/TocSection'
+    PlanTocData:
+      type: object
+      required:
+      - subject
+      - backgroundInfo
+      - purposeOfDocument
+      properties:
+        subject: &id001
+          type: string
+        backgroundInfo: &id002
+          type: object
+          required:
+          - disasterType
+          - controlPhase
+          properties:
+            disasterType:
+              type: string
+            controlPhase:
+              type: string
+            location:
+              type: string
+            startTime:
+              type: string
+              format: date-time
+            endTime:
+              type: string
+              format: date-time
+            reportTime:
+              type: string
+              format: date-time
+        contentInstruction: &id003
+          type: object
+          properties:
+            source:
+              type: string
+            essentialFactors:
+              type: array
+              items:
+                type: string
+            writingGuide:
+              type: string
+        expressionRule: &id004
+          type: object
+          properties:
+            tone:
+              type: string
+            maxSentenceLength:
+              type: string
+            paragraphSymbol:
+              type: string
+            bodytextStart:
+              type: string
+        purposeOfDocument: &id005
+          type: object
+          required:
+          - goalOfBusiness
+          - role
+          - targetAudiences
+          properties:
+            goalOfBusiness:
+              type: string
+            role:
+              type: string
+            targetAudiences:
+              type: array
+              items:
+                type: string
+        systemPrompt: &id006
+          type: string
+    PlanContentData:
+      type: object
+      required:
+      - subject
+      - backgroundInfo
+      - purposeOfDocument
+      - sections
+      properties:
+        subject: *id001
+        backgroundInfo: *id002
+        contentInstruction: *id003
+        expressionRule: *id004
+        purposeOfDocument: *id005
+        systemPrompt: *id006
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/TocSection'
+        stream:
+          type: boolean
+          default: true
+    TocResponse:
+      type: object
+      required:
+      - title
+      - sections
+      properties:
+        title:
+          type: string
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/TocSection'
+    Reference:
+      type: object
+      required:
+      - id
+      - fileId
+      - fileName
+      - page
+      properties:
+        id:
+          type: string
+        fileId:
+          type: string
+        fileName:
+          type: string
+        page:
+          type: string
+    ContentSection:
+      type: object
+      required:
+      - name
+      - content
+      - references
+      - children
+      properties:
+        name:
+          type: string
+        content:
+          type: string
+        references:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reference'
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContentSection'
+    ContentResponse:
+      type: object
+      required:
+      - sections
+      properties:
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContentSection'
+x-production-policy:
+  tlsVerification: REQUIRED by UNE; source document note “SSL verification disabled” is not accepted for production
+  authentication: OPEN in source v0.8.5; network allowlist/API credential contract must be fixed before production
+  timeouts: OPEN
+  rateLimit: OPEN
+  errorSchema: OPEN
