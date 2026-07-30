@@ -7,12 +7,19 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/coverage/**',
+      '**/src/generated/**',
       'docs/**',
       'scripts/legacy-validation/**',
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { console: 'readonly', process: 'readonly' },
+    },
+  },
   {
     rules: {
       '@typescript-eslint/no-unused-vars': [

@@ -20,6 +20,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm validate:contracts
+      # Generated contract types must match contracts/openapi (ADR-20).
+      # git add -N makes untracked (uncommitted new) generated files fail too.
+      - run: pnpm generate:contract-types
+      - run: git add -N -- '**/src/generated/**' && git diff --exit-code -- '**/src/generated/**'
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
