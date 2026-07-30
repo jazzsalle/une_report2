@@ -1,9 +1,8 @@
 -- V005__sop_task.sql: generated from physical DB design baseline v1.0
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS sop (
   sop_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   situation_id uuid,
   title varchar(300) NOT NULL,
   hazard_type varchar(50) NOT NULL,
@@ -24,7 +23,7 @@ COMMENT ON COLUMN sop.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS sop_version (
   sop_version_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  sop_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  sop_id uuid NOT NULL,
   version_no int DEFAULT 1 NOT NULL,
   status varchar(20) NOT NULL,
   graph_hash char(64) NOT NULL,
@@ -47,7 +46,7 @@ COMMENT ON COLUMN sop_version.approved_at IS '승인';
 
 CREATE TABLE IF NOT EXISTS sop_node (
   node_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  sop_version_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  sop_version_id uuid NOT NULL,
   node_key varchar(80) NOT NULL,
   node_type varchar(20) NOT NULL,
   title varchar(300) NOT NULL,
@@ -68,9 +67,9 @@ COMMENT ON COLUMN sop_node.sort_order IS '정렬';
 
 CREATE TABLE IF NOT EXISTS sop_edge (
   edge_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  sop_version_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  from_node_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  to_node_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  sop_version_id uuid NOT NULL,
+  from_node_id uuid NOT NULL,
+  to_node_id uuid NOT NULL,
   condition_expr text,
   condition_schema jsonb,
   priority int DEFAULT 0 NOT NULL,
@@ -87,7 +86,7 @@ COMMENT ON COLUMN sop_edge.label IS '표시명';
 
 CREATE TABLE IF NOT EXISTS sop_validation (
   validation_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  sop_version_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  sop_version_id uuid NOT NULL,
   status varchar(20) NOT NULL,
   errors_json jsonb NOT NULL,
   warnings_json jsonb NOT NULL,
@@ -106,9 +105,9 @@ COMMENT ON COLUMN sop_validation.validated_at IS '검증';
 
 CREATE TABLE IF NOT EXISTS sop_run (
   run_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  sop_version_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  snapshot_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  sop_version_id uuid NOT NULL,
+  situation_id uuid NOT NULL,
+  snapshot_id uuid NOT NULL,
   mode varchar(20) NOT NULL,
   status varchar(20) NOT NULL,
   started_by uuid NOT NULL,
@@ -129,8 +128,8 @@ COMMENT ON COLUMN sop_run.correlation_id IS '추적';
 
 CREATE TABLE IF NOT EXISTS task (
   task_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  run_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  node_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  run_id uuid NOT NULL,
+  node_id uuid NOT NULL,
   title varchar(300) NOT NULL,
   status varchar(30) NOT NULL,
   assignee_user_id uuid,
@@ -156,7 +155,7 @@ COMMENT ON COLUMN task.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS task_event (
   task_event_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  task_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  task_id uuid NOT NULL,
   event_type varchar(40) NOT NULL,
   event_time timestamptz NOT NULL,
   actor_id uuid,
@@ -175,8 +174,8 @@ COMMENT ON COLUMN task_event.created_at IS '기록';
 
 CREATE TABLE IF NOT EXISTS task_attachment (
   task_attachment_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  task_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  file_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  task_id uuid NOT NULL,
+  file_id uuid NOT NULL,
   category varchar(30) NOT NULL,
   caption varchar(500),
   geo_json jsonb,
@@ -195,7 +194,7 @@ COMMENT ON COLUMN task_attachment.uploaded_by IS '등록자';
 CREATE TABLE IF NOT EXISTS dispatch (
   dispatch_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   task_id uuid,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  situation_id uuid NOT NULL,
   message_type varchar(30) NOT NULL,
   message_body text NOT NULL,
   status varchar(20) NOT NULL,
@@ -213,7 +212,7 @@ COMMENT ON COLUMN dispatch.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS dispatch_recipient (
   recipient_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  dispatch_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  dispatch_id uuid NOT NULL,
   user_id uuid,
   organization_id uuid,
   channel varchar(20) NOT NULL,
@@ -230,4 +229,3 @@ COMMENT ON COLUMN dispatch_recipient.address_enc IS '암호화 주소';
 COMMENT ON COLUMN dispatch_recipient.delivery_status IS 'PENDING~FAILED';
 COMMENT ON COLUMN dispatch_recipient.acknowledged_at IS '수신확인';
 
-COMMIT;

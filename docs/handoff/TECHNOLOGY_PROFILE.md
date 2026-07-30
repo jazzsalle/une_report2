@@ -7,7 +7,7 @@ the detailed design is recorded in `docs/adr/ADR-19-backend-profile-nestjs.md`.
 
 - Web: React, TypeScript, Vite; deployed to Vercel for dev/demo sharing
 - API: NestJS (Node 22.12+, TypeScript) — ADR-19; Node floor raised from 20+ by Vite 7 workspace requirement (CC-001)
-- Data access: migration-reproducible tool (finalized at CC-004) plus explicit SQL for projection/high-volume paths
+- Data access: node-pg-migrate v9 (SQL-file migrations, ADR-21, 2026-07-30) plus explicit SQL for projection/high-volume paths; runtime connects as non-superuser une_app
 - DB: PostgreSQL 16+
 - Background work: NestJS worker service and PostgreSQL-backed job/outbox queue initially
 - Object storage: MinIO locally; any S3-compatible store (R2/Supabase) in cloud demo, behind one storage port
@@ -37,4 +37,5 @@ the detailed design is recorded in `docs/adr/ADR-19-backend-profile-nestjs.md`.
 
 - final delivery environment (OB-14; demo backend host closed: Railway)
 - Hancom test version for Track B (OB-08, decide before G4)
-- data access / migration tool (node-pg-migrate vs Prisma migrate — finalized at CC-004)
+
+Closed 2026-07-30: migration tool = node-pg-migrate v9 (ADR-21, CC-004).

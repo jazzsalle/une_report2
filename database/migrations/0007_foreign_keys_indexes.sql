@@ -1,5 +1,4 @@
 -- Foreign keys
-BEGIN;
 ALTER TABLE organization ADD CONSTRAINT fk_organization_tenant_id FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE organization ADD CONSTRAINT fk_organization_parent_id FOREIGN KEY (parent_id) REFERENCES organization(organization_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE app_user ADD CONSTRAINT fk_app_user_tenant_id FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED;
@@ -126,6 +125,8 @@ CREATE INDEX IF NOT EXISTS ix_execution_situation_time_type ON execution_event(s
 CREATE INDEX IF NOT EXISTS ix_audit_tenant_time ON audit_log(tenant_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS ix_notification_user_unread ON notification(user_id, read_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_outbox_due ON outbox_message(next_attempt_at) WHERE status IN ('PENDING','RETRY');
+-- 설계 UK-outbox-idem: 재시도 가능한 전송의 중복 삽입을 DB에서 차단 (ADR-21).
+CREATE UNIQUE INDEX IF NOT EXISTS uk_outbox_idem ON outbox_message(idempotency_key, channel);
 CREATE UNIQUE INDEX IF NOT EXISTS uk_toc_node_version_key ON toc_node(toc_version_id, node_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uk_sop_node_version_key ON sop_node(sop_version_id, node_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uk_plan_snapshot_version ON plan_context_snapshot(plan_id, version_no);
@@ -138,4 +139,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_job_idempotency ON generation_job(tenant_id
 CREATE INDEX IF NOT EXISTS ix_context_snapshot_json ON plan_context_snapshot USING gin(context_json jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS ix_fact_value_json ON situation_fact USING gin(value_json jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS ix_execution_payload_json ON execution_event USING gin(payload_json jsonb_path_ops);
-COMMIT;

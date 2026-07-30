@@ -111,7 +111,7 @@ work_items:
   gate: G1
   dependencies:
   - CC-002
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - empty DB migration
   - upgrade fixture migration
@@ -125,7 +125,15 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - 'tool: node-pg-migrate v9, SQL-file migrations, pgmigrations table (ADR-21, user-approved 2026-07-30); files renamed V###__ -> 0###_ (numeric-prefix requirement, pre-application)'
+  - 'empty DB: 11 migrations apply to scratch DB (runner + psql probe), 57 BASE TABLEs; local une DB provisioned (pgmigrations=11/tables=57/forced RLS=17)'
+  - 'upgrade: fixture data at 0010 survives 0011; FORCE flags verified'
+  - 'baseline defects fixed pre-application (ADR-21): uuid[]/jsonb x3 -> uuid[], plan timestamps+trigger, 74 non-PK random defaults removed, uk_outbox_idem added, global-row (IS NULL) policies read-only corrected, empty-schema preflight guard'
+  - 'tests: @une/db-integration 17/17 on PostgreSQL 16.9 (outbox 3-write atomicity commit+rollback, duplicate idempotency key rejected, RLS isolation as SET ROLE une_app, global rows readable/not writable, append-only+immutable 5 tables and pgmigrations zero-priv); 17 skipped without DATABASE_URL'
+  - 'data dictionary: docs/db/DATA_DICTIONARY.md generated from applied schema (57/512), deterministic sha256, CI db-verify drift gate (git add -N)'
+  - 'detail: docs/evidence/CC-004-migration-verification.md'
+  - 'review: architecture-guardian CONDITIONAL PASS + qa-gate-reviewer PASS WITH CONDITIONS (8 criteria independently reproduced); all mandatory findings (M1-M4, C1-C6) fixed same day'
 - id: CC-100
   title: Implement mock authentication, tenant, and RBAC
   gate: G1
@@ -140,6 +148,7 @@ work_items:
   - audit login/session events
   - tenant claim forgery blocked and tenant filter tests pass even in mock auth mode
   - mock-jwt issuance gated by AUTH_MODE=mock with signing key from environment secrets
+  - repositories enforce tenant scoping via parent-aggregate joins for child tables without tenant_id (DB RLS covers only 17 parent tables - ADR-21); global rows (tenant_id IS NULL) are read-only for runtime
   design_refs:
   - ADR
   - API_DB_SEQUENCE

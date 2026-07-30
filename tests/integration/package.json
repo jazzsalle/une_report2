@@ -1,0 +1,18 @@
+{
+  "name": "@une/db-integration",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CC-004 database integration tests: migrations, RLS, outbox atomicity. Skipped unless DATABASE_URL (superuser) is set.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.15.0",
+    "node-pg-migrate": "^9.0.0",
+    "pg": "^8.22.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.0"
+  }
+}

@@ -1,5 +1,4 @@
 -- V002__iam.sql: generated from physical DB design baseline v1.0
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS tenant (
   tenant_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -23,7 +22,7 @@ CREATE TRIGGER trg_tenant_updated_at BEFORE UPDATE ON tenant FOR EACH ROW EXECUT
 
 CREATE TABLE IF NOT EXISTS organization (
   organization_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   parent_id uuid,
   org_code varchar(50) NOT NULL,
   org_name varchar(200) NOT NULL,
@@ -44,7 +43,7 @@ COMMENT ON COLUMN organization.version_no IS '낙관잠금';
 
 CREATE TABLE IF NOT EXISTS app_user (
   user_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   external_user_id varchar(100),
   login_id varchar(100) NOT NULL,
   display_name varchar(100) NOT NULL,
@@ -99,8 +98,8 @@ COMMENT ON COLUMN permission.description IS '설명';
 
 CREATE TABLE IF NOT EXISTS user_role (
   user_role_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  role_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  user_id uuid NOT NULL,
+  role_id uuid NOT NULL,
   scope_id uuid,
   valid_from timestamptz,
   valid_to timestamptz,
@@ -118,7 +117,7 @@ COMMENT ON COLUMN user_role.created_at IS '부여일시';
 
 CREATE TABLE IF NOT EXISTS user_session (
   session_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  user_id uuid NOT NULL,
   refresh_hash char(64) NOT NULL,
   issued_at timestamptz DEFAULT now() NOT NULL,
   expires_at timestamptz NOT NULL,
@@ -135,4 +134,3 @@ COMMENT ON COLUMN user_session.revoked_at IS '폐기';
 COMMENT ON COLUMN user_session.client_ip IS 'IP';
 COMMENT ON COLUMN user_session.user_agent IS 'UA';
 
-COMMIT;
