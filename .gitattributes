@@ -1,10 +1,21 @@
 # Shell scripts must stay LF — CRLF breaks bash (SessionStart hook 포함)
+# Source/text files are LF everywhere: prettier(endOfLine:lf)와 Linux CI 기준.
+# core.autocrlf=true인 Windows PC에서도 아래 eol=lf가 우선한다.
 *.sh text eol=lf
-*.py text
-*.yaml text
-*.yml text
-*.json text
-*.md text
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.sql text eol=lf
 
 # Binary
 *.docx binary
