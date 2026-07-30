@@ -21,9 +21,9 @@ the detailed design is recorded in `docs/adr/ADR-19-backend-profile-nestjs.md`.
 ## Deployment constraints
 
 - Developer PCs are on internal networks without fixed IPs. Team/meeting-room
-  demos require public URLs: frontend on Vercel, backend as containers on a
-  cloud host (OB-14, decide before first G2 demo), managed PostgreSQL,
-  S3-compatible storage.
+  demos require public URLs: frontend on Vercel, backend as containers on
+  Railway (demo host closed 2026-07-30, existing paid account; OB-14),
+  managed PostgreSQL (Railway Postgres candidate), S3-compatible storage.
 - Backend/worker/HWPX engine stay containerized; never Vercel serverless
   functions (long-running workers, outbox polling, SSE, long HWPX jobs).
 - Shared demo environments carry masked/sample data only.
@@ -35,6 +35,6 @@ the detailed design is recorded in `docs/adr/ADR-19-backend-profile-nestjs.md`.
 
 ## Still OPEN
 
-- demo backend host and final delivery environment (OB-14)
+- final delivery environment (OB-14; demo backend host closed: Railway)
 - Hancom test version for Track B (OB-08, decide before G4)
 - data access / migration tool (node-pg-migrate vs Prisma migrate — finalized at CC-004)

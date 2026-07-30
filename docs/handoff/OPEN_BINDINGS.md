@@ -16,10 +16,11 @@ These items must not be guessed by Claude Code.
 | OB-11 | T3Q evidence search and semantic validation CR-T3Q-005/006 | UNE UI placeholder + mock response | accepted contract + representative payloads |
 | OB-12 | ProcessGPT adoption and rhwp pinned source decisions | ProcessGPT evaluation-only; rhwp not imported until provenance gate | ADR + license/SBOM/hash/POC report |
 | OB-13 | UNI live base path, auth, TLS, limits, and error contract | bundled OpenAPI snapshot + mock adapter | live OpenAPI capture + contract tests |
-| OB-14 | demo backend host (Render/Railway/Fly candidate) and final delivery environment | local Docker Compose; frontend demo on Vercel | host decision recorded before first G2 demo; delivery env binding record |
+| OB-14 | final delivery environment (demo backend host closed: Railway, see below) | demo backend on Railway containers; local Docker Compose for dev; frontend demo on Vercel | delivery env binding record |
 
 ## Closed bindings
 
 | ID | Binding | Closed by | Evidence |
 |---|---|---|---|
 | OB-09 | repository URL, backend profile, CI, deployment target | CC-000 approval 2026-07-30 | `work-items/00_DECISIONS_TO_CONFIRM.yaml` (APPROVED), ADR-19; residual deployment items moved to OB-14 |
+| OB-14 (demo backend host) | demo backend host among Render/Railway/Fly candidates | user decision 2026-07-30 | Railway (existing paid account); backend api/worker as Railway containers, managed PostgreSQL candidate Railway Postgres; final delivery environment stays OPEN under OB-14 |

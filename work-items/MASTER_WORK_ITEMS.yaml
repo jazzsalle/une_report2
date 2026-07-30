@@ -57,7 +57,7 @@ work_items:
   gate: G0
   dependencies:
   - CC-001
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - local services start
   - health checks
@@ -67,7 +67,14 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - 'local services start: postgres 16.9(bookworm)/minio healthy, minio-init Exited(0) idempotent (2026-07-30, WSL2 Ubuntu + Docker CE 29.6.2)'
+  - 'health checks: compose healthy + pg_isready + mc ready + host 9000/9001=200, TCP 5432 OK (127.0.0.1 bind)'
+  - 'persistent volumes: probe row/object survived compose down/up recreation and WSL VM restart; volume CreatedAt precedes recreated containers (qa reproduction)'
+  - 'no secrets in repo: infrastructure/.env gitignored, .env.example empty values, git grep 0 hits, ${VAR:?} guards'
+  - 'least privilege: non-superuser app role une_app (NOSUPERUSER/NOBYPASSRLS) + bucket-scoped MinIO service account; root/superuser for ops only'
+  - 'detail: docs/evidence/CC-002-runtime-verification.md'
+  - 'review: architecture-guardian CONDITIONAL PASS + qa-gate-reviewer PASS WITH CONDITIONS; all mandatory findings (M-1..M-4, C1..C2) fixed same day'
 - id: CC-003
   title: Import and validate OpenAPI and JSON Schemas
   gate: G1
@@ -113,6 +120,7 @@ work_items:
   - migration tool decision recorded (node-pg-migrate vs Prisma migrate, ADR-19 deferral)
   - ORM/generated types confined to persistence adapters; domain depends on ports only
   - integration test proving state change + execution event + outbox insert in one transaction
+  - FORCE ROW LEVEL SECURITY on RLS tables; RLS tests run as non-superuser app role une_app (owner/superuser bypasses RLS - CC-002 review C2)
   design_refs:
   - ADR
   - API_DB_SEQUENCE

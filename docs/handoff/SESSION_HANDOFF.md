@@ -1,63 +1,72 @@
 # Session Handoff
 
-- Date/time: 2026-07-30 (company PC, second session)
-- Branches: feature/CC-002 (IN_PROGRESS), feature/CC-003 (DONE, PR 대기)
-- Current Work Item: CC-003 DONE / CC-002 runtime verification pending reboot
+- Date/time: 2026-07-30 (company PC, third session — post-reboot)
+- Branches: feature/CC-002 (DONE, PR 대기)
+- Current Work Item: CC-002 DONE / next CC-004
 
 ## Completed this session
 
-- Company-PC bootstrap verified: pnpm 10.34.5, install/build/test(10) pass.
-- CI fixed on main (e429891): pnpm/action-setup version input conflicted with
-  package.json packageManager; CI now GREEN.
-- CC-002 authored (feature/CC-002, b82cdec..2d9970e): PostgreSQL 16.9 + MinIO
-  compose with health checks/volumes/no secrets; deploy-topology README.
-  Runtime verification blocked: WSL2+Ubuntu installed, NEEDS WINDOWS REBOOT,
-  then Docker Engine CE install (commands in infrastructure/README.md).
-- OB-14 demo backend host CLOSED by user decision: Railway (existing paid
-  account). Final delivery environment stays OPEN under OB-14. Recorded in
-  OPEN_BINDINGS/TECHNOLOGY_PROFILE/00_DECISIONS_TO_CONFIRM (feature/CC-002).
-- CC-003 DONE (feature/CC-003, 4edd0a8+313892f): ADR-20 contract gate.
-  pnpm validate:contracts (4 OpenAPI 3.1 structural + 7 JSON Schema Ajv
-  2020-12 incl. cross-file $ref + mock sync 13 routes, /health and catch-all
-  exceptions, unparseable-style and zero-count guards) wired into CI before
-  build; pnpm generate:contract-types (openapi-typescript types-only,
-  4 committed outputs, target-v2 header warns NOT-T3Q-accepted/OB-10,
-  CI drift gate git add -N + git diff --exit-code); /health confirmed
-  out-of-contract; provider-adapters exports blocks deep imports;
-  .gitattributes eol=lf for all source files (autocrlf fix).
-- CC-003 dual review done (project agents run as general-purpose fallback —
-  Agent tool had no project agent types registered): architecture-guardian
-  CONDITIONAL PASS, qa-gate-reviewer PASS WITH CONDITIONS; all mandatory
-  findings fixed same day (see CHANGELOG).
+- WSL2 Ubuntu 24.04 registered post-reboot (`ubuntu.exe install --root`;
+  reboot alone left the distro unregistered) + Docker Engine CE 29.6.2 /
+  Compose v5.3.1 installed inside Ubuntu per infrastructure/README.md
+  (systemd auto-starts dockerd).
+- CC-002 runtime verified and DONE: compose up healthy (postgres/minio),
+  pg_isready + mc ready, host access via WSL localhost forwarding
+  (9000/9001=200, TCP 5432 OK), named volumes survive compose down/up
+  recreation AND WSL VM restart. Evidence:
+  docs/evidence/CC-002-runtime-verification.md.
+- CC-002 dual review (project agent types now registered and used directly):
+  architecture-guardian CONDITIONAL PASS, qa-gate-reviewer PASS WITH
+  CONDITIONS (acceptance criteria independently reproduced). All mandatory
+  findings fixed same day:
+  - postgres:16.9-bookworm + ICU ko-KR initdb (demo managed-PG parity, M-4)
+  - 127.0.0.1 default bind via UNE_BIND_ADDRESS (M-2)
+  - MinIO bucket-scoped policy + service account via idempotent
+    minio-init.sh; root = human ops only (M-1/C3)
+  - non-superuser app role une_app (NOSUPERUSER/NOBYPASSRLS) created by
+    initdb/01-app-role.sh; runtime DATABASE_URL uses it (C2)
+  - CI: docker compose config --quiet gate (C5)
+  - README: WSL idle-shutdown trap, scope deferrals (AV scan → CC-140/220,
+    PgBouncer, bucket versioning, digest pinning) (C4/L)
+  - status docs synced 4 places + evidence committed (M-3/C1)
+- CC-004 acceptance criteria extended: FORCE ROW LEVEL SECURITY + RLS tests
+  as une_app (owner/superuser bypasses RLS).
+- IMPLEMENTATION_BASELINE §6: OB-14 Railway closure line added (L-3).
 
 ## Evidence
 
-- Full gate exit 0: validate:contracts, generate+drift, build, typecheck,
-  test(10), lint, format:check, validate_handoff (256 files).
-- Negative tests: broken openapi version + broken schema $ref -> exit 1;
-  fake mock route detected (in-memory sim by qa reviewer).
+- docs/evidence/CC-002-runtime-verification.md (initial + post-fix rebuild:
+  une_app rolsuper=f/rolbypassrls=f, ICU ko-KR on DB une, service account
+  bucket-RW-OK/admin-denied/mb-denied, minio-init idempotent 2x Exited(0),
+  docker port all 127.0.0.1).
+- Full pnpm gate green incl. validate:handoff; qa reviewer re-ran the gate
+  independently (10/10 tests).
 
 ## Exact next actions
 
-1. GitHub에서 PR 생성·머지 (CI가 PR에서 실행됨):
-   - https://github.com/jazzsalle/une_report2/pull/new/feature/CC-003 (준비됨)
-   - feature/CC-002는 런타임 검증 통과 후 PR
-2. Windows 재부팅 → `wsl -d Ubuntu` 초기화 → Docker Engine CE 설치
-   (infrastructure/README.md) → `docker compose up -d` 헬스체크 검증 →
-   CC-002 리뷰 게이트 → DONE → PR.
-3. 이후 CC-004 (DB 마이그레이션; CC-002 런타임 필요; migration tool 결정:
-   node-pg-migrate vs Prisma).
+1. GitHub에서 feature/CC-002 PR 생성·머지 (CI가 PR에서 실행됨):
+   https://github.com/jazzsalle/une_report2/pull/new/feature/CC-002
+2. CC-004 (DB 마이그레이션): migration tool 결정(node-pg-migrate vs Prisma
+   migrate, ADR-19 deferral) → 57-table baseline, FORCE RLS + une_app 테스트,
+   outbox 단일 트랜잭션 통합 테스트. CC-002 런타임 사용 가능.
 
 ## Risks/blockers
 
-- CC-002 acceptance은 재부팅+Docker 설치 전까지 검증 불가.
-- SESSION_HANDOFF/IMPLEMENTATION_STATUS가 두 feature 브랜치에서 각각
-  갱신됨 — 머지 순서에 따라 사소한 충돌 가능(최신 내용 우선).
+- WSL2 유휴 자동 종료: Windows에서 localhost:5432/9000 접속 전에 WSL을 먼저
+  깨워야 함 (`wsl -d Ubuntu -- docker compose ps`). README에 기록됨.
+- initdb 인자/앱 롤 변경은 `docker compose down -v`(볼륨 초기화) 필요 —
+  로컬 데이터 삭제 주의.
 - Deferred: example-level contract tests는 tests/ 배선 시(CC-115/CC-400),
   redocly 스타일 린트 재평가 동일 시점 (ADR-20 결정 6).
 - Root .env.example UNI_VERIFY_TLS=false는 POC-local 전용 (carried risk).
+- LOW 이월: OB-14 OPEN/CLOSED 동시 등재 표기(OB-14a/b 분리 제안), 이미지
+  digest 고정, MinIO 버킷 버전관리 — 기록 위치는 CC-002 리뷰 결과 참조.
 
 ## Notes
 
 - gh CLI 미설치; CI 상태는 GitHub REST API로 확인 가능(공개 저장소).
-- 이 PC git core.autocrlf=true — .gitattributes eol=lf가 이제 우선함.
+- 이 PC git core.autocrlf=true — .gitattributes eol=lf가 우선함. WSL로
+  마운트되는 셸 스크립트(minio-init.sh, initdb/*.sh)는 LF 필수(.gitattributes
+  가 보장, 검증 시 CR 검사 수행).
+- mc 이미지는 coreutils 미포함(sed/grep 없음) — minio-init.sh는 셸 내장만
+  사용.

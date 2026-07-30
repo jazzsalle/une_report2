@@ -16,6 +16,7 @@ RS-2024-00407304의 UNE 담당 영역: 재난안전계획서 생성 도구 + 상
 | `packages/provider-adapters` | T3Q/UNI/공식 제공자 어댑터 (포트는 CC-115+) |
 | `contracts` | OpenAPI/JSON Schema |
 | `database/migrations` | PostgreSQL forward-only 마이그레이션 (CC-004부터) |
+| `infrastructure` | 로컬 의존성 Docker Compose (PostgreSQL 16 + MinIO) — `infrastructure/README.md` |
 | `tests` | 크로스컷 스위트 자리 (G0에서는 미연결 — 패키지 unit 테스트는 각 패키지 내부, `tests/baseline` pytest는 추후 연결) |
 | `templete` | 실제 HWPX 보고서/상황보고 양식 — HWPX 라운드트립 테스트 입력 |
 
