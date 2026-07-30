@@ -3,9 +3,8 @@ info:
   title: UNE 재난안전 AI 문서 통합플랫폼 API
   version: 1.0.0
   description: ADR v1.1 및 API·DB·화면별 Sequence 상세설계서 기준 121개 내부 API 계약 초안
-# NOTE(CC-001): GET /health is an out-of-contract operational endpoint served at the
-# server root (excluded from the /api/v1 prefix). Formal contract inclusion is decided
-# at CC-003.
+# NOTE(CC-003/ADR-20): GET /health is a confirmed out-of-contract operational endpoint
+# served at the server root (excluded from the /api/v1 prefix and from this contract).
 servers:
 - url: http://localhost:3001/api/v1
   description: Local development

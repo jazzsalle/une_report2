@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- CC-003 (2026-07-30): contract validation gate and type generation (ADR-20).
+  pnpm validate:contracts (scripts/validate-contracts.mjs): OpenAPI 4 files
+  structural validation (@seriousme/openapi-schema-validator, 3.1), JSON
+  Schema 7 files Ajv 2020-12 compile incl. cross-file $ref via
+  https://schemas.une.local/ $id, mock-server route sync (13 routes vs
+  une-platform-api-v1; explicit exceptions: /health ops endpoint,
+  /api/v1/{path:path} catch-all; unparseable registration styles fail the
+  gate; zero-file counts fail). pnpm generate:contract-types
+  (openapi-typescript, types-only): une-platform-api -> services/api/src/
+  generated, T3Q legacy + target-v2 + UNI -> packages/provider-adapters/src/
+  generated (target-v2 header carries NOT-T3Q-accepted/OB-10 warning);
+  outputs committed, CI regenerates and blocks drift (git add -N + git diff
+  --exit-code). /health confirmed out-of-contract (deferred from CC-001).
+  provider-adapters exports field blocks generated-type deep imports;
+  packages/domain has no generated-type dependency. Generated dirs excluded
+  from ESLint/Prettier, still typechecked. Negative tests: broken openapi
+  version + broken schema $ref -> exit 1, restored; fake mock route detected.
+  Review (architecture-guardian CONDITIONAL PASS, qa-gate-reviewer PASS WITH
+  CONDITIONS run as general-purpose agents with project agent definitions):
+  all mandatory findings fixed same day - CI untracked-file drift blind spot,
+  api_route fallback allowlist + APIRouter/include_router/add_api_route
+  guard, target-v2 warning header, exports subpath block, zero-file guards,
+  MASTER_WORK_ITEMS evidence. Deferred: example-level contract tests to
+  tests/ wiring (CC-115/CC-400 with redocly style lint re-evaluation).
+  Also: .gitattributes eol=lf extended to source files (company-PC
+  core.autocrlf=true made prettier fail on all checked-out files); CI fix
+  e429891 (pnpm/action-setup version input vs packageManager conflict)
+  landed on main earlier the same day.
+
 - CC-001 (2026-07-30): pnpm monorepo bootstrap. Workspaces: apps/web,
   apps/field-web (React 19 + Vite 7), services/api (NestJS 11, /health),
   services/worker (NestJS standalone heartbeat), services/hwpx-engine

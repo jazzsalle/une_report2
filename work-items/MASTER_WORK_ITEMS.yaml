@@ -73,7 +73,7 @@ work_items:
   gate: G1
   dependencies:
   - CC-001
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - contract validation passes
   - generated client/DTO strategy
@@ -82,7 +82,23 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - 'pnpm validate:contracts PASS: OpenAPI 4 files (3.1 structural), JSON Schema 7
+    files (Ajv 2020-12 incl. cross-file $ref), mock sync 13 routes (2026-07-30)'
+  - 'negative tests: broken openapi version + broken schema $ref -> exit 1 (both
+    detected, restored); fake mock route injection detected (qa-gate in-memory sim)'
+  - 'pnpm generate:contract-types: 4 committed types-only outputs; CI drift gate
+    git add -N + git diff --exit-code; deterministic regen verified by SHA256'
+  - 'ADR-20 (validation gate, openapi-typescript types-only strategy, /health
+    out-of-contract confirmed, mock catch-all exception)'
+  - 'full gate: build/typecheck/test(10)/lint/format:check exit 0, validate_handoff
+    PASS 256 files'
+  - 'review: architecture-guardian CONDITIONAL PASS + qa-gate-reviewer PASS WITH
+    CONDITIONS; all mandatory findings fixed same day (CI untracked drift blind
+    spot, api_route fallback allowlist + unparseable-pattern guard, target-v2
+    header warning, provider-adapters exports subpath block, zero-file guards)'
+  - 'deferred: example-level contract tests (tests/ wiring) noted for CC-115/CC-400
+    with redocly style lint re-evaluation'
 - id: CC-004
   title: Apply initial database migrations and seed
   gate: G1

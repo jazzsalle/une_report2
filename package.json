@@ -18,13 +18,20 @@
     "lint": "eslint .",
     "format": "prettier --write \"{apps,services,packages}/**/*.{ts,tsx,json}\" \"*.{json,mjs}\"",
     "format:check": "prettier --check \"{apps,services,packages}/**/*.{ts,tsx,json}\" \"*.{json,mjs}\"",
-    "validate:handoff": "python scripts/validate_handoff.py"
+    "validate:handoff": "python scripts/validate_handoff.py",
+    "validate:contracts": "node scripts/validate-contracts.mjs",
+    "generate:contract-types": "node scripts/generate-contract-types.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
+    "@seriousme/openapi-schema-validator": "^2.9.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "^9.30.0",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.6.0",
     "typescript": "^5.9.2",
-    "typescript-eslint": "^8.35.0"
+    "typescript-eslint": "^8.35.0",
+    "yaml": "^2.9.0"
   }
 }
