@@ -67,6 +67,8 @@ and `work-items/00_DECISIONS_TO_CONFIRM.yaml`.
 - GitHub Actions CI
 - Demos require public URLs (no fixed developer IPs): frontend on Vercel,
   backend containers on a cloud host (OB-14); backend never Vercel serverless
+  — demo backend host closed as Railway (2026-07-30, OB-14); final delivery
+  environment stays OPEN under OB-14
 
 ## 7. Release gates
 

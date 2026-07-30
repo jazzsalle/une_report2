@@ -31,17 +31,42 @@ sudo usermod -aG docker $USER   # 이후 셸 재시작
 
 WSL2 안에서 이 저장소는 `/mnt/d/vibecoding/report2`로 접근한다.
 
+> **WSL 유휴 종료 주의**: WSL2 VM은 유휴 시 자동 종료되며, Windows 쪽에서
+> `localhost:5432/9000`으로 소켓을 여는 것만으로는 VM이 깨어나지 않는다
+> (connection refused). 먼저 `wsl -d Ubuntu -- docker compose ps` 같은 명령으로
+> VM을 깨우면 systemd가 docker를 올리고 `restart: unless-stopped` 정책으로
+> 컨테이너가 자동 복구된다.
+
 ## 기동
 
 ```bash
 cd infrastructure
-cp .env.example .env    # UNE_DB_PASSWORD, UNE_MINIO_ROOT_PASSWORD 설정 (필수)
+cp .env.example .env    # 비밀값 4개 설정 (필수): UNE_DB_PASSWORD,
+                        # UNE_DB_APP_PASSWORD, UNE_MINIO_ROOT_PASSWORD,
+                        # UNE_STORAGE_ACCESS_KEY/UNE_STORAGE_SECRET_KEY
 docker compose up -d
 docker compose ps       # postgres/minio가 healthy 인지 확인
 ```
 
-`minio-init`는 `UNE_MINIO_BUCKET`(기본 `une-documents`) 버킷을 만들고 종료하는
-일회성 컨테이너다(Exited(0)이 정상).
+`minio-init`는 버킷(`UNE_MINIO_BUCKET`, 기본 `une-documents`)과 버킷 한정
+정책(`une-app`) + 서비스 계정(`UNE_STORAGE_ACCESS_KEY`)을 만들고 종료하는
+일회성 멱등 컨테이너다(Exited(0)이 정상).
+
+## 접속 주체 (최소권한)
+
+| 주체 | 용도 | 비고 |
+|---|---|---|
+| PG `une` (superuser) | 마이그레이션·운영 작업 전용 | RLS를 우회하므로 런타임 금지 |
+| PG `une_app` | services/api·worker 런타임 | NOSUPERUSER/NOBYPASSRLS — RLS 강제. 첫 initdb에서 생성 |
+| MinIO root (`une-minio`) | 콘솔·부트스트랩 등 사람 운영 전용 | 서비스 설정에 넣지 않는다 |
+| MinIO `UNE_STORAGE_ACCESS_KEY` | services/api·worker 런타임 | `une-documents` 버킷 한정 정책 |
+
+- `POSTGRES_INITDB_ARGS`(ICU ko-KR 콜레이션)와 `initdb/01-app-role.sh`는 **첫
+  initdb에만** 적용된다. 변경하려면 `docker compose down -v`로 볼륨 초기화 필요.
+- 이미지는 Debian(bookworm) 계열로 고정한다 — 데모 관리형 PostgreSQL(glibc)과
+  콜레이션·쿼리 플랜 패리티 유지 목적. alpine으로 되돌리지 말 것.
+- CC-004(마이그레이션)는 `FORCE ROW LEVEL SECURITY` 적용과 함께 RLS 테스트를
+  `une_app` 롤로 수행해야 한다(소유자/superuser는 RLS를 우회하므로).
 
 ## 검증
 
@@ -49,7 +74,8 @@ docker compose ps       # postgres/minio가 healthy 인지 확인
 # PostgreSQL 헬스체크
 docker compose exec postgres pg_isready -U une -d une
 
-# MinIO 헬스체크 (컨테이너 내부 mc)
+# MinIO 헬스체크 (컨테이너 내부 mc; 비인증 liveness라 자격증명 오류는 못 잡는다.
+# 버킷·서비스 계정 준비 신호는 minio-init의 Exited(0)으로 판단)
 docker compose exec minio mc ready local
 
 # 호스트에서 접근 확인
@@ -65,6 +91,20 @@ docker compose down -v       # 명명된 볼륨까지 삭제 (데이터 초기�
 ```
 
 데이터는 명명된 볼륨 `une_pgdata`, `une_minio_data`에 영속화된다.
+
+## 범위 노트 (CC-002 이후 항목)
+
+- **AV 스캔**: 설계(10_API_DB_SEQUENCE §업로드)의 malware scan 의존성은 파일
+  업로드 항목(CC-140/CC-220)에서 ScanPort 로컬 스텁으로 추가한다. 이 compose에
+  스캐너 컨테이너가 없는 것은 기록된 유예다.
+- **PgBouncer**: 설계 스택의 커넥션 풀러는 로컬 개발 규모에서 불필요해 생략.
+  부하·배포 검증 항목에서 재평가한다.
+- **버킷 버전관리**: 로컬 MinIO에 버전관리를 켜지 않았다. 불변 산출물(스냅샷
+  근거, export 결과, raw payload)의 불변성은 애플리케이션 계층의 write-once 키
+  규칙으로 보장하며, 스토리지 포트 구현 항목에서 버전관리 필요성을 재평가한다.
+- **이미지 고정**: 태그 고정(digest 미고정). 태그를 올릴 때는 이 README와
+  증거 문서를 함께 갱신하고 `docker compose config --quiet` + 기동 검증을 다시
+  수행한다.
 
 ## 배포와의 관계
 
@@ -89,6 +129,11 @@ docker compose down -v       # 명명된 볼륨까지 삭제 (데이터 초기�
 `services/api/.env`와 `services/worker/.env`의 예시 형태:
 
 ```
-DATABASE_URL=postgres://une:<UNE_DB_PASSWORD>@localhost:5432/une
+DATABASE_URL=postgres://une_app:<UNE_DB_APP_PASSWORD>@localhost:5432/une
 OBJECT_STORAGE_ENDPOINT=http://localhost:9000
+OBJECT_STORAGE_ACCESS_KEY=<UNE_STORAGE_ACCESS_KEY>
+OBJECT_STORAGE_SECRET_KEY=<UNE_STORAGE_SECRET_KEY>
 ```
+
+런타임은 항상 `une_app`(PG)과 버킷 한정 서비스 계정(MinIO)을 사용한다.
+superuser·root 자격증명은 서비스 `.env`에 넣지 않는다.
