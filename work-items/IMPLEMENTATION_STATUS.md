@@ -6,8 +6,8 @@ Last updated: 2026-07-30
 |---|---|---|---|---|---|
 | CC-000 | Confirm implementation profile and external assumptions | DONE | main | 00_DECISIONS_TO_CONFIRM.yaml APPROVED 2026-07-30; ADR-19; TECHNOLOGY_PROFILE.md; OB-09 closed, OB-14 added | Proceed to CC-001 (NestJS monorepo bootstrap) |
 | CC-001 | Bootstrap monorepo and shared tooling | DONE | main | pnpm build/typecheck/test/lint all pass (10 tests); validate_handoff PASS 254 files; env examples + README | Proceed to CC-002 (compose: PostgreSQL+MinIO) |
-| CC-002 | Bootstrap PostgreSQL, object storage, and local compose | NOT_STARTED | - | - | Confirm dependencies and plan |
-| CC-003 | Import and validate OpenAPI and JSON Schemas | DONE | feature/CC-003 | validate:contracts PASS (4 OpenAPI + 7 schemas + mock sync 13 routes); negative tests exit 1; 4 generated types-only files + CI drift gate; ADR-20; dual review conditions fixed | Merge PR; proceed to CC-004 (needs CC-002 runtime) |
+| CC-002 | Bootstrap PostgreSQL, object storage, and local compose | IN_PROGRESS | feature/CC-002 | Compose+env examples authored (b82cdec); YAML valid; validate_handoff PASS; no secrets | Install Docker runtime (WSL2 Docker CE/Rancher/Podman), then verify services healthy and run review gate |
+| CC-003 | Import and validate OpenAPI and JSON Schemas | DONE | main (PR #1 merged, CI green) | validate:contracts PASS (4 OpenAPI + 7 schemas + mock sync 13 routes); negative tests exit 1; 4 generated types-only files + CI drift gate; ADR-20; dual review conditions fixed | Proceed to CC-004 (needs CC-002 runtime) |
 | CC-004 | Apply initial database migrations and seed | NOT_STARTED | - | - | Confirm dependencies and plan |
 | CC-100 | Implement mock authentication, tenant, and RBAC | NOT_STARTED | - | - | Confirm dependencies and plan |
 | CC-110 | Implement Plan and immutable PlanContextSnapshot | NOT_STARTED | - | - | Confirm dependencies and plan |
