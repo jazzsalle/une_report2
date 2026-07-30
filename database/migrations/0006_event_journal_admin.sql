@@ -1,12 +1,11 @@
 -- V006__event_journal_admin.sql: generated from physical DB design baseline v1.0
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS execution_event (
   execution_event_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
+  situation_id uuid NOT NULL,
   aggregate_type varchar(30) NOT NULL,
-  aggregate_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  aggregate_id uuid NOT NULL,
   event_type varchar(50) NOT NULL,
   occurred_at timestamptz DEFAULT now() NOT NULL,
   recorded_at timestamptz DEFAULT now() NOT NULL,
@@ -32,9 +31,9 @@ COMMENT ON COLUMN execution_event.event_hash IS '위변조검증';
 
 CREATE TABLE IF NOT EXISTS outbox_message (
   outbox_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   aggregate_type varchar(30) NOT NULL,
-  aggregate_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  aggregate_id uuid NOT NULL,
   event_type varchar(50) NOT NULL,
   payload_json jsonb NOT NULL,
   channel varchar(20) NOT NULL,
@@ -59,7 +58,7 @@ COMMENT ON COLUMN outbox_message.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS outbox_attempt (
   attempt_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  outbox_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  outbox_id uuid NOT NULL,
   attempt_no int NOT NULL,
   started_at timestamptz DEFAULT now() NOT NULL,
   finished_at timestamptz,
@@ -80,9 +79,9 @@ COMMENT ON COLUMN outbox_attempt.error_json IS '오류';
 
 CREATE TABLE IF NOT EXISTS journal (
   journal_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  snapshot_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  document_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  situation_id uuid NOT NULL,
+  snapshot_id uuid NOT NULL,
+  document_id uuid NOT NULL,
   period_start timestamptz NOT NULL,
   period_end timestamptz NOT NULL,
   status varchar(20) NOT NULL,
@@ -103,9 +102,9 @@ COMMENT ON COLUMN journal.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS journal_projection_item (
   projection_item_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  journal_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  journal_id uuid NOT NULL,
   section_key varchar(80) NOT NULL,
-  source_event_ids uuid[]/jsonb NOT NULL,
+  source_event_ids uuid[] NOT NULL,
   fact_payload_json jsonb NOT NULL,
   narrative_text text,
   sort_order int DEFAULT 0 NOT NULL,
@@ -122,7 +121,7 @@ COMMENT ON COLUMN journal_projection_item.locked_fields_json IS '잠금필드';
 
 CREATE TABLE IF NOT EXISTS evaluation (
   evaluation_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  situation_id uuid NOT NULL,
   status varchar(20) NOT NULL,
   evaluation_type varchar(30) NOT NULL,
   overall_score numeric(6,2),
@@ -141,12 +140,12 @@ COMMENT ON COLUMN evaluation.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS evaluation_score (
   score_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  evaluation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  evaluation_id uuid NOT NULL,
   criterion_code varchar(60) NOT NULL,
   score_value numeric(6,2) NOT NULL,
   weight_value numeric(6,3) NOT NULL,
   comment text,
-  evidence_event_ids uuid[]/jsonb
+  evidence_event_ids uuid[]
 );
 COMMENT ON COLUMN evaluation_score.score_id IS '평가점수';
 COMMENT ON COLUMN evaluation_score.evaluation_id IS '평가';
@@ -158,7 +157,7 @@ COMMENT ON COLUMN evaluation_score.evidence_event_ids IS '근거';
 
 CREATE TABLE IF NOT EXISTS improvement_action (
   action_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  evaluation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  evaluation_id uuid NOT NULL,
   action_text text NOT NULL,
   owner_user_id uuid,
   due_at timestamptz,
@@ -200,7 +199,7 @@ COMMENT ON COLUMN provider_config.version_no IS '버전';
 
 CREATE TABLE IF NOT EXISTS audit_log (
   audit_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   actor_id uuid,
   action varchar(80) NOT NULL,
   resource_type varchar(40) NOT NULL,
@@ -246,8 +245,8 @@ COMMENT ON COLUMN retention_policy.updated_by IS '수정자';
 
 CREATE TABLE IF NOT EXISTS notification (
   notification_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  user_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
+  user_id uuid NOT NULL,
   notification_type varchar(40) NOT NULL,
   severity varchar(20) NOT NULL,
   title varchar(300) NOT NULL,
@@ -267,4 +266,3 @@ COMMENT ON COLUMN notification.action_url IS '조치링크';
 COMMENT ON COLUMN notification.read_at IS '읽음';
 COMMENT ON COLUMN notification.created_at IS '생성';
 
-COMMIT;

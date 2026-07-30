@@ -26,3 +26,4 @@
 | ADR-18 | 기관 독립 Scenario Pack | ACCEPTED | 03_ADR_v1.1 §11 | §11 참조 |
 | ADR-19 | 백엔드 구현 프로파일: NestJS (Node/TypeScript) | ACCEPTED | [ADR-19-backend-profile-nestjs.md](ADR-19-backend-profile-nestjs.md) | 사내 표준 강제 또는 납품 인프라의 Node 미허용 |
 | ADR-20 | 계약 검증 게이트와 계약 타입 생성 전략 | ACCEPTED | [ADR-20-contract-validation-and-type-generation.md](ADR-20-contract-validation-and-type-generation.md) | 계약 안정화 후 스타일 린트 도입 재평가(CC-115/CC-400) |
+| ADR-21 | 마이그레이션 도구 확정과 스키마 기준선 결함 해소 | ACCEPTED | [ADR-21-migration-tool-and-baseline-corrections.md](ADR-21-migration-tool-and-baseline-corrections.md) | 파티셔닝 전환(0010 계획)은 별도 ICR; 백업·복원 검증은 운영 항목 |

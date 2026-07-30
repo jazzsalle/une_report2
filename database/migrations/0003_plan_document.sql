@@ -1,9 +1,8 @@
 -- V003__plan_document.sql: generated from physical DB design baseline v1.0
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS plan (
   plan_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   title varchar(300) NOT NULL,
   hazard_type varchar(50) NOT NULL,
   management_phase varchar(20) NOT NULL,
@@ -11,9 +10,14 @@ CREATE TABLE IF NOT EXISTS plan (
   document_id uuid,
   current_context_snapshot_id uuid,
   current_toc_version_id uuid,
-  owner_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  owner_id uuid NOT NULL,
   version_no int DEFAULT 1 NOT NULL,
-  deleted_at timestamptz
+  deleted_at timestamptz,
+  -- Design §6.10 index IX-plan_plan-STATUS and the global timestamp rule
+  -- (§ "created_at/updated_at은 DB default now()") require these; the design
+  -- column list omitted them (baseline defect resolved in ADR-21).
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL
 );
 COMMENT ON COLUMN plan.plan_id IS '계획서';
 COMMENT ON COLUMN plan.tenant_id IS '기관';
@@ -27,10 +31,14 @@ COMMENT ON COLUMN plan.current_toc_version_id IS '현재 목차';
 COMMENT ON COLUMN plan.owner_id IS '소유자';
 COMMENT ON COLUMN plan.version_no IS '낙관잠금';
 COMMENT ON COLUMN plan.deleted_at IS '휴지통';
+COMMENT ON COLUMN plan.created_at IS '생성';
+COMMENT ON COLUMN plan.updated_at IS '수정';
+DROP TRIGGER IF EXISTS trg_plan_updated_at ON plan;
+CREATE TRIGGER trg_plan_updated_at BEFORE UPDATE ON plan FOR EACH ROW EXECUTE FUNCTION une_set_updated_at();
 
 CREATE TABLE IF NOT EXISTS plan_context_draft (
   context_draft_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  plan_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  plan_id uuid NOT NULL,
   context_json jsonb NOT NULL,
   schema_version varchar(20) NOT NULL,
   updated_by uuid NOT NULL,
@@ -47,7 +55,7 @@ CREATE TRIGGER trg_plan_context_draft_updated_at BEFORE UPDATE ON plan_context_d
 
 CREATE TABLE IF NOT EXISTS plan_context_snapshot (
   context_snapshot_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  plan_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  plan_id uuid NOT NULL,
   version_no int DEFAULT 1 NOT NULL,
   context_json jsonb NOT NULL,
   content_hash char(64) NOT NULL,
@@ -66,10 +74,10 @@ COMMENT ON COLUMN plan_context_snapshot.confirmed_at IS '확정일시';
 
 CREATE TABLE IF NOT EXISTS toc_version (
   toc_version_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  plan_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  plan_id uuid NOT NULL,
   version_no int DEFAULT 1 NOT NULL,
   source_type varchar(20) NOT NULL,
-  base_snapshot_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  base_snapshot_id uuid NOT NULL,
   status varchar(20) NOT NULL,
   content_hash char(64) NOT NULL,
   created_by uuid NOT NULL,
@@ -87,7 +95,7 @@ COMMENT ON COLUMN toc_version.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS toc_node (
   toc_node_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  toc_version_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  toc_version_id uuid NOT NULL,
   parent_node_id uuid,
   node_key varchar(80) NOT NULL,
   title varchar(500) NOT NULL,
@@ -106,10 +114,10 @@ COMMENT ON COLUMN toc_node.generation_policy IS '생성규칙';
 
 CREATE TABLE IF NOT EXISTS generation_job (
   job_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   job_type varchar(30) NOT NULL,
   aggregate_type varchar(30) NOT NULL,
-  aggregate_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  aggregate_id uuid NOT NULL,
   provider_code varchar(30) NOT NULL,
   request_json jsonb NOT NULL,
   status varchar(20) NOT NULL,
@@ -137,7 +145,7 @@ COMMENT ON COLUMN generation_job.finished_at IS '종료';
 
 CREATE TABLE IF NOT EXISTS job_event (
   job_event_id bigserial PRIMARY KEY,
-  job_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  job_id uuid NOT NULL,
   sequence_no bigint NOT NULL,
   event_type varchar(40) NOT NULL,
   payload_json jsonb NOT NULL,
@@ -152,13 +160,13 @@ COMMENT ON COLUMN job_event.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS document (
   document_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   document_type varchar(30) NOT NULL,
   title varchar(300) NOT NULL,
   source_file_id uuid,
   current_revision_id uuid,
   status varchar(30) NOT NULL,
-  owner_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  owner_id uuid NOT NULL,
   created_at timestamptz DEFAULT now() NOT NULL,
   updated_at timestamptz DEFAULT now() NOT NULL
 );
@@ -177,7 +185,7 @@ CREATE TRIGGER trg_document_updated_at BEFORE UPDATE ON document FOR EACH ROW EX
 
 CREATE TABLE IF NOT EXISTS document_revision (
   revision_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  document_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  document_id uuid NOT NULL,
   revision_no int NOT NULL,
   parent_revision_id uuid,
   ir_json jsonb NOT NULL,
@@ -198,7 +206,7 @@ COMMENT ON COLUMN document_revision.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS document_block (
   block_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  revision_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  revision_id uuid NOT NULL,
   stable_block_key varchar(100) NOT NULL,
   block_type varchar(30) NOT NULL,
   parent_block_id uuid,
@@ -221,8 +229,8 @@ COMMENT ON COLUMN document_block.payload_json IS 'IR 세부';
 
 CREATE TABLE IF NOT EXISTS change_set (
   change_set_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  document_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  base_revision_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  document_id uuid NOT NULL,
+  base_revision_id uuid NOT NULL,
   result_revision_id uuid,
   client_mutation_id varchar(100) NOT NULL,
   selection_json jsonb NOT NULL,
@@ -242,7 +250,7 @@ COMMENT ON COLUMN change_set.created_at IS '시각';
 
 CREATE TABLE IF NOT EXISTS change_operation (
   operation_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  change_set_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  change_set_id uuid NOT NULL,
   operation_order int NOT NULL,
   operation_type varchar(40) NOT NULL,
   target_json jsonb NOT NULL,
@@ -259,7 +267,7 @@ COMMENT ON COLUMN change_operation.after_json IS '변경후';
 
 CREATE TABLE IF NOT EXISTS template_profile (
   template_profile_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  document_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  document_id uuid NOT NULL,
   profile_version int NOT NULL,
   analysis_status varchar(20) NOT NULL,
   profile_json jsonb NOT NULL,
@@ -278,7 +286,7 @@ COMMENT ON COLUMN template_profile.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS style_prototype (
   prototype_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  template_profile_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  template_profile_id uuid NOT NULL,
   prototype_key varchar(100) NOT NULL,
   prototype_type varchar(40) NOT NULL,
   source_locator_json jsonb NOT NULL,
@@ -295,7 +303,7 @@ COMMENT ON COLUMN style_prototype.style_fingerprint IS '서식 지문';
 
 CREATE TABLE IF NOT EXISTS file_object (
   file_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   storage_key varchar(500) NOT NULL,
   original_name varchar(500) NOT NULL,
   mime_type varchar(150) NOT NULL,
@@ -319,8 +327,8 @@ COMMENT ON COLUMN file_object.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS export_job (
   export_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  document_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  revision_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  document_id uuid NOT NULL,
+  revision_id uuid NOT NULL,
   format varchar(20) NOT NULL,
   status varchar(20) NOT NULL,
   output_file_id uuid,
@@ -343,7 +351,7 @@ COMMENT ON COLUMN export_job.finished_at IS '완료';
 CREATE TABLE IF NOT EXISTS validation_report (
   validation_report_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   target_type varchar(30) NOT NULL,
-  target_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  target_id uuid NOT NULL,
   track varchar(20) NOT NULL,
   status varchar(20) NOT NULL,
   checks_json jsonb NOT NULL,
@@ -361,4 +369,3 @@ COMMENT ON COLUMN validation_report.environment_json IS '버전/환경';
 COMMENT ON COLUMN validation_report.evidence_file_id IS '증빙';
 COMMENT ON COLUMN validation_report.created_at IS '검증일시';
 
-COMMIT;

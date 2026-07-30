@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- CC-004 (2026-07-30): database migration baseline applied and verified.
+  Tool finalized (ADR-19 deferral): node-pg-migrate v9, SQL-file migrations,
+  pgmigrations tracking, superuser une runs migrations / runtime stays
+  une_app. Files renamed V###__ -> 0###_ (v9 numeric-prefix requirement;
+  never applied anywhere, so forward-only intact). Baseline defects found on
+  first-ever application and fixed pre-application (ADR-21, user-approved):
+  invalid uuid[]/jsonb notation x3 -> uuid[]; plan.created_at/updated_at +
+  trigger (design self-contradiction: IX-plan_plan-STATUS referenced them);
+  74 non-PK DEFAULT gen_random_uuid() removed (silent FK/tenant fabrication
+  trap); BEGIN/COMMIT stripped (tool wraps transactions); design UK-outbox-
+  idem (idempotency_key, channel) added as uk_outbox_idem; global rows
+  (tenant_id IS NULL on role/provider_config/retention_policy) made readable
+  but not writable under FORCE RLS; 0001 empty-schema preflight guard.
+  0011 added: FORCE RLS on 17 tenant tables, une_app role ensured + idempotent
+  ALTER ROLE NOSUPERUSER/NOBYPASSRLS, pgmigrations zero-priv for une_app,
+  UPDATE/DELETE revoked on append-only/immutable tables (execution_event,
+  audit_log, task_event, plan_context_snapshot, situation_snapshot;
+  sop_version/evidence_set deferred to CC-250/CC-230 with app-layer
+  enforcement). tests/integration (@une/db-integration) 17/17 on real
+  PostgreSQL 16.9: empty-DB 57 tables, fixture upgrade, outbox 3-write
+  atomicity (commit+rollback), duplicate idempotency key rejected, RLS
+  isolation as SET ROLE une_app, global-row read-only, priv checks; all
+  skipped without DATABASE_URL. Data dictionary generated from applied
+  schema (docs/db/DATA_DICTIONARY.md, 57 tables/512 columns, deterministic);
+  CI db-verify job (postgres service container) runs tests + dictionary
+  drift gate (git add -N). Compensating control recorded: DB RLS covers only
+  17 parent tables; child tables rely on service-layer joins (CC-100
+  criterion added). Review: architecture-guardian CONDITIONAL PASS +
+  qa-gate-reviewer PASS WITH CONDITIONS (8 acceptance criteria independently
+  reproduced); all mandatory findings (M1-M4/C1-C6) fixed same day.
+  Deferred with record: IX-*-TENANT 10 indexes to per-domain query-plan
+  verification (README mapping table), partition-transition REVOKE
+  checklist, sop_version/evidence immutability to CC-250/CC-230.
+
 - CC-002 (2026-07-30): local infrastructure compose verified at runtime.
   PostgreSQL 16.9-bookworm (glibc for managed-Postgres demo parity; ICU ko-KR
   + data-checksums initdb) + MinIO + one-shot idempotent minio-init (bucket,

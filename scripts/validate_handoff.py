@@ -12,7 +12,8 @@ required = [
     'work-items/00_DECISIONS_TO_CONFIRM.yaml',
     'work-items/MASTER_WORK_ITEMS.yaml',
     'contracts/openapi/une-platform-api-v1.yaml',
-    'database/migrations/V001__extensions_and_common.sql'
+    # renamed from V001__* at CC-004 (node-pg-migrate numeric prefix, ADR-21)
+    'database/migrations/0001_extensions_and_common.sql'
 ]
 errors=[]
 for rel in required:

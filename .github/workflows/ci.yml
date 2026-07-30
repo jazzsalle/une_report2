@@ -41,3 +41,38 @@ jobs:
           python-version: '3.12'
       - run: pip install pyyaml
       - run: python scripts/validate_handoff.py
+
+  # CC-004: migrations must apply to a real PostgreSQL 16 and the committed
+  # data dictionary must match the applied schema (drift gate).
+  db-verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.9-bookworm
+        env:
+          POSTGRES_USER: une
+          # Throwaway service-container credential; never reuse on any shared
+          # or persistent instance.
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: une
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U une -d une"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://une:ci-only@localhost:5432/une
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @une/db-integration test
+      - run: pnpm db:data-dictionary
+      # git add -N makes an untracked (never-committed) dictionary fail too.
+      - run: git add -N -- docs/db/DATA_DICTIONARY.md && git diff --exit-code -- docs/db/DATA_DICTIONARY.md

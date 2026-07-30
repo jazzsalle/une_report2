@@ -1,9 +1,8 @@
 -- V004__situation_knowledge.sql: generated from physical DB design baseline v1.0
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS situation (
   situation_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   mode varchar(20) NOT NULL,
   title varchar(300) NOT NULL,
   hazard_type varchar(50) NOT NULL,
@@ -49,11 +48,11 @@ COMMENT ON COLUMN fact_source.license_json IS '이용조건';
 
 CREATE TABLE IF NOT EXISTS situation_fact (
   fact_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  situation_id uuid NOT NULL,
   fact_type varchar(50) NOT NULL,
   fact_key varchar(120) NOT NULL,
   value_json jsonb NOT NULL,
-  source_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  source_id uuid NOT NULL,
   observed_at timestamptz,
   collected_at timestamptz NOT NULL,
   confidence numeric(5,4),
@@ -74,9 +73,9 @@ COMMENT ON COLUMN situation_fact.version_no IS '버전';
 
 CREATE TABLE IF NOT EXISTS fact_conflict (
   conflict_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  situation_id uuid NOT NULL,
   fact_key varchar(120) NOT NULL,
-  candidate_fact_ids uuid[]/jsonb NOT NULL,
+  candidate_fact_ids uuid[] NOT NULL,
   conflict_type varchar(30) NOT NULL,
   status varchar(20) NOT NULL,
   detected_at timestamptz NOT NULL
@@ -91,8 +90,8 @@ COMMENT ON COLUMN fact_conflict.detected_at IS '탐지';
 
 CREATE TABLE IF NOT EXISTS conflict_resolution (
   resolution_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  conflict_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  selected_fact_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  conflict_id uuid NOT NULL,
+  selected_fact_id uuid NOT NULL,
   reason text NOT NULL,
   resolved_by uuid NOT NULL,
   resolved_at timestamptz DEFAULT now() NOT NULL
@@ -106,7 +105,7 @@ COMMENT ON COLUMN conflict_resolution.resolved_at IS '시각';
 
 CREATE TABLE IF NOT EXISTS situation_snapshot (
   snapshot_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  situation_id uuid NOT NULL,
   version_no int DEFAULT 1 NOT NULL,
   facts_json jsonb NOT NULL,
   content_hash char(64) NOT NULL,
@@ -148,9 +147,9 @@ COMMENT ON COLUMN provider_job.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS knowledge_document (
   knowledge_document_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
   situation_id uuid,
-  file_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  file_id uuid NOT NULL,
   document_type varchar(40) NOT NULL,
   provider_document_id varchar(150),
   status varchar(20) NOT NULL,
@@ -171,8 +170,8 @@ COMMENT ON COLUMN knowledge_document.created_at IS '등록';
 
 CREATE TABLE IF NOT EXISTS evidence_set (
   evidence_set_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  situation_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  snapshot_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  situation_id uuid NOT NULL,
+  snapshot_id uuid NOT NULL,
   query_text text NOT NULL,
   filters_json jsonb NOT NULL,
   top_k int NOT NULL,
@@ -194,8 +193,8 @@ COMMENT ON COLUMN evidence_set.created_at IS '생성';
 
 CREATE TABLE IF NOT EXISTS evidence_item (
   evidence_item_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  evidence_set_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  knowledge_document_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  evidence_set_id uuid NOT NULL,
+  knowledge_document_id uuid NOT NULL,
   provider_chunk_id varchar(150),
   rank_no int NOT NULL,
   score numeric(8,6),
@@ -213,4 +212,3 @@ COMMENT ON COLUMN evidence_item.quote_text IS '근거문';
 COMMENT ON COLUMN evidence_item.source_locator_json IS '페이지/청크';
 COMMENT ON COLUMN evidence_item.citation_key IS '인용키';
 
-COMMIT;
