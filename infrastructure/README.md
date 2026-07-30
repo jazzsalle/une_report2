@@ -66,6 +66,24 @@ docker compose down -v       # 명명된 볼륨까지 삭제 (데이터 초기�
 
 데이터는 명명된 볼륨 `une_pgdata`, `une_minio_data`에 영속화된다.
 
+## 배포와의 관계
+
+이 compose는 **로컬 개발 전용**이며 배포 방식을 제약하지 않는다.
+배포 구조(TECHNOLOGY_PROFILE.md Deployment constraints, OB-14):
+
+| 구성요소 | 로컬 개발 | 배포 (데모) |
+|---|---|---|
+| apps/web, apps/field-web | `pnpm dev` | **Vercel** (정적 빌드만) |
+| services/api, services/worker | 로컬 Node | **Railway 컨테이너** (2026-07-30 확정) |
+| PostgreSQL | 이 compose | 관리형 PostgreSQL (Railway Postgres 후보) |
+| 객체 저장소 | 이 compose의 MinIO | S3 호환 스토어 (storage port 뒤라 교체만) |
+
+- 백엔드는 Vercel serverless에 올리지 않는다 — 장기 실행 워커, outbox 폴링,
+  SSE, 장시간 HWPX 작업이 serverless와 맞지 않는다.
+- Vercel 프론트 ↔ Railway 백엔드 연결은 `VITE_API_BASE_URL`(프론트)과
+  CORS 허용(백엔드)으로 구성한다.
+- 최종 납품 환경은 OB-14로 OPEN 유지.
+
 ## 서비스 연결값
 
 `services/api/.env`와 `services/worker/.env`의 예시 형태:

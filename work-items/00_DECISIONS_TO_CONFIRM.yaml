@@ -17,7 +17,7 @@ decisions:
   poc_auth_mode: mock-jwt
   integration_auth_mode: t3q-sso-token-exchange-awaiting-contract
   ci_platform: github-actions
-  deployment_target: dev-frontend-vercel-backend-cloud-container  # demo host OPEN (OB-14); final delivery env OPEN (OB-14)
+  deployment_target: dev-frontend-vercel-backend-railway-container  # demo host: Railway (closed 2026-07-30, OB-14); final delivery env OPEN (OB-14)
   supported_browsers: chrome-edge-latest
   hancom_test_version: OPEN-until-G4  # OB-08
   windows_qa_environment: windows-11
@@ -46,5 +46,5 @@ approval:
     for full-stack TypeScript unification with the React frontend and rhwp
     adapter. Deviation from 10_API_DB_SEQUENCE_v1.0 ("Spring Boot or .NET 8")
     is recorded in ADR-19 (docs/adr/ADR-19-backend-profile-nestjs.md).
-    Demo backend host (Render/Railway/Fly candidates) stays OPEN until needed,
-    no later than the first G2 demo.
+    Demo backend host closed 2026-07-30 by user decision: Railway (existing
+    paid account). Final delivery environment stays OPEN under OB-14.
