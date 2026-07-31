@@ -1,86 +1,96 @@
 # Session Handoff
 
-- Date/time: 2026-07-30 (company PC, third session — 종료)
-- Branch: main @ ed60483 (작업 트리 clean, 모든 작업 머지·푸시 완료)
-- Current Work Item: CC-004 DONE·머지 / next **CC-100**
-- 다음 세션: **내일 회사PC(이 PC)에서 재개** — Docker 런타임·infrastructure/.env·
-  로컬 DB(11 마이그레이션)가 이미 프로비저닝돼 있어 부트스트랩 불필요.
-  WSL 깨우기(`wsl -d Ubuntu -- true`)만 하고 바로 CC-100 착수.
+- Date/time: 2026-07-31 (company PC, fourth session — 종료)
+- Branch: main @ 03e6ad4 (PR #4 머지 커밋; 작업 트리 clean, 로컬 feature/CC-100 삭제)
+- Current Work Item: CC-100 DONE·머지 / next **CC-110 또는 CC-200** (사용자 선택)
+- 다음 세션: 이 PC 재개 시 부트스트랩 불필요 — WSL 깨우기 + (긴 작업이면)
+  keepalive(`wsl -d Ubuntu -- sleep 3600 &`) 후 바로 다음 항목 착수.
+  로컬 DB는 13 마이그레이션 + dev IAM 시드 적용 상태.
 
-## Completed this session (모두 main에 머지, CI green)
+## Completed this session (main 머지, CI verify+db-verify 둘 다 success)
 
-1. **CC-002 DONE** (PR #2): WSL2 Ubuntu 24.04 등록(`ubuntu.exe install
-   --root` — 재부팅만으로는 미등록) + Docker CE 29.6.2, compose 런타임 검증
-   (healthy/pg_isready/mc ready/호스트 포트/볼륨 영속성·WSL 재시작 생존).
-   리뷰 반영: postgres:16.9-bookworm+ICU ko-KR, 127.0.0.1 바인드,
-   MinIO 버킷 한정 서비스 계정(멱등 minio-init.sh), initdb 비-superuser 롤
-   une_app, CI compose config 게이트.
-   증거: docs/evidence/CC-002-runtime-verification.md
-2. **CC-004 DONE** (PR #3, verify+db-verify 둘 다 success):
-   node-pg-migrate v9 확정(ADR-21, 사용자 승인), V###__→0###_ 개명.
-   기준선 결함 첫 적용에서 발견·전부 머지 전 해소: uuid[]/jsonb 3곳→uuid[],
-   plan created_at/updated_at+트리거(설계 내부 모순), 비-PK 랜덤 기본값
-   74곳 제거(사용자 승인), BEGIN/COMMIT 제거, uk_outbox_idem 추가,
-   전역 행(tenant_id IS NULL) 정책 읽기전용 정정, 0001 빈-스키마 가드.
-   0011: FORCE RLS 17테이블, une_app 속성 멱등 강제+권한, pgmigrations
-   0권한, append-only/불변 5테이블 REVOKE.
-   tests/integration(@une/db-integration) **17/17** (실제 PG 16.9;
-   DATABASE_URL 없으면 skip — 루트 pnpm test 초록은 DB 커버리지 아님).
-   데이터 사전 docs/db/DATA_DICTIONARY.md(57테이블/512컬럼)+CI drift 게이트,
-   CI db-verify 잡 신설. 이중 리뷰 필수 지적(M1~M4/C1~C6) 당일 반영.
-   증거: docs/evidence/CC-004-migration-verification.md
+**CC-100 DONE** (PR #4, b605318): mock 인증·테넌트·RBAC.
 
-## Key decisions
+- UNE-AUTH-001~007 구현 (services/api NestJS: auth/iam 모듈, 전역
+  JwtAuthGuard/PermissionsGuard, ApiErrorFilter→common-error envelope,
+  DatabaseService.withTenant = 트랜잭션 로컬 `app.tenant_id` + 선택적
+  `SET LOCAL ROLE une_app`).
+- mock JWT: `AUTH_MODE=mock` + `UNE_AUTH_JWT_SECRET`(32자 미만 기동 실패,
+  기본값 없음)에서만 발급. 비-mock exchange는 503 AUTH-1004 (실 SSO OB-01 OPEN).
+- 테넌트 위조 5경로 차단 e2e 검증(mock 토큰 tenant/JWT tid 변조/타키 서명/
+  refresh tenant 세그먼트/쿼리파라미터). 하위 테이블(user_session/user_role/
+  role_permission)은 부모 조인 강제(ADR-21 보상통제) — bare SELECT 비보호를
+  통합테스트로 문서화.
+- **마이그레이션 0012**: `role_permission` 신설 — 설계 API/SEQ가 읽는 테이블이
+  §6 물리 목록에 누락된 내부 모순 해소(58번째 테이블). 권한 카탈로그 54종
+  (계약 x-permission 1:1), 시스템 역할 15종(설계 09 §3 1:1), role_code 부분
+  유니크. 역할→권한 매트릭스는 설계 미확정이라 **시드하지 않음** — dev 시드
+  (`pnpm db:seed:dev`, database/seeds/dev-iam.sql)와 테스트 픽스처만.
+- **마이그레이션 0013**(리뷰 반영): permission 카탈로그 런타임 REVOKE,
+  카탈로그 GRANT SELECT 명시, `uk_user_session_refresh_hash`.
+- 계약 동시 변경: TokenResponse→`{success,data,meta}` envelope(ADR-22 D4),
+  `/auth/refresh` `security: []`+`x-permission: PUBLIC_REFRESH`(D3 보완),
+  Idempotency-Key 재생 저장소 명시 이연(D6, CC-110+ 공통 인터셉터에서 재평가).
+  생성 타입 재생성, validate:contracts PASS.
+- 이중 리뷰(architecture-guardian BLOCKER1/MAJOR4/MINOR9 +
+  qa-gate-reviewer 필수4) **당일 전부 반영**: X-Correlation-Id
+  `^[A-Za-z0-9._:-]{1,80}$` 정규화(varchar(80) 불일치로 로그인 500·감사 우회
+  가능했던 결함), refresh 회전 제시-해시 가드(동시 사용 1승자), SUSPENDED
+  테넌트·비활성 사용자 전 경로 차단, 존재하지 않는 세션 logout 401,
+  ACCESS_DENIED 감사 path 쿼리스트링 제거(PII).
+- 테스트: **@une/api 55/55**(unit 40 + e2e 15 — 스크래치 DB에
+  마이그레이션 적용 후 une_app 롤로 HTTP 검증; DATABASE_URL 없으면 e2e skip),
+  **@une/db-integration 25/25**. CI db-verify에 api e2e 추가.
+  루트 `pnpm test`는 `--workspace-concurrency=1`로 직렬화.
+- 증거: docs/evidence/CC-100-auth-rbac-verification.md / ADR-22 /
+  DATA_DICTIONARY 58테이블·516컬럼 재생성.
 
-- ADR-21: 도구·개명·기준선 결함 해소·전역 행 정책·불변성 DB 강제 범위
-  (스냅샷 2종 REVOKE; sop_version/evidence는 CC-250/CC-230 앱 계층 유예)·
-  테넌트 격리 보상통제(DB RLS는 상위 17테이블만, 하위는 서비스 레이어 조인
-  — CC-100 수용 기준에 추가됨).
-- TECHNOLOGY_PROFILE: migration tool CLOSED (node-pg-migrate v9).
-- OB-14 데모 백엔드 호스트 Railway CLOSED(전 세션), 최종 납품 환경 OPEN.
+## Key decisions (ADR-22 + 추록)
 
-## 다른 PC에서 시작할 경우 (참고)
-
-회사PC 재개 시에는 해당 없음 — 필요하면 `git pull`(원격이 앞서 있을 때만)과
-WSL 깨우기만. 새 PC에서 시작할 때만 아래 절차를 따른다:
-
-1. `git pull` (main ed60483) → `pnpm install`
-2. Docker 런타임 준비(infrastructure/README.md 무료 경로 중 택1; WSL2면
-   `wsl --install -d Ubuntu` 후 **재부팅+배포판 등록 확인** — 회사PC에서는
-   재부팅 후 `ubuntu.exe install --root` 등록이 추가로 필요했음)
-3. `infrastructure/.env` 새로 작성(gitignored — PC마다 로컬 생성):
-   `cp .env.example .env` 후 비밀값 5개(UNE_DB_PASSWORD, UNE_DB_APP_PASSWORD,
-   UNE_MINIO_ROOT_PASSWORD, UNE_STORAGE_ACCESS_KEY/SECRET_KEY) 채움
-   (`openssl rand -hex 16`)
-4. `docker compose up -d` → healthy 확인 →
-   `DATABASE_URL=postgres://une:<pw>@localhost:5432/une pnpm db:migrate`
-   (11개 적용) → `pnpm --filter @une/db-integration test` (17/17)
-5. 전체 게이트: `pnpm build/typecheck/test/lint/format:check/
-   validate:contracts/validate:handoff`
+- role_permission 스키마 보완·카탈로그 시드 범위(D1/D2), mock 토큰 형식과
+  위조 차단 모델(D3), refresh=Public+회전(D3), TokenResponse envelope(D4),
+  AUTH-1001~1006 확정(D5), Idempotency-Key 이연(D6).
+- 감사 액션 어휘 확정: LOGIN/LOGIN_FAILED/SESSION_REFRESHED/LOGOUT/
+  ACCESS_DENIED — 후속 항목 재사용.
+- meta.timestamp는 UTC Z 표기.
+- 마이그레이션 주체는 superuser/BYPASSRLS 전제(전역 행 시드; migrations
+  README 명문화).
+- 수용된 한계: access token은 만료(900s)까지 유효(로그아웃=refresh 폐기),
+  LOGIN_FAILED 감사 tenant_id는 주장값(레이트리밋 CC-430 재평가),
+  OBJECT scope(user_role.scope_id) 판정은 CC-110+.
 
 ## Exact next actions
 
-1. **CC-100** (mock auth/tenant/RBAC; deps CC-003+CC-004 충족, G1):
-   feature/CC-100 브랜치에서 implement-work-item 절차로. 수용 기준에 CC-004
-   이관분 포함 — 하위 테이블 테넌트 격리는 리포지토리 조인 강제, 전역 role
-   행은 런타임 읽기 전용, une_app 실접속(LOGIN) 경로 검증.
-2. CC-100 설계 참조: 10_API_DB_SEQUENCE §인증/권한, role/app_user/permission
-   테이블(0002), RLS 전제(0008/0011).
+1. 다음 Work Item **사용자 선택**: CC-110(Plan+PlanContextSnapshot, 계획서
+   슬라이스) 또는 CC-200(Situation+Fact, 상황 슬라이스) — 둘 다 deps=CC-100
+   충족. feature/CC-<id> 브랜치에서 implement-work-item 절차로.
+2. CC-110이면: 10_API_DB_SEQUENCE §3.3 PLAN, plan/plan_context_snapshot
+   (0003), 불변성 REVOKE(0011), PlanContext JSON Schema
+   (contracts/schemas/plan-context.schema.json), Idempotency-Key 공통
+   인터셉터 도입 검토(ADR-22 D6).
+3. CC-200이면: §3.6 SIT, situation/situation_fact(0004), providers는 mock.
 
 ## Risks/blockers
 
-- WSL 유휴 자동 종료: Windows에서 5432/9000 접속 전 `wsl -d Ubuntu -- true`
-  로 깨울 것(infrastructure/README.md 주의 절).
-- 0010 파티션 전환 시 파티션별 append-only REVOKE 재적용 필수(README 체크리스트).
-- IX-*-TENANT 10건 미구현 — 각 도메인 항목에서 Query Plan으로 확정(README 대응표).
-- Deferred: example-level contract tests(CC-115/CC-400)+redocly 재평가,
-  UNI_VERIFY_TLS=false POC-local carried risk.
+- **WSL 유휴 종료가 작업 도중에도 발생**(이번 세션에서 간헐 ECONNREFUSED로
+  확인) — 긴 테스트/마이그레이션 세션엔 keepalive 프로세스 권장
+  (infrastructure/README.md 보강됨).
+- 0010 파티션 전환 시 파티션별 append-only REVOKE 재적용 필수.
+- IX-*-TENANT 10건 미구현 — 각 도메인 항목에서 Query Plan으로 확정.
+- Deferred: example-level contract tests + 응답 AJV 검증(CC-115/CC-400),
+  x-permission↔@RequirePermission 자동 대조 게이트(권고), 계약 쿼리 파라미터
+  미선언(기준선 한계), UNI_VERIFY_TLS=false POC-local carried risk.
+- 설계 09 화면표에 카탈로그 외 역할 표기(ORG_ADMIN 등) — 설계 내부 불일치,
+  해당 화면 항목 구현 시 확인.
 
 ## Notes
 
 - git push는 .claude/settings.json deny로 Claude가 실행 불가 — 사람이 직접.
 - gh CLI 미설치; CI 상태는 GitHub REST API(공개 저장소)로 조회.
-- 마이그레이션·테스트·사전 생성 DATABASE_URL은 superuser(une), 런타임은
-  une_app; 헬퍼/스크립트에 une_app 사용 시 즉시 실패 가드 있음.
-- mc/postgres 컨테이너 이미지는 coreutils 최소(스크립트는 셸 내장만 사용).
-- 이 PC git core.autocrlf=true — .gitattributes eol=lf가 우선(셸 스크립트 LF 필수).
+- DATABASE_URL: 마이그레이션·시드·사전·테스트는 superuser(une), 런타임은
+  une_app(services/api/.env). 테스트 e2e는 admin URL + UNE_DB_RUNTIME_ROLE
+  =une_app(SET LOCAL ROLE)로 FORCE RLS 동일 적용.
+- 이 PC git core.autocrlf=true — .gitattributes eol=lf가 우선.
+- services/api/.env에 UNE_AUTH_JWT_SECRET 등 신규 키 필요(.env.example 참조;
+  로컬 .env는 gitignored라 다음 세션에서 `openssl rand -hex 32`로 채울 것 —
+  이번 세션 e2e는 테스트 내 상수를 사용했으므로 로컬 .env 미갱신 상태일 수 있음).
