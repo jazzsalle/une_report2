@@ -59,6 +59,30 @@
   LOGIN_FAILED 감사 tenant_id는 주장값(레이트리밋 CC-430 재평가),
   OBJECT scope(user_role.scope_id) 판정은 CC-110+.
 
+## 다른 PC(예: 집 PC)에서 시작할 경우
+
+모든 산출물은 origin/main에 있다. PC별 로컬 요소만 다시 준비한다:
+
+1. `git pull` (main a18a402) → `pnpm install`
+2. Docker 런타임 준비(infrastructure/README.md 무료 경로 중 택1; WSL2면
+   `wsl --install -d Ubuntu` 후 **재부팅+배포판 등록 확인** — 회사PC에서는
+   재부팅 후 `ubuntu.exe install --root` 등록이 추가로 필요했음)
+3. `infrastructure/.env` 로컬 생성(gitignored): `cp .env.example .env` 후
+   비밀값 5개(UNE_DB_PASSWORD, UNE_DB_APP_PASSWORD, UNE_MINIO_ROOT_PASSWORD,
+   UNE_STORAGE_ACCESS_KEY/SECRET_KEY) 채움 (`openssl rand -hex 16`)
+4. `services/api/.env` 로컬 생성(CC-100 신규): `cp .env.example .env` 후
+   `UNE_AUTH_JWT_SECRET`(`openssl rand -hex 32`)과 DATABASE_URL의
+   UNE_DB_APP_PASSWORD 채움
+5. `docker compose up -d` → healthy 확인 →
+   `DATABASE_URL=postgres://une:<pw>@localhost:5432/une pnpm db:migrate`
+   (**13개** 적용) → 선택: `pnpm db:seed:dev` (demo 테넌트/사용자, 멱등)
+6. 검증: `pnpm --filter @une/db-integration test` (25/25),
+   `pnpm --filter @une/api test` (55/55 — DATABASE_URL 있어야 e2e 15 실행)
+7. 전체 게이트: `pnpm build/typecheck/test/lint/format:check/
+   validate:contracts/validate:handoff`
+8. WSL 유휴 종료는 **작업 도중에도** 발생 — 긴 세션엔
+   `wsl -d Ubuntu -- sleep 3600 &` keepalive (infrastructure/README.md).
+
 ## Exact next actions
 
 1. 다음 Work Item **사용자 선택**: CC-110(Plan+PlanContextSnapshot, 계획서
