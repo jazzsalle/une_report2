@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- CC-100 (2026-07-31): mock authentication, tenant scoping, and RBAC.
+  UNE-AUTH-001~007 in services/api (NestJS): AUTH_MODE=mock issues HS256 UNE
+  JWTs (UNE_AUTH_JWT_SECRET >=32 chars from env, no default; non-mock mode
+  answers 503 AUTH-1004 — real T3Q SSO stays OB-01 OPEN). Tenant comes only
+  from DB-confirmed/signature-verified claims; DatabaseService.withTenant sets
+  tx-local app.tenant_id (+SET LOCAL ROLE une_app for admin-URL test runs) and
+  repositories keep explicit predicates + parent-aggregate joins for child
+  tables (ADR-21 compensating control). Forgery blocked on 5 paths, all
+  e2e-verified. RBAC resolved from DB: migration 0012 adds role_permission
+  (design internal-inconsistency fix, 58th table), 54-permission catalog (1:1
+  contract x-permission), 15 system roles (1:1 design 09 s3), role_code
+  partial uniques; role->permission matrix deliberately not seeded (dev seed
+  database/seeds/dev-iam.sql + fixtures; ADR-22 D2). Audit LOGIN/LOGIN_FAILED
+  (own tx)/SESSION_REFRESHED/LOGOUT/ACCESS_DENIED append-only. Refresh tokens
+  opaque urs.<tenant>.<random>, SHA-256 stored, rotated with presented-hash
+  guard (concurrent use: exactly one winner). Contract updated with impl:
+  TokenResponse -> {success,data,meta} envelope (ADR-22 D4), /auth/refresh
+  security []/x-permission PUBLIC_REFRESH (D3 addendum), Idempotency-Key
+  replay store deferred explicitly (D6). Dual review (architecture-guardian
+  1 BLOCKER/4 MAJOR/9 MINOR; qa-gate-reviewer 4 mandatory) fixed same day:
+  correlation-id normalized ^[A-Za-z0-9._:-]{1,80}$ (varchar(80) mismatch
+  made 81-100 char headers 500 logins/bypass audit), suspended tenant +
+  inactive user blocked everywhere, 0013_iam_hardening (permission catalog
+  runtime read-only, explicit catalog grants, uk_user_session_refresh_hash),
+  missing-session logout 401 not 409, ACCESS_DENIED audit path w/o query
+  string (PII). Tests: @une/api 55/55 (unit 40 + e2e 15 against a migrated
+  scratch DB as une_app), @une/db-integration 25/25; CI db-verify now runs
+  the api e2e; root pnpm test serialized (--workspace-concurrency=1).
+  Evidence: docs/evidence/CC-100-auth-rbac-verification.md, ADR-22.
+
 - CC-004 (2026-07-30): database migration baseline applied and verified.
   Tool finalized (ADR-19 deferral): node-pg-migrate v9, SQL-file migrations,
   pgmigrations tracking, superuser une runs migrations / runtime stays

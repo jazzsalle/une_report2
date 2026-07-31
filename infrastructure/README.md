@@ -36,6 +36,10 @@ WSL2 안에서 이 저장소는 `/mnt/d/vibecoding/report2`로 접근한다.
 > (connection refused). 먼저 `wsl -d Ubuntu -- docker compose ps` 같은 명령으로
 > VM을 깨우면 systemd가 docker를 올리고 `restart: unless-stopped` 정책으로
 > 컨테이너가 자동 복구된다.
+> 유휴 종료가 공격적인 환경에서는 **긴 테스트/마이그레이션 세션 도중에도**
+> VM이 내려가 간헐 ECONNREFUSED가 난다(CC-100에서 확인). 그런 세션 동안은
+> `wsl -d Ubuntu -- sleep 3600 &` 같은 keepalive 프로세스를 띄워 두면
+> VM이 유지된다.
 
 ## 기동
 

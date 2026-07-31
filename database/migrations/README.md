@@ -10,7 +10,16 @@
   created_at/updated_at 추가, `BEGIN;/COMMIT;` 제거(도구가 트랜잭션 래핑).
 - `0011`: FORCE ROW LEVEL SECURITY + `une_app` 권한 재현성 + append-only
   테이블(execution_event, audit_log, task_event) UPDATE/DELETE 회수.
-- 새 마이그레이션은 `0012_name.sql`부터 4자리 숫자 접두사로 이어간다.
+- `0012`: RBAC 카탈로그 보완 (CC-100, ADR-22) — `role_permission` 테이블
+  신설(설계 내부 모순 해소, 58번째 테이블), role_code 부분 유니크 인덱스,
+  권한 카탈로그 54종(계약 x-permission 1:1)·시스템 역할 15종 시드,
+  role_permission은 런타임 SELECT 전용.
+- `0013`: IAM 강화 (CC-100 이중 리뷰, ADR-22 추록) — `permission` 카탈로그
+  런타임 쓰기 회수, 카탈로그 GRANT SELECT 명시, `uk_user_session_refresh_hash`.
+- 새 마이그레이션은 `0014_name.sql`부터 4자리 숫자 접두사로 이어간다.
+- **마이그레이션 주체 전제**: 전역 행(tenant_id IS NULL) 시드는 FORCE RLS
+  아래에서 주체의 RLS 우회를 전제한다 — 마이그레이션은 항상
+  superuser/BYPASSRLS 롤로 실행한다(런타임 une_app 금지; 관리형 호스트 포함).
 
 ## 새 마이그레이션 체크리스트
 

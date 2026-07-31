@@ -146,7 +146,10 @@ paths:
       - AUTH
       summary: Access Token 갱신
       operationId: une_auth_003
-      description: '권한: AUTHENTICATED
+      description: '권한: PUBLIC_REFRESH (ADR-22 D3: refresh 토큰 자체가 세션 보유
+        증명이며, 만료된 access token으로는 갱신할 수 없으므로 Bearer를 요구하지
+        않는다. 토큰의 tenant 세그먼트가 RLS 스코프를 열고 app_user 부모 조인이
+        위조를 차단한다. 사용 시 회전(rotation)되어 재사용/동시사용은 AUTH-1002.)
 
 
         핵심 요청: refreshToken
@@ -181,7 +184,9 @@ paths:
         '503':
           $ref: '#/components/responses/ProviderError'
       x-une-api-id: UNE-AUTH-003
-      x-permission: AUTHENTICATED
+      # PUBLIC_REFRESH is an auth level (like PUBLIC_SSO/AUTHENTICATED), not a
+      # permission-catalog code (ADR-22 D3/D6).
+      x-permission: PUBLIC_REFRESH
       x-db-tables:
       - user_session
       x-error-codes:
@@ -192,8 +197,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/GenericRequest'
-      security:
-      - BearerAuth: []
+      security: []
   /auth/logout:
     post:
       tags:
@@ -6969,21 +6973,35 @@ components:
         returnUrl:
           type: string
           format: uri
+    # ADR-22 D4: aligned to the design §2 common response envelope
+    # ({success, data, meta}) used by every other success response, the
+    # common-error schema, and the mock server.
     TokenResponse:
       type: object
       required:
-      - accessToken
-      - refreshToken
-      - expiresIn
-      - userContext
+      - success
+      - data
+      - meta
       properties:
-        accessToken:
-          type: string
-        refreshToken:
-          type: string
-        expiresIn:
-          type: integer
-        userContext:
+        success:
+          type: boolean
+        data:
+          type: object
+          required:
+          - accessToken
+          - refreshToken
+          - expiresIn
+          - userContext
+          properties:
+            accessToken:
+              type: string
+            refreshToken:
+              type: string
+            expiresIn:
+              type: integer
+            userContext:
+              type: object
+        meta:
           type: object
     PlanCreateRequest:
       type: object
