@@ -140,7 +140,7 @@ work_items:
   dependencies:
   - CC-003
   - CC-004
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - JWT mock
   - tenant isolation
@@ -153,7 +153,14 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - 'auth: UNE-AUTH-001~007 implemented (NestJS auth/iam modules, global JwtAuthGuard/PermissionsGuard, ApiErrorFilter -> common-error envelope); HS256 mock JWT gated by AUTH_MODE=mock, UNE_AUTH_JWT_SECRET >=32 chars from env, no default (ADR-22 D3)'
+  - 'tenant: DatabaseService.withTenant (tx-local set_config app.tenant_id + optional SET LOCAL ROLE une_app) + explicit predicates; child tables (user_session/user_role/role_permission) reached only via parent joins; forgery blocked on 5 paths (mock-token tenant, JWT tid tamper, foreign-key signature, refresh tenant segment, query param) - all e2e-verified'
+  - 'rbac: 0012_rbac_catalog (role_permission table - design internal-inconsistency fix, 58th table; 54-permission catalog 1:1 with contract x-permission; 15 system roles 1:1 with design 09 s3; role_code partial uniques); 0013_iam_hardening (permission catalog runtime REVOKE, explicit catalog GRANT SELECT, uk_user_session_refresh_hash); role->permission matrix deliberately not seeded (dev seed + fixtures only, ADR-22 D2)'
+  - 'audit: LOGIN/LOGIN_FAILED/SESSION_REFRESHED/LOGOUT/ACCESS_DENIED append-only; LOGIN_FAILED in its own tx; correlation id normalized to ^[A-Za-z0-9._:-]{1,80}$ (review B-1: varchar(80) width mismatch caused login 500/audit bypass)'
+  - 'tests: @une/api 55/55 (unit 40 + e2e 15 incl. concurrent-refresh rotation conflict, suspended tenant, over-width correlation id), @une/db-integration 25/25; full gates green (build/typecheck/test/lint/format/validate:contracts/validate:handoff); CI db-verify runs api e2e as SET LOCAL ROLE une_app'
+  - 'contract: TokenResponse -> envelope (ADR-22 D4), /auth/refresh security []/PUBLIC_REFRESH (ADR-22 D3 addendum), generated types regenerated, validate:contracts PASS; Idempotency-Key replay store explicitly deferred (ADR-22 D6)'
+  - 'dual review: architecture-guardian (1 BLOCKER/4 MAJOR/9 MINOR) + qa-gate-reviewer (PASS WITH CONDITIONS, 4 mandatory) - all mandatory findings fixed same day; docs/evidence/CC-100-auth-rbac-verification.md'
 - id: CC-110
   title: Implement Plan and immutable PlanContextSnapshot
   gate: G2

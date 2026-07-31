@@ -41,16 +41,18 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 11 baseline migrations', async () => {
+  it('applies all 13 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(11);
+    expect(applied.rows).toHaveLength(13);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
+    expect(applied.rows[11].name).toBe('0012_rbac_catalog');
+    expect(applied.rows[12].name).toBe('0013_iam_hardening');
   });
 
-  it('creates the 57-table design baseline', async () => {
+  it('creates the 58-table baseline (57 design tables + role_permission, ADR-22)', async () => {
     const tables = await withClient(db.url, (c) =>
       c.query(
         `SELECT count(*)::int AS n FROM information_schema.tables
@@ -58,7 +60,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
            AND table_name <> 'pgmigrations'`,
       ),
     );
-    expect(tables.rows[0].n).toBe(57);
+    expect(tables.rows[0].n).toBe(58);
   });
 
   it('enables and forces RLS on all tenant-isolated tables', async () => {
@@ -132,11 +134,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0011 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0013 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011
+    await migrate(db.url); // remaining: 0011, 0012, 0013
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -151,7 +153,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(11);
+    expect(applied.rows[0].n).toBe(13);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

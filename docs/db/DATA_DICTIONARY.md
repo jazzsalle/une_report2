@@ -5,8 +5,8 @@
 적용된 마이그레이션에서 자동 생성된 데이터 사전이다 (G-DB 게이트 증거).
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
-- 테이블 수: 57
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants
+- 테이블 수: 58
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening
 
 ## app_user
 
@@ -738,7 +738,7 @@
 - 격리: RLS enforced (FORCE)
 - fk_role_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
 - role_pkey: PRIMARY KEY (role_id)
-- 인덱스: role_pkey
+- 인덱스: role_pkey, uk_role_code_global, uk_role_code_tenant
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -749,6 +749,22 @@
 | scope_type | character varying(30) | NN |  | SYSTEM/TENANT/OBJECT |
 | is_system | boolean | NN | false | 시스템 역할 |
 | version_no | integer | NN | 1 | 버전 |
+
+## role_permission
+
+- 격리: RLS 없음
+- fk_role_permission_permission: FOREIGN KEY (permission_id) REFERENCES permission(permission_id) ON DELETE CASCADE
+- fk_role_permission_role: FOREIGN KEY (role_id) REFERENCES role(role_id) ON DELETE CASCADE
+- role_permission_pkey: PRIMARY KEY (role_permission_id)
+- uk_role_permission: UNIQUE (role_id, permission_id)
+- 인덱스: ix_role_permission_role, role_permission_pkey, uk_role_permission
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| role_permission_id | uuid | NN | gen_random_uuid() | 역할-권한 매핑 |
+| role_id | uuid | NN |  | 역할 |
+| permission_id | uuid | NN |  | 권한 |
+| created_at | timestamp with time zone | NN | now() | 부여일시 |
 
 ## situation
 
@@ -1122,7 +1138,7 @@
 - 격리: RLS 없음
 - fk_user_session_user_id: FOREIGN KEY (user_id) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - user_session_pkey: PRIMARY KEY (session_id)
-- 인덱스: user_session_pkey
+- 인덱스: uk_user_session_refresh_hash, user_session_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|

@@ -66,7 +66,7 @@ export type paths = {
         put?: never;
         /**
          * Access Token 갱신
-         * @description 권한: AUTHENTICATED
+         * @description 권한: PUBLIC_REFRESH (ADR-22 D3: refresh 토큰 자체가 세션 보유 증명이며, 만료된 access token으로는 갱신할 수 없으므로 Bearer를 요구하지 않는다. 토큰의 tenant 세그먼트가 RLS 스코프를 열고 app_user 부모 조인이 위조를 차단한다. 사용 시 회전(rotation)되어 재사용/동시사용은 AUTH-1002.)
          *
          *     핵심 요청: refreshToken
          *
@@ -3048,10 +3048,14 @@ export type components = {
             returnUrl?: string;
         };
         TokenResponse: {
-            accessToken: string;
-            refreshToken: string;
-            expiresIn: number;
-            userContext: Record<string, never>;
+            success: boolean;
+            data: {
+                accessToken: string;
+                refreshToken: string;
+                expiresIn: number;
+                userContext: Record<string, never>;
+            };
+            meta: Record<string, never>;
         };
         PlanCreateRequest: {
             title: string;
