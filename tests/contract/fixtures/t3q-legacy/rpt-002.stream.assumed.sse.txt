@@ -1,0 +1,5 @@
+data: {"name":"1. 추진 배경","content":"□ 최근 5년간 폭염일수가 지속 증가하여 인명·재산 피해 우려가 커지고 있다.","references":[],"children":[]}
+
+data: {"name":"1. 무더위쉼터 운영","content":"□ 관할 무더위쉼터를 사전 점검하고 운영 시간을 연장한다.","references":[],"children":[]}
+
+data: [DONE]

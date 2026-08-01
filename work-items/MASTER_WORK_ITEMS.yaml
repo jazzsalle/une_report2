@@ -187,7 +187,7 @@ work_items:
   gate: G2
   dependencies:
   - CC-110
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - legacy contract tests
   - target-v2 OpenAPI validation
@@ -198,7 +198,13 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - T3Q_PLAN_API_CHANGE_REQUEST
-  evidence: []
+  evidence:
+  - docs/evidence/CC-115-t3q-contract-baseline-verification.md
+  - docs/adr/ADR-24-t3q-contract-baseline-and-example-gate.md
+  - docs/handoff/T3Q_PLAN_FIELD_GAP_MATRIX.md (+drift tests)
+  - '@une/contract-tests 26/26 (fixtures 13, matrix 5, governance 6, no-UNI 2); provider-adapters 6/6'
+  - 'validate:contracts PASS incl. new examples section (10 examples, transcript SHA-256 pin); 5 negative reproductions'
+  - contracts/openapi/t3q-plan-api-change-request-v1.yaml 1.0.1-request (user-approved editorial fix, field-level content unchanged)
 - id: CC-120
   title: Implement T3Q RPT-001 TOC job using mock adapter
   gate: G2

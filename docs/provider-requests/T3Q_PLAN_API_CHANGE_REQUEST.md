@@ -1,7 +1,19 @@
 # T3Q Plan API Change and Addition Request
 
 Official DOCX: `docs/design-docx/13_T3Q_PLAN_API_CHANGE_REQUEST_v1.0.docx`  
-Machine contract: `contracts/openapi/t3q-plan-api-change-request-v1.yaml`
+Machine contract: `contracts/openapi/t3q-plan-api-change-request-v1.yaml`  
+Field mapping: [`docs/handoff/T3Q_PLAN_FIELD_GAP_MATRIX.md`](../handoff/T3Q_PLAN_FIELD_GAP_MATRIX.md) (CC-115)
+
+> **1.0.1-request (2026-08-02, ADR-24):** the machine contract received an
+> editorial fix only — the `PlanRequestBase` schema-composition defect
+> (`allOf` + `additionalProperties: false` made every v2 request invalid
+> under JSON Schema 2020-12) is corrected with `unevaluatedProperties`,
+> and request/response examples were added. The single pre-existing toc
+> example's `backgroundInfo` values were re-expressed with the canonical UNE
+> PlanContext vocabulary (`contracts/schemas/plan-context.schema.json`); the
+> object stays pass-through and no field was added or removed. **No
+> field-level request content changed**; the officially issued v1.0 DOCX
+> remains accurate.
 
 ## Decision
 UNE development does not wait for provider changes. Current RPT-001/002 are wrapped in `LegacyT3qPlanAdapter`; the requested contract is implemented first as `TargetV2T3qPlanAdapter` plus mock/contract tests. Both implement one `T3qPlanProvider` port. Plan flow has no UNI fallback.

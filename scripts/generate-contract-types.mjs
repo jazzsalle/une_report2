@@ -10,6 +10,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 import openapiTS, { astToString } from 'openapi-typescript';
+import { parse as parseYaml } from 'yaml';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -25,7 +26,10 @@ const targets = [
   {
     contract: 'contracts/openapi/t3q-plan-api-change-request-v1.yaml',
     output: 'packages/provider-adapters/src/generated/t3q-plan-api-v2.ts',
-    note: 'Source is a REQUESTED contract (1.0.0-request), NOT T3Q-accepted. Mock-only capability until OB-10 closes; never report as actual T3Q support.',
+    // {version} is read from the contract's info.version at generation time so
+    // the banner can never assert a stale version (review M2 — the drift gate
+    // then enforces it).
+    note: 'Source is a REQUESTED contract ({version}), NOT T3Q-accepted. Mock-only capability until OB-10 closes; never report as actual T3Q support.',
   },
   {
     contract: 'contracts/openapi/uni-rag-adapter-v1.1.0-une1.yaml',
@@ -44,9 +48,14 @@ for (const { contract, output, note } of targets) {
   const ast = await openapiTS(pathToFileURL(join(root, contract)), {
     exportType: true,
   });
+  let resolvedNote = note;
+  if (note?.includes('{version}')) {
+    const doc = parseYaml(await readFile(join(root, contract), 'utf8'));
+    resolvedNote = note.replace('{version}', doc?.info?.version ?? 'unknown-version');
+  }
   const outPath = join(root, output);
   await mkdir(dirname(outPath), { recursive: true });
-  await writeFile(outPath, headerFor(note) + astToString(ast), 'utf8');
+  await writeFile(outPath, headerFor(resolvedNote) + astToString(ast), 'utf8');
   console.log(`generated ${output} <- ${contract}`);
 }
 

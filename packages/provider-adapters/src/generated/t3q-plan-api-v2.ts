@@ -1,6 +1,6 @@
 // GENERATED FILE - DO NOT EDIT.
 // Regenerate with: pnpm generate:contract-types (source of truth: contracts/openapi).
-// Source is a REQUESTED contract (1.0.0-request), NOT T3Q-accepted. Mock-only capability until OB-10 closes; never report as actual T3Q support.
+// Source is a REQUESTED contract (1.0.1-request), NOT T3Q-accepted. Mock-only capability until OB-10 closes; never report as actual T3Q support.
 /* eslint-disable */
 
 export type paths = {
