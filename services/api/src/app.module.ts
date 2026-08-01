@@ -15,9 +15,18 @@ import { HealthController } from './health/health.controller';
 import { OrganizationsController, RolesController, UsersController } from './iam/iam.controller';
 import { IamRepository } from './iam/iam.repository';
 import { IamService } from './iam/iam.service';
+import { GenerationJobRepository } from './plan/generation-job.repository';
+import { JobEventRepository } from './plan/job-event.repository';
+import { JobSseService } from './plan/job-sse.service';
+import { PlanJobController } from './plan/plan-job.controller';
 import { PlanController } from './plan/plan.controller';
 import { PlanRepository } from './plan/plan.repository';
 import { PlanService } from './plan/plan.service';
+import { TocJobController } from './plan/toc-job.controller';
+import { TocJobService } from './plan/toc-job.service';
+import { TocVersionController } from './plan/toc-version.controller';
+import { TocVersionRepository } from './plan/toc-version.repository';
+import { TocVersionService } from './plan/toc-version.service';
 
 @Module({})
 export class AppModule {
@@ -33,6 +42,9 @@ export class AppModule {
         UsersController,
         RolesController,
         PlanController,
+        TocJobController,
+        TocVersionController,
+        PlanJobController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -44,6 +56,12 @@ export class AppModule {
         IamService,
         PlanRepository,
         PlanService,
+        GenerationJobRepository,
+        JobEventRepository,
+        TocVersionRepository,
+        TocJobService,
+        TocVersionService,
+        JobSseService,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;
         // the idempotency interceptor runs after both guards.

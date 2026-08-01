@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- CC-120 (2026-08-02): T3Q RPT-001 TOC job with mock adapter.
+  UNE-PLAN-009~015: job create (2-layer idempotency — api_idempotency
+  interceptor + uk_job_idempotency sha256(jobType|endpoint|planId|clientKey)),
+  status polling with result projection, SSE (manual streaming after finding
+  Nest @Sse does not await async handlers — 404 stays a JSON envelope;
+  public/internal event split, Last-Event-ID resume, heartbeat repeats the
+  cursor id), cancel (QUEUED settles, RUNNING via worker checkpoint + dispatch
+  sweep), retry (FAILED only, full plan preconditions re-applied, attempt
+  budget reset), user TOC version save/get (keys inherited, u-* namespace,
+  confirm -> OUTLINE_CONFIRMED) with active-job guard protecting user edits
+  from regeneration (review B1). Worker execution plane per design 10
+  §4.2/§7.9: migration 0015 (generation_job created_at/updated_at/attempt_no
+  + CHECKs + missing FKs + une_worker role with table-scoped grants +
+  conditional dispatch RLS policies — terminal writes only in tenant scope,
+  DB-enforced), 3-tx runner with provider call outside transactions,
+  deterministic MockLegacyT3qTocAdapter behind narrow T3qTocPort (CC-115 gap
+  matrix mapper, response guard, no production backdoor; explicit
+  UNE_T3Q_TOC_ADAPTER flag + MOCK_ONLY startup warning). Domain plan module:
+  job state machine, toc-tree validation/deterministic path node keys/
+  flatten/content hash, platform-neutral SHA-256, TocJobRequest seam.
+  plan-status/canonical-json moved from services/api to @une/domain. CI
+  db-verify gains pnpm build (clean-runner fix) + worker job. Dual review
+  (architecture-guardian 1 BLOCKER/6 MAJOR/10 MINOR; qa-gate-reviewer PASS
+  WITH CONDITIONS, 필수 4) fixed same day. ADR-25;
+  docs/evidence/CC-120-t3q-toc-job-verification.md.
 - CC-115 (2026-08-02): T3Q contract baseline. target-v2 contract fixed
   editorially (1.0.1-request, user-approved): allOf+additionalProperties
   composition defect (4/5 request schemas structurally unsatisfiable, Toc on

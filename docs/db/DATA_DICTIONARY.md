@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 59
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc
 
 ## api_idempotency
 
@@ -424,9 +424,14 @@
 ## generation_job
 
 - 격리: RLS enforced (FORCE)
+- ck_generation_job_aggregate_type: CHECK (((aggregate_type)::text = ANY ((ARRAY['PLAN'::character varying, 'DOCUMENT'::character varying, 'SITUATION'::character varying])::text[])))
+- ck_generation_job_progress: CHECK (((progress_pct >= (0)::numeric) AND (progress_pct <= (100)::numeric)))
+- ck_generation_job_provider: CHECK (((provider_code)::text = ANY ((ARRAY['T3Q'::character varying, 'UNI'::character varying, 'UNE'::character varying])::text[])))
+- ck_generation_job_status: CHECK (((status)::text = ANY ((ARRAY['QUEUED'::character varying, 'RUNNING'::character varying, 'CANCEL_REQUESTED'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying, 'CANCELLED'::character varying])::text[])))
+- ck_generation_job_type: CHECK (((job_type)::text = ANY ((ARRAY['TOC'::character varying, 'CONTENT'::character varying, 'AI_EDIT'::character varying, 'SOP'::character varying])::text[])))
 - fk_generation_job_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
 - generation_job_pkey: PRIMARY KEY (job_id)
-- 인덱스: generation_job_pkey, uk_job_idempotency
+- 인덱스: generation_job_pkey, ix_generation_job_dispatch, ix_generation_job_tenant_status_created, uk_job_idempotency
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -444,6 +449,9 @@
 | error_json | jsonb | - |  | 오류 |
 | started_at | timestamp with time zone | - |  | 시작 |
 | finished_at | timestamp with time zone | - |  | 종료 |
+| created_at | timestamp with time zone | NN | now() | 생성 |
+| updated_at | timestamp with time zone | NN | now() | 수정 |
+| attempt_no | integer | NN | 0 | 재시도 횟수 |
 
 ## improvement_action
 
@@ -469,7 +477,7 @@
 - 격리: RLS 없음
 - fk_job_event_job_id: FOREIGN KEY (job_id) REFERENCES generation_job(job_id) DEFERRABLE INITIALLY DEFERRED
 - job_event_pkey: PRIMARY KEY (job_event_id)
-- 인덱스: job_event_pkey
+- 인덱스: job_event_pkey, uk_job_event_seq
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -645,6 +653,7 @@
 - 격리: RLS enforced (FORCE)
 - ck_plan_start_mode: CHECK (((start_mode)::text = ANY ((ARRAY['BLANK'::character varying, 'UPLOAD_HWPX'::character varying, 'RECENT'::character varying])::text[])))
 - fk_plan_current_context_snapshot_id: FOREIGN KEY (current_context_snapshot_id) REFERENCES plan_context_snapshot(context_snapshot_id) DEFERRABLE INITIALLY DEFERRED
+- fk_plan_current_toc_version: FOREIGN KEY (current_toc_version_id) REFERENCES toc_version(toc_version_id) DEFERRABLE INITIALLY DEFERRED
 - fk_plan_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
 - fk_plan_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
 - plan_pkey: PRIMARY KEY (plan_id)
@@ -1107,9 +1116,11 @@
 ## toc_node
 
 - 격리: RLS 없음
+- ck_toc_node_level: CHECK (((level >= 1) AND (level <= 6)))
+- fk_toc_node_parent: FOREIGN KEY (parent_node_id) REFERENCES toc_node(toc_node_id) DEFERRABLE INITIALLY DEFERRED
 - fk_toc_node_toc_version_id: FOREIGN KEY (toc_version_id) REFERENCES toc_version(toc_version_id) DEFERRABLE INITIALLY DEFERRED
 - toc_node_pkey: PRIMARY KEY (toc_node_id)
-- 인덱스: toc_node_pkey, uk_toc_node_version_key
+- 인덱스: ix_toc_node_version_parent_sort, toc_node_pkey, uk_toc_node_version_key
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -1125,10 +1136,13 @@
 ## toc_version
 
 - 격리: RLS 없음
+- ck_toc_version_source: CHECK (((source_type)::text = ANY ((ARRAY['AI'::character varying, 'USER'::character varying])::text[])))
+- ck_toc_version_status: CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'CONFIRMED'::character varying])::text[])))
+- fk_toc_version_base_snapshot: FOREIGN KEY (base_snapshot_id) REFERENCES plan_context_snapshot(context_snapshot_id) DEFERRABLE INITIALLY DEFERRED
 - fk_toc_version_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_toc_version_plan_id: FOREIGN KEY (plan_id) REFERENCES plan(plan_id) DEFERRABLE INITIALLY DEFERRED
 - toc_version_pkey: PRIMARY KEY (toc_version_id)
-- 인덱스: toc_version_pkey
+- 인덱스: toc_version_pkey, uk_toc_version_plan_version
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|

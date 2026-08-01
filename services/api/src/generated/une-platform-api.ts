@@ -3198,10 +3198,114 @@ export type components = {
         PlanContext: {
             [key: string]: unknown;
         };
+        /** @enum {string} */
+        JobStatus: "QUEUED" | "RUNNING" | "CANCEL_REQUESTED" | "COMPLETED" | "FAILED" | "CANCELLED";
+        GenerationJobResource: {
+            /** Format: uuid */
+            jobId: string;
+            /** @enum {string} */
+            jobType: "TOC" | "CONTENT" | "AI_EDIT" | "SOP";
+            /** @description 대상 Aggregate 종류 (설계 10 §6.15 어휘 PLAN/DOCUMENT/SITUATION) */
+            aggregateType: string;
+            /** Format: uuid */
+            aggregateId: string;
+            /** @enum {string} */
+            providerCode: "T3Q" | "UNI" | "UNE";
+            status: components["schemas"]["JobStatus"];
+            progressPct: number;
+            /** @description 워커 실행 시도 횟수. 생성 시 0이고 워커가 선점할 때마다 +1 한다 (첫 실행 후 1). UNE-PLAN-013 사용자 재시도는 0으로 리셋한다 (마이그레이션 0015 generation_job.attempt_no / ADR-25 D9). */
+            attemptNo: number;
+            correlationId: string;
+            /** Format: date-time */
+            startedAt?: string | null;
+            /** Format: date-time */
+            finishedAt?: string | null;
+            error?: {
+                code?: string;
+                message?: string;
+                retryable?: boolean;
+            } | null;
+            /** @description 완료된 TOC Job의 산출물. 진행 중이거나 실패면 null. */
+            result?: {
+                /** Format: uuid */
+                tocVersionId?: string;
+                tocVersionNo?: number;
+            } | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        GenerationJobResponse: {
+            success: boolean;
+            data: components["schemas"]["GenerationJobResource"];
+            meta: Record<string, never>;
+        };
+        TocNodeResource: {
+            nodeKey: string;
+            title: string;
+            /** @description 목차 계층은 1~6단계 (마이그레이션 0015 ck_toc_node_level, SCR-PLAN-006) */
+            level: number;
+            sortOrder: number;
+            generationPolicy?: {
+                [key: string]: unknown;
+            };
+            children?: components["schemas"]["TocNodeResource"][];
+        };
+        TocVersionResource: {
+            /** Format: uuid */
+            tocVersionId: string;
+            /** Format: uuid */
+            planId: string;
+            versionNo: number;
+            /** @enum {string} */
+            sourceType: "AI" | "USER";
+            /** Format: uuid */
+            baseSnapshotId: string;
+            /** @enum {string} */
+            status: "DRAFT" | "CONFIRMED";
+            contentHash: string;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            nodes: components["schemas"]["TocNodeResource"][];
+        };
+        TocVersionResponse: {
+            success: boolean;
+            data: components["schemas"]["TocVersionResource"];
+            meta: Record<string, never>;
+        };
+        TocTreeNodeInput: {
+            /** @description 기존 노드를 승계할 때만 지정한다. 미지정이면 서버가 새로 발급한다. */
+            nodeKey?: string;
+            title: string;
+            generationPolicy?: {
+                [key: string]: unknown;
+            };
+            children?: components["schemas"]["TocTreeNodeInput"][];
+        };
         TocGenerationRequest: {
             /** Format: uuid */
             contextSnapshotId: string;
-            generationOption?: Record<string, never>;
+            generationOption?: {
+                additionalInstruction?: string;
+                notes?: string;
+            };
+        };
+        GenerationJobCancelRequest: {
+            reason?: string;
+        };
+        GenerationJobRetryRequest: {
+            reason?: string;
+            /** @description TOC Job은 전체 단위 재시도라 blockIds를 지원하지 않는다 (값이 오면 400 PLAN-4001). RPT-002 본문 생성 Job(CC-130)용 필드. */
+            blockIds?: string[];
+        };
+        TocVersionSaveRequest: {
+            /** Format: uuid */
+            baseVersionId: string;
+            /** @description 중첩 깊이는 6단계까지 허용한다 (초과 시 422 PLAN-422-002). */
+            tocTree: components["schemas"]["TocTreeNodeInput"][];
+            /** @default false */
+            confirm: boolean;
         };
         ContentGenerationRequest: {
             /** Format: uuid */
@@ -3423,6 +3527,7 @@ export type components = {
         IdempotencyKey: string;
         IdempotencyKeyRequired: string;
         IfMatch: string;
+        LastEventId: string;
     };
     requestBodies: never;
     headers: never;
@@ -4061,28 +4166,28 @@ export interface operations {
     une_plan_009: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
             };
             path: {
                 planId: string;
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["TocGenerationRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description Accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["GenerationJobResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4090,6 +4195,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };
@@ -4113,7 +4219,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenerationJob"];
+                    "application/json": components["schemas"]["GenerationJobResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4130,6 +4236,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+                "Last-Event-ID"?: components["parameters"]["LastEventId"];
             };
             path: {
                 jobId: string;
@@ -4138,7 +4245,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description SSE stream */
+            /**
+             * @description text/event-stream. 공개 이벤트 어휘: job.queued, job.started, job.progress, toc.section, job.completed, job.failed, job.cancel_requested, job.cancelled, job.retry_requested.
+             *
+             *     각 이벤트 프레임은 id(= job_event.sequence_no), event, data를 포함한다. Provider 원문 이벤트는 노출하지 않고 화면용 DTO로 투영한다 (설계 10 §2).
+             *
+             *     heartbeat는 15초 주기로 전송한다. heartbeat 프레임의 id는 마지막으로 전달한 sequence_no를 반복하므로 Last-Event-ID 재개 지점을 이동시키지 않는다.
+             *
+             *     재접속 시 Last-Event-ID에 마지막으로 수신한 sequence_no를 보내면 그 다음 순번부터 재전송한다.
+             *
+             *     스트림 최대 수명은 30분이며 서버가 종료한 뒤에는 클라이언트가 Last-Event-ID로 재접속한다 (설계 10 §5 "총시간 정책"이 값을 정하지 않아 CC-120에서 정한 잠정 운영값).
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4159,9 +4276,9 @@ export interface operations {
     une_plan_012: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
             };
             path: {
                 jobId: string;
@@ -4170,17 +4287,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["GenerationJobCancelRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description Accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenerationJob"];
+                    "application/json": components["schemas"]["GenerationJobResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4195,9 +4312,9 @@ export interface operations {
     une_plan_013: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
             };
             path: {
                 jobId: string;
@@ -4206,17 +4323,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["GenerationJobRetryRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description Accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenerationJob"];
+                    "application/json": components["schemas"]["GenerationJobResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4231,28 +4348,28 @@ export interface operations {
     une_plan_014: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
             };
             path: {
                 planId: string;
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["TocVersionSaveRequest"];
             };
         };
         responses: {
-            /** @description Success */
-            200: {
+            /** @description Created */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["TocVersionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4260,6 +4377,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };
@@ -4284,7 +4402,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["TocVersionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

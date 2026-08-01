@@ -2,11 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { ApiError, type ErrorViolation } from '../common/api-error';
 import { AuditRepository } from '../common/audit.repository';
-import { canonicalHash } from '../common/canonical-json';
+
 import type { AuthContext } from '../common/request-context';
 import { DatabaseService } from '../db/database.service';
 import { validatePlanContext } from './plan-context.validator';
-import { APPROVAL_LOCKED_STATUSES, nextStatusOnContextConfirm } from './plan-status';
+import { APPROVAL_LOCKED_STATUSES, canonicalHash, nextStatusOnContextConfirm } from '@une/domain';
 import {
   PlanRepository,
   type ContextDraftRow,

@@ -21,3 +21,30 @@ export {
   type CapabilityState,
   type PlanFeatureCapability,
 } from './capability/plan-feature-capabilities';
+
+export type {
+  ProviderCallContext,
+  T3qTocFailure,
+  T3qTocPort,
+  T3qTocRequest,
+  T3qTocResult,
+  T3qTocSuccess,
+} from './t3q/plan/t3q-toc-port';
+export {
+  LEGACY_TOC_MAPPING_VERSION,
+  fromTocResponse,
+  toPlanTocData,
+  type LegacyTocRequestBody,
+} from './t3q/plan/legacy-toc-mapper';
+export {
+  LegacyTocResponseError,
+  guardTocResponse,
+  type LegacyTocResponse,
+  type LegacyTocSection,
+} from './t3q/plan/legacy-toc-response.guard';
+export {
+  MOCK_FAIL_PREFIX,
+  MOCK_SLOW_PREFIX,
+  MockLegacyT3qTocAdapter,
+  type MockTocScenarioOptions,
+} from './t3q/plan/mock-legacy-toc-adapter';
