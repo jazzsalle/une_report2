@@ -312,7 +312,7 @@ export type paths = {
          * 계획서 Workspace 생성
          * @description 권한: PLAN_CREATE
          *
-         *     핵심 요청: title,startMode,templateFileId
+         *     핵심 요청: title,startMode,hazardType,managementPhase(templateFileId는 CC-140까지 보류 — ADR-23 D3)
          *
          *     핵심 응답: Plan
          *
@@ -367,6 +367,8 @@ export type paths = {
          *     핵심 응답: Plan
          *
          *     오류: PLAN-409-001
+         *
+         *     재시도 안전성은 If-Match 낙관잠금으로 보장(ADR-23 D1 개정)
          */
         patch: operations["une_plan_004"];
         trace?: never;
@@ -389,6 +391,8 @@ export type paths = {
          *     핵심 응답: ContextDraft
          *
          *     오류: PLAN-422-001
+         *
+         *     단일 draft upsert(last-write-wins)로 자연 멱등 — 재생 저장소 제외(ADR-23 D1 개정)
          */
         post: operations["une_plan_006"];
         delete?: never;
@@ -3057,14 +3061,140 @@ export type components = {
             };
             meta: Record<string, never>;
         };
+        /** @enum {string} */
+        PlanHazardType: "폭염" | "태풍/호우" | "지진" | "황사" | "산불" | "감염병" | "가축질병" | "다중밀집건축물붕괴대형사고" | "정부주요시설" | "학교시설";
+        /** @enum {string} */
+        PlanManagementPhase: "예방" | "대비";
+        /** @enum {string} */
+        PlanStatus: "DRAFT" | "CONTEXT_READY" | "OUTLINE_GENERATING" | "OUTLINE_REVIEW" | "OUTLINE_CONFIRMED" | "CONTENT_GENERATING" | "EDITING" | "REVIEW_REQUESTED" | "CHANGES_REQUESTED" | "APPROVED" | "FINAL" | "REOPENED" | "ERROR";
+        /** @enum {string} */
+        PlanStartMode: "BLANK" | "UPLOAD_HWPX" | "RECENT";
+        PlanResource: {
+            /** Format: uuid */
+            planId: string;
+            /** Format: uuid */
+            tenantId: string;
+            title: string;
+            hazardType: components["schemas"]["PlanHazardType"];
+            managementPhase: components["schemas"]["PlanManagementPhase"];
+            status: components["schemas"]["PlanStatus"];
+            /** Format: uuid */
+            documentId?: string | null;
+            /** Format: uuid */
+            currentContextSnapshotId?: string | null;
+            /** Format: uuid */
+            currentTocVersionId?: string | null;
+            startMode?: components["schemas"]["PlanStartMode"];
+            /** @description 낙관적 잠금 버전 (If-Match/ETag 값) */
+            versionNo: number;
+            /**
+             * Format: date-time
+             * @description 휴지통 이동 시각 (null이면 활성)
+             */
+            deletedAt?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PlanContextSnapshotResource: {
+            /** Format: uuid */
+            contextSnapshotId: string;
+            /** Format: uuid */
+            planId: string;
+            versionNo: number;
+            contextJson: components["schemas"]["PlanContext"];
+            contentHash: string;
+            /** Format: uuid */
+            supersedesId?: string | null;
+            /** Format: uuid */
+            confirmedBy: string;
+            /** Format: date-time */
+            confirmedAt: string;
+        };
+        ContextDraftResource: {
+            /** Format: uuid */
+            contextDraftId: string;
+            /** Format: uuid */
+            planId: string;
+            contextJson: {
+                [key: string]: unknown;
+            };
+            schemaVersion: string;
+            /** Format: uuid */
+            updatedBy: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PlanResponse: {
+            success: boolean;
+            data: components["schemas"]["PlanResource"];
+            meta: Record<string, never>;
+        };
+        PlanDetailResponse: {
+            success: boolean;
+            data: {
+                /** @description 현재 확정 Snapshot (없으면 null) */
+                currentContextSnapshot?: components["schemas"]["PlanContextSnapshotResource"] | null;
+            } & components["schemas"]["PlanResource"];
+            meta: Record<string, never>;
+        };
+        PlanPageResponse: {
+            success: boolean;
+            data: {
+                items: components["schemas"]["PlanResource"][];
+                page: number;
+                size: number;
+                totalElements: number;
+                totalPages: number;
+            };
+            meta: Record<string, never>;
+        };
+        ContextDraftResponse: {
+            success: boolean;
+            data: components["schemas"]["ContextDraftResource"];
+            meta: Record<string, never>;
+        };
+        PlanContextSnapshotResponse: {
+            success: boolean;
+            data: components["schemas"]["PlanContextSnapshotResource"];
+            meta: Record<string, never>;
+        };
+        PlanContextSnapshotListResponse: {
+            success: boolean;
+            data: {
+                items: components["schemas"]["PlanContextSnapshotResource"][];
+            };
+            meta: Record<string, never>;
+        };
         PlanCreateRequest: {
             title: string;
-            /** @enum {string} */
-            startMode: "BLANK" | "UPLOAD_HWPX" | "RECENT";
-            /** Format: uuid */
+            startMode: components["schemas"]["PlanStartMode"];
+            hazardType: components["schemas"]["PlanHazardType"];
+            managementPhase: components["schemas"]["PlanManagementPhase"];
+            /**
+             * Format: uuid
+             * @description 파일 업로드는 CC-140 범위로 보류 — 값이 제공되면 400 PLAN-4001로 거부한다 (ADR-23 D3).
+             */
             templateFileId?: string | null;
         };
-        /** @description See 03_json-schema/plan-context.schema.json */
+        PlanMetaPatchRequest: {
+            title?: string;
+            hazardType?: components["schemas"]["PlanHazardType"];
+            managementPhase?: components["schemas"]["PlanManagementPhase"];
+        };
+        PlanDeleteRequest: {
+            reason?: string;
+        };
+        PlanContextDraftRequest: {
+            /** @description 완화 검증 대상 기준정보 작업본 (미완성 허용, ADR-23 D2) */
+            context: {
+                [key: string]: unknown;
+            };
+            /** @default 1.0 */
+            schemaVersion: string;
+        };
+        /** @description 엄격 검증: contracts/schemas/plan-context.schema.json (additionalProperties 불가). Snapshot 확정은 전체 스키마 통과 필수, draft는 required/minLength/minItems만 유예 */
         PlanContext: {
             [key: string]: unknown;
         };
@@ -3260,6 +3390,24 @@ export type components = {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Precondition Failed */
+        PreconditionFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Precondition Required */
+        PreconditionRequired: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description Provider Error */
         ProviderError: {
             headers: {
@@ -3273,6 +3421,7 @@ export type components = {
     parameters: {
         CorrelationId: string;
         IdempotencyKey: string;
+        IdempotencyKeyRequired: string;
         IfMatch: string;
     };
     requestBodies: never;
@@ -3629,7 +3778,16 @@ export interface operations {
     };
     une_plan_002: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 제목 부분일치 검색어 */
+                keyword?: string;
+                status?: components["schemas"]["PlanStatus"];
+                hazardType?: components["schemas"]["PlanHazardType"];
+                /** @description true이면 휴지통(deleted_at NOT NULL) 목록을 조회한다. */
+                inTrash?: boolean;
+                page?: number;
+                size?: number;
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -3644,7 +3802,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["PlanPageResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3659,14 +3817,14 @@ export interface operations {
     une_plan_001: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
             };
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["PlanCreateRequest"];
             };
@@ -3678,7 +3836,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["PlanResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3706,10 +3864,12 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description 현재 versionNo (PATCH의 If-Match 값) */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["PlanDetailResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3732,16 +3892,18 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PlanDeleteRequest"];
+            };
+        };
         responses: {
-            /** @description Success */
-            200: {
+            /** @description No Content (설계 10 §3.3 응답 204 — 본문 없음) */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["Plan"];
-                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
@@ -3757,7 +3919,6 @@ export interface operations {
             query?: never;
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
                 "If-Match"?: components["parameters"]["IfMatch"];
             };
             path: {
@@ -3765,19 +3926,21 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["PlanMetaPatchRequest"];
             };
         };
         responses: {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description 갱신된 versionNo */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["PlanResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3785,7 +3948,9 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
+            428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["ProviderError"];
         };
     };
@@ -3794,16 +3959,15 @@ export interface operations {
             query?: never;
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
                 planId: string;
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["PlanContextDraftRequest"];
             };
         };
         responses: {
@@ -3813,7 +3977,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["ContextDraftResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3821,6 +3985,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };
@@ -3844,7 +4009,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["PlanContextSnapshotListResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3859,28 +4024,28 @@ export interface operations {
     une_plan_007: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
             };
             path: {
                 planId: string;
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["PlanContext"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["PlanContextSnapshotResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3888,6 +4053,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };

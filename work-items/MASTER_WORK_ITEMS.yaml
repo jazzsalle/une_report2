@@ -166,7 +166,7 @@ work_items:
   gate: G2
   dependencies:
   - CC-100
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - plan CRUD
   - context schema validation
@@ -176,7 +176,12 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/evidence/CC-110-plan-context-snapshot-verification.md
+  - docs/adr/ADR-23-cc110-plan-slice-and-idempotency-store.md
+  - database/migrations/0014_api_idempotency.sql
+  - services/api/src/e2e/plan-crud.e2e.test.ts (23 e2e cases, 107/107 suite x5)
+  - tests/integration/src/api-idempotency.test.ts (30/30 suite)
 - id: CC-115
   title: Baseline current T3Q RPT-001/002 and target-v2 change request contracts
   gate: G2

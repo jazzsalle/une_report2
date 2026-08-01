@@ -1,6 +1,7 @@
 import { Inject, Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { authErrors } from '../common/api-error';
+import { AuditRepository } from '../common/audit.repository';
 import { REQUIRED_PERMISSION } from '../common/decorators';
 import type { ApiRequest } from '../common/request-context';
 import { DatabaseService } from '../db/database.service';
@@ -15,6 +16,7 @@ export class PermissionsGuard implements CanActivate {
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(AuthRepository) private readonly repo: AuthRepository,
+    @Inject(AuditRepository) private readonly audit: AuditRepository,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -45,7 +47,7 @@ export class PermissionsGuard implements CanActivate {
     if (!auth) return;
     try {
       await this.db.withTenant(auth.tenantId, (c) =>
-        this.repo.insertAudit(c, {
+        this.audit.insertAudit(c, {
           tenantId: auth.tenantId,
           actorId: auth.userId,
           action: 'ACCESS_DENIED',

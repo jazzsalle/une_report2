@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import type { ExecutionContext } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../common/api-error';
+import type { AuditRepository } from '../common/audit.repository';
 import { IS_PUBLIC, REQUIRED_PERMISSION } from '../common/decorators';
 import type { ApiConfig } from '../config/api-config';
 import type { DatabaseService } from '../db/database.service';
@@ -92,10 +93,15 @@ describe('PermissionsGuard', () => {
     } as unknown as DatabaseService;
     const repo = {
       loadPermissions: vi.fn().mockResolvedValue(permissions),
-      insertAudit: audit,
     } as unknown as AuthRepository;
+    const auditRepo = { insertAudit: audit } as unknown as AuditRepository;
     return {
-      guard: new PermissionsGuard(reflectorFor({ [REQUIRED_PERMISSION]: 'ORG_READ' }), db, repo),
+      guard: new PermissionsGuard(
+        reflectorFor({ [REQUIRED_PERMISSION]: 'ORG_READ' }),
+        db,
+        repo,
+        auditRepo,
+      ),
       audit,
     };
   }
@@ -105,6 +111,7 @@ describe('PermissionsGuard', () => {
       reflectorFor({}),
       {} as DatabaseService,
       {} as AuthRepository,
+      {} as AuditRepository,
     );
     await expect(noRequirement.canActivate(contextFor({ auth }))).resolves.toBe(true);
   });

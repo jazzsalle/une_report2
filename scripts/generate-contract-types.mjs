@@ -5,7 +5,7 @@
 // behind adapter ports (packages/provider-adapters) per architecture rules.
 // Generated files are committed; CI regenerates and fails on drift.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
@@ -48,4 +48,24 @@ for (const { contract, output, note } of targets) {
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, headerFor(note) + astToString(ast), 'utf8');
   console.log(`generated ${output} <- ${contract}`);
+}
+
+// Runtime JSON Schema modules (CC-110): services/api compiles with
+// rootDir=src, so contracts/*.json cannot be imported directly; the schema is
+// embedded as a generated TS module instead (same drift gate as the types).
+const schemaTargets = [
+  {
+    schema: 'contracts/schemas/plan-context.schema.json',
+    output: 'services/api/src/generated/plan-context.schema.ts',
+    exportName: 'planContextSchema',
+  },
+];
+
+for (const { schema, output, exportName } of schemaTargets) {
+  const json = JSON.parse(await readFile(join(root, schema), 'utf8'));
+  const body = `export const ${exportName} = ${JSON.stringify(json, null, 2)} as const;\n`;
+  const outPath = join(root, output);
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, headerFor(`Source of truth: ${schema}`) + body, 'utf8');
+  console.log(`generated ${output} <- ${schema}`);
 }

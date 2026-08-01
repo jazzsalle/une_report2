@@ -133,6 +133,12 @@ importers:
       '@une/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.20.0)
       jsonwebtoken:
         specifier: ^9.0.2
         version: 9.0.3

@@ -27,3 +27,5 @@
 | ADR-19 | 백엔드 구현 프로파일: NestJS (Node/TypeScript) | ACCEPTED | [ADR-19-backend-profile-nestjs.md](ADR-19-backend-profile-nestjs.md) | 사내 표준 강제 또는 납품 인프라의 Node 미허용 |
 | ADR-20 | 계약 검증 게이트와 계약 타입 생성 전략 | ACCEPTED | [ADR-20-contract-validation-and-type-generation.md](ADR-20-contract-validation-and-type-generation.md) | 계약 안정화 후 스타일 린트 도입 재평가(CC-115/CC-400) |
 | ADR-21 | 마이그레이션 도구 확정과 스키마 기준선 결함 해소 | ACCEPTED | [ADR-21-migration-tool-and-baseline-corrections.md](ADR-21-migration-tool-and-baseline-corrections.md) | 파티셔닝 전환(0010 계획)은 별도 ICR; 백업·복원 검증은 운영 항목 |
+| ADR-22 | CC-100 RBAC 저장소 보완과 mock 인증 모델 | ACCEPTED | [ADR-22-cc100-rbac-storage-and-mock-auth.md](ADR-22-cc100-rbac-storage-and-mock-auth.md) | 실 SSO 바인딩(OB-01), 레이트리밋 항목에서 D6 재평가 |
+| ADR-23 | CC-110 Plan 슬라이스 — 멱등키 재생 저장소와 기준정보 계약 확정 | ACCEPTED | [ADR-23-cc110-plan-slice-and-idempotency-store.md](ADR-23-cc110-plan-slice-and-idempotency-store.md) | api_idempotency TTL·보존(CC-430 계열), 승인 잠금 재개정 액션(CC-170+), 재난유형 코드 카탈로그 설계 변경 요청 |
