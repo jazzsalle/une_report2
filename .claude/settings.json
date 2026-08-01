@@ -24,7 +24,6 @@
       "Bash(git worktree list:*)"
     ],
     "deny": [
-      "Bash(git push:*)",
       "Bash(git reset --hard:*)",
       "Bash(git clean -fd:*)",
       "Bash(docker system prune:*)",

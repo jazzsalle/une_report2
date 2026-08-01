@@ -91,7 +91,8 @@
 
 ## Notes
 
-- git push는 deny rule로 Claude 실행 불가 — 사용자가 `! git push`.
+- git push: deny rule 해제(2026-08-01, 사용자 승인) — 이제 Claude가 push
+  시도하면 승인 프롬프트가 뜨고 사용자가 허용하면 실행된다.
 - gh CLI 미설치; CI 상태는 GitHub REST API로 조회.
 - DATABASE_URL(이 PC): superuser
   `postgres://une:<UNE_DB_PASSWORD>@localhost:15432/une` (비밀값은
