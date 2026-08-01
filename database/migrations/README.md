@@ -16,7 +16,11 @@
   role_permission은 런타임 SELECT 전용.
 - `0013`: IAM 강화 (CC-100 이중 리뷰, ADR-22 추록) — `permission` 카탈로그
   런타임 쓰기 회수, 카탈로그 GRANT SELECT 명시, `uk_user_session_refresh_hash`.
-- 새 마이그레이션은 `0014_name.sql`부터 4자리 숫자 접두사로 이어간다.
+- `0014`: 멱등키 재생 저장소 (CC-110, ADR-23) — `api_idempotency` 신설
+  (59번째 테이블; 설계 §7 재생 의미론 vs §6 물리 목록 누락 해소, RLS
+  ENABLE+FORCE, 런타임 DELETE 회수), `uk_plan_context_draft_plan`(계획서당
+  draft 1행), `plan.start_mode`(US-PLAN-002 AC-02 저장 컬럼 부재 해소).
+- 새 마이그레이션은 `0015_name.sql`부터 4자리 숫자 접두사로 이어간다.
 - **마이그레이션 주체 전제**: 전역 행(tenant_id IS NULL) 시드는 FORCE RLS
   아래에서 주체의 RLS 우회를 전제한다 — 마이그레이션은 항상
   superuser/BYPASSRLS 롤로 실행한다(런타임 une_app 금지; 관리형 호스트 포함).

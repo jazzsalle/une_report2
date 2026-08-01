@@ -23,18 +23,6 @@ export interface SessionRow {
   revokedAt: Date | null;
 }
 
-export interface AuditEntry {
-  tenantId: string;
-  actorId?: string;
-  action: string;
-  resourceType: string;
-  resourceId?: string;
-  correlationId: string;
-  ip?: string;
-  userAgent?: string;
-  detail?: Record<string, unknown>;
-}
-
 // A SUSPENDED tenant must not authenticate (0002 CHECK: ACTIVE/SUSPENDED);
 // callers additionally filter u.status so the failure reason stays opaque.
 const USER_SELECT = `
@@ -210,26 +198,5 @@ export class AuthRepository {
       [userId, tenantId],
     );
     return result.rows.map((row) => row.permission_code as string);
-  }
-
-  /** audit_log is append-only for the runtime role (0011); corrections are new events. */
-  async insertAudit(client: PoolClient, entry: AuditEntry): Promise<void> {
-    await client.query(
-      `INSERT INTO audit_log
-         (tenant_id, actor_id, action, resource_type, resource_id, correlation_id,
-          ip_address, user_agent, after_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        entry.tenantId,
-        entry.actorId ?? null,
-        entry.action,
-        entry.resourceType,
-        entry.resourceId ?? null,
-        entry.correlationId,
-        entry.ip ?? null,
-        entry.userAgent ?? null,
-        entry.detail ? JSON.stringify(entry.detail) : null,
-      ],
-    );
   }
 }

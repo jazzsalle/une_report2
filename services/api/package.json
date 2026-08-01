@@ -17,6 +17,8 @@
     "@nestjs/core": "^11.1.0",
     "@nestjs/platform-express": "^11.1.0",
     "@une/domain": "workspace:*",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",

@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { authErrors } from '../common/api-error';
+import { AuditRepository, type AuditEntry } from '../common/audit.repository';
 import type { AuthContext } from '../common/request-context';
 import { API_CONFIG, type ApiConfig } from '../config/api-config';
 import { DatabaseService } from '../db/database.service';
-import { AuthRepository, type AuditEntry, type UserRow } from './auth.repository';
+import { AuthRepository, type UserRow } from './auth.repository';
 import { parseMockExternalToken } from './mock-sso';
 import { hashRefreshToken, issueRefreshToken, refreshTokenTenant, signAccessToken } from './tokens';
 
@@ -38,6 +39,7 @@ export class AuthService {
     @Inject(API_CONFIG) private readonly config: ApiConfig,
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(AuthRepository) private readonly repo: AuthRepository,
+    @Inject(AuditRepository) private readonly audit: AuditRepository,
   ) {}
 
   /** UNE-AUTH-001. Mock issuance only under AUTH_MODE=mock (ADR-22 D3); the
@@ -79,7 +81,7 @@ export class AuthService {
       await this.repo.touchLastLogin(c, user.tenantId, user.userId);
       const roles = await this.repo.loadRoles(c, user.tenantId, user.userId);
       const permissions = await this.repo.loadPermissions(c, user.tenantId, user.userId);
-      await this.repo.insertAudit(c, {
+      await this.audit.insertAudit(c, {
         tenantId: user.tenantId,
         actorId: user.userId,
         action: 'LOGIN',
@@ -140,7 +142,7 @@ export class AuthService {
         new Date(Date.now() + this.config.refreshTtlSec * 1000),
       );
       if (!rotated) throw authErrors.invalidRefreshToken();
-      await this.repo.insertAudit(c, {
+      await this.audit.insertAudit(c, {
         tenantId,
         actorId: session.userId,
         action: 'SESSION_REFRESHED',
@@ -168,7 +170,7 @@ export class AuthService {
       // all — an authentication problem, not a session-state conflict.
       if (outcome === 'missing') throw authErrors.unauthenticated();
       if (outcome !== 'revoked') throw authErrors.sessionAlreadyClosed();
-      await this.repo.insertAudit(c, {
+      await this.audit.insertAudit(c, {
         tenantId: auth.tenantId,
         actorId: auth.userId,
         action: 'LOGOUT',
@@ -185,7 +187,7 @@ export class AuthService {
    * audit_log FK, which must not mask the original auth failure. */
   private async auditSafe(entry: AuditEntry): Promise<void> {
     try {
-      await this.db.withTenant(entry.tenantId, (c) => this.repo.insertAudit(c, entry));
+      await this.db.withTenant(entry.tenantId, (c) => this.audit.insertAudit(c, entry));
     } catch (err) {
       console.warn(
         `[une-api] audit write skipped (${entry.action}): ${err instanceof Error ? err.message : err}`,

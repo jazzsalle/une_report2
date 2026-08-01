@@ -5,8 +5,35 @@
 적용된 마이그레이션에서 자동 생성된 데이터 사전이다 (G-DB 게이트 증거).
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
-- 테이블 수: 58
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening
+- 테이블 수: 59
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency
+
+## api_idempotency
+
+멱등키 재생 저장소 (ADR-23)
+- 격리: RLS enforced (FORCE)
+- api_idempotency_pkey: PRIMARY KEY (idempotency_id)
+- ck_api_idempotency_completed: CHECK ((((state)::text = 'COMPLETED'::text) = ((response_status IS NOT NULL) AND (completed_at IS NOT NULL))))
+- ck_api_idempotency_state: CHECK (((state)::text = ANY ((ARRAY['IN_PROGRESS'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying])::text[])))
+- ck_api_idempotency_status_range: CHECK (((response_status IS NULL) OR ((response_status >= 100) AND (response_status <= 599))))
+- fk_api_idempotency_tenant: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id)
+- 인덱스: api_idempotency_pkey, uk_api_idempotency_key
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| idempotency_id | uuid | NN | gen_random_uuid() | 재생 레코드 |
+| tenant_id | uuid | NN |  | 기관 |
+| endpoint | character varying(200) | NN |  | METHOD 경로템플릿 |
+| idempotency_key | character varying(100) | NN |  | 멱등키 |
+| request_hash | character(64) | NN |  | 요청 SHA-256 |
+| state | character varying(20) | NN | 'IN_PROGRESS'::character varying | IN_PROGRESS/COMPLETED/FAILED |
+| response_status | integer | - |  | 재생 상태코드 |
+| response_body | jsonb | - |  | 재생 응답 |
+| correlation_id | character varying(80) | NN |  | 추적 |
+| created_by | uuid | NN |  | 요청자 |
+| created_at | timestamp with time zone | NN | now() | 최초 수신 |
+| claimed_at | timestamp with time zone | NN | now() | 최근 선점 |
+| completed_at | timestamp with time zone | - |  | 완료 |
 
 ## app_user
 
@@ -616,6 +643,7 @@
 ## plan
 
 - 격리: RLS enforced (FORCE)
+- ck_plan_start_mode: CHECK (((start_mode)::text = ANY ((ARRAY['BLANK'::character varying, 'UPLOAD_HWPX'::character varying, 'RECENT'::character varying])::text[])))
 - fk_plan_current_context_snapshot_id: FOREIGN KEY (current_context_snapshot_id) REFERENCES plan_context_snapshot(context_snapshot_id) DEFERRABLE INITIALLY DEFERRED
 - fk_plan_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
 - fk_plan_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
@@ -638,6 +666,7 @@
 | deleted_at | timestamp with time zone | - |  | 휴지통 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
 | updated_at | timestamp with time zone | NN | now() | 수정 |
+| start_mode | character varying(20) | NN | 'BLANK'::character varying | 시작방식 |
 
 ## plan_context_draft
 
@@ -645,7 +674,7 @@
 - fk_plan_context_draft_plan_id: FOREIGN KEY (plan_id) REFERENCES plan(plan_id) DEFERRABLE INITIALLY DEFERRED
 - fk_plan_context_draft_updated_by: FOREIGN KEY (updated_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - plan_context_draft_pkey: PRIMARY KEY (context_draft_id)
-- 인덱스: plan_context_draft_pkey
+- 인덱스: plan_context_draft_pkey, uk_plan_context_draft_plan
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|

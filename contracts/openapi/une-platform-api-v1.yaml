@@ -616,7 +616,8 @@ paths:
       description: '권한: PLAN_CREATE
 
 
-        핵심 요청: title,startMode,templateFileId
+        핵심 요청: title,startMode,hazardType,managementPhase(templateFileId는 CC-140까지 보류
+        — ADR-23 D3)
 
 
         핵심 응답: Plan
@@ -625,14 +626,14 @@ paths:
         오류: PLAN-4001'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
-      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/IdempotencyKeyRequired'
       responses:
         '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/PlanResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -654,8 +655,10 @@ paths:
       - document
       x-error-codes:
       - PLAN-4001
+      - COM-0400
+      - COM-0409
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -679,13 +682,52 @@ paths:
         오류: PLAN-4002'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
+      - name: keyword
+        in: query
+        required: false
+        description: 제목 부분일치 검색어
+        schema:
+          type: string
+          maxLength: 100
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/PlanStatus'
+      - name: hazardType
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/PlanHazardType'
+      - name: inTrash
+        in: query
+        required: false
+        description: true이면 휴지통(deleted_at NOT NULL) 목록을 조회한다.
+        schema:
+          type: boolean
+          default: false
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/PlanPageResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -732,13 +774,19 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       responses:
         '200':
           description: Success
+          headers:
+            ETag:
+              description: 현재 versionNo (PATCH의 If-Match 값)
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/PlanDetailResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -776,7 +824,10 @@ paths:
         핵심 응답: Plan
 
 
-        오류: PLAN-409-001'
+        오류: PLAN-409-001
+
+
+        재시도 안전성은 If-Match 낙관잠금으로 보장(ADR-23 D1 개정)'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
       - name: planId
@@ -784,15 +835,20 @@ paths:
         required: true
         schema:
           type: string
-      - $ref: '#/components/parameters/IdempotencyKey'
+          format: uuid
       - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Success
+          headers:
+            ETag:
+              description: 갱신된 versionNo
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/PlanResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -803,8 +859,12 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '503':
           $ref: '#/components/responses/ProviderError'
       x-une-api-id: UNE-PLAN-004
@@ -814,12 +874,17 @@ paths:
       - audit_log
       x-error-codes:
       - PLAN-409-001
+      - PLAN-4001
+      - PLAN-4003
+      - PLAN-412-002
+      - COM-0428
+      - COM-0400
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/PlanMetaPatchRequest'
       security:
       - BearerAuth: []
     delete:
@@ -844,13 +909,10 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Plan'
+        '204':
+          description: No Content (설계 10 §3.3 응답 204 — 본문 없음)
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -871,6 +933,13 @@ paths:
       - plan
       x-error-codes:
       - PLAN-403-001
+      - PLAN-4003
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanDeleteRequest'
       security:
       - BearerAuth: []
   /plans/{planId}/context-drafts:
@@ -888,7 +957,10 @@ paths:
         핵심 응답: ContextDraft
 
 
-        오류: PLAN-422-001'
+        오류: PLAN-422-001
+
+
+        단일 draft upsert(last-write-wins)로 자연 멱등 — 재생 저장소 제외(ADR-23 D1 개정)'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
       - name: planId
@@ -896,14 +968,14 @@ paths:
         required: true
         schema:
           type: string
-      - $ref: '#/components/parameters/IdempotencyKey'
+          format: uuid
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/ContextDraftResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -914,6 +986,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -924,12 +998,15 @@ paths:
       - plan_context_draft
       x-error-codes:
       - PLAN-422-001
+      - PLAN-4001
+      - PLAN-4003
+      - PLAN-412-002
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/PlanContextDraftRequest'
       security:
       - BearerAuth: []
   /plans/{planId}/context-snapshots:
@@ -955,14 +1032,15 @@ paths:
         required: true
         schema:
           type: string
-      - $ref: '#/components/parameters/IdempotencyKey'
+          format: uuid
+      - $ref: '#/components/parameters/IdempotencyKeyRequired'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/PlanContextSnapshotResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -973,6 +1051,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -981,11 +1061,16 @@ paths:
       x-permission: PLAN_EDIT
       x-db-tables:
       - plan_context_snapshot
+      - plan
       - audit_log
       x-error-codes:
-      - PLAN-412-001
+      - PLAN-412-002
+      - PLAN-422-001
+      - PLAN-4003
+      - COM-0400
+      - COM-0409
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -1014,13 +1099,14 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/PlanContextSnapshotListResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6885,6 +6971,18 @@ components:
       schema:
         type: string
         maxLength: 100
+    # ADR-23 D1: create/confirm operations of the plan slice require the header so
+    # the api_idempotency replay store can return the original result on retry.
+    # Missing or malformed key -> COM-0400; same key with a different payload
+    # (or still in flight) -> COM-0409.
+    IdempotencyKeyRequired:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        maxLength: 100
+        pattern: '^[A-Za-z0-9._:-]{1,100}$'
     IfMatch:
       name: If-Match
       in: header
@@ -7003,28 +7101,359 @@ components:
               type: object
         meta:
           type: object
+    # CC-110 (ADR-23): the plan slice (UNE-PLAN-001~008) replaces the loose
+    # `Plan` placeholder with explicit resource schemas and {success, data, meta}
+    # envelopes. The placeholder below is kept only because UNE-PLAN-009+ still
+    # reference it; each later work item replaces its own usage.
+    # ADR-23 D3: hazard/phase vocabulary is taken from
+    # contracts/schemas/plan-context.schema.json (backgroundInfo.disasterType /
+    # backgroundInfo.controlPhase) until a code catalog table exists.
+    PlanHazardType:
+      type: string
+      enum:
+      - 폭염
+      - 태풍/호우
+      - 지진
+      - 황사
+      - 산불
+      - 감염병
+      - 가축질병
+      - 다중밀집건축물붕괴대형사고
+      - 정부주요시설
+      - 학교시설
+    PlanManagementPhase:
+      type: string
+      enum:
+      - 예방
+      - 대비
+    # 설계 09 §4 계획서 Document 상태모델
+    PlanStatus:
+      type: string
+      enum:
+      - DRAFT
+      - CONTEXT_READY
+      - OUTLINE_GENERATING
+      - OUTLINE_REVIEW
+      - OUTLINE_CONFIRMED
+      - CONTENT_GENERATING
+      - EDITING
+      - REVIEW_REQUESTED
+      - CHANGES_REQUESTED
+      - APPROVED
+      - FINAL
+      - REOPENED
+      - ERROR
+    PlanStartMode:
+      type: string
+      enum:
+      - BLANK
+      - UPLOAD_HWPX
+      - RECENT
+    PlanResource:
+      type: object
+      required:
+      - planId
+      - tenantId
+      - title
+      - hazardType
+      - managementPhase
+      - status
+      - ownerId
+      - versionNo
+      - createdAt
+      - updatedAt
+      properties:
+        planId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 300
+        hazardType:
+          $ref: '#/components/schemas/PlanHazardType'
+        managementPhase:
+          $ref: '#/components/schemas/PlanManagementPhase'
+        status:
+          $ref: '#/components/schemas/PlanStatus'
+        documentId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        currentContextSnapshotId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        currentTocVersionId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        startMode:
+          $ref: '#/components/schemas/PlanStartMode'
+        versionNo:
+          type: integer
+          description: 낙관적 잠금 버전 (If-Match/ETag 값)
+        deletedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: 휴지통 이동 시각 (null이면 활성)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    # ADR-23 D4: 확정된 기준정보는 불변이며 content_hash(정규화 JSON SHA-256)로
+    # 동일 내용 재확정을 dedupe한다.
+    PlanContextSnapshotResource:
+      type: object
+      required:
+      - contextSnapshotId
+      - planId
+      - versionNo
+      - contextJson
+      - contentHash
+      - confirmedBy
+      - confirmedAt
+      properties:
+        contextSnapshotId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+          format: uuid
+        versionNo:
+          type: integer
+        contextJson:
+          $ref: '#/components/schemas/PlanContext'
+        contentHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        supersedesId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        confirmedBy:
+          type: string
+          format: uuid
+        confirmedAt:
+          type: string
+          format: date-time
+    # ADR-23 D2: 계획서당 1행 upsert. 임시저장은 완화 검증이므로 contextJson은
+    # 미완성 상태를 허용한다(타입·enum·길이 위반은 PLAN-422-001).
+    ContextDraftResource:
+      type: object
+      required:
+      - contextDraftId
+      - planId
+      - contextJson
+      - schemaVersion
+      - updatedBy
+      - updatedAt
+      properties:
+        contextDraftId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+          format: uuid
+        contextJson:
+          type: object
+          additionalProperties: true
+        schemaVersion:
+          type: string
+          maxLength: 20
+        updatedBy:
+          type: string
+          format: uuid
+        updatedAt:
+          type: string
+          format: date-time
+    PlanResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/PlanResource'
+        meta:
+          type: object
+    PlanDetailResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          allOf:
+          - $ref: '#/components/schemas/PlanResource'
+          properties:
+            currentContextSnapshot:
+              anyOf:
+              - $ref: '#/components/schemas/PlanContextSnapshotResource'
+              - type: 'null'
+              description: 현재 확정 Snapshot (없으면 null)
+        meta:
+          type: object
+    PlanPageResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          required:
+          - items
+          - page
+          - size
+          - totalElements
+          - totalPages
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PlanResource'
+            page:
+              type: integer
+            size:
+              type: integer
+            totalElements:
+              type: integer
+            totalPages:
+              type: integer
+        meta:
+          type: object
+    ContextDraftResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/ContextDraftResource'
+        meta:
+          type: object
+    PlanContextSnapshotResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/PlanContextSnapshotResource'
+        meta:
+          type: object
+    PlanContextSnapshotListResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          required:
+          - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PlanContextSnapshotResource'
+        meta:
+          type: object
+    # ADR-23 D3: plan.hazard_type/management_phase는 NOT NULL이므로 생성 요청에
+    # 필수로 포함한다(기준선 계약 누락 해소).
     PlanCreateRequest:
       type: object
       required:
       - title
       - startMode
+      - hazardType
+      - managementPhase
       properties:
         title:
           type: string
+          minLength: 1
           maxLength: 300
         startMode:
-          type: string
-          enum:
-          - BLANK
-          - UPLOAD_HWPX
-          - RECENT
+          $ref: '#/components/schemas/PlanStartMode'
+        hazardType:
+          $ref: '#/components/schemas/PlanHazardType'
+        managementPhase:
+          $ref: '#/components/schemas/PlanManagementPhase'
         templateFileId:
-          type: string
+          type:
+          - string
+          - 'null'
           format: uuid
-          nullable: true
+          description: 파일 업로드는 CC-140 범위로 보류 — 값이 제공되면 400 PLAN-4001로 거부한다 (ADR-23 D3).
+    # JSON Merge Patch 부분집합: 메타 3필드만 허용하고 null(필드 삭제)은 불가.
+    # status/owner 변경은 별도 도메인 액션이다 (ADR-23 D5).
+    PlanMetaPatchRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        hazardType:
+          $ref: '#/components/schemas/PlanHazardType'
+        managementPhase:
+          $ref: '#/components/schemas/PlanManagementPhase'
+    PlanDeleteRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+    PlanContextDraftRequest:
+      type: object
+      required:
+      - context
+      properties:
+        context:
+          type: object
+          additionalProperties: true
+          description: 완화 검증 대상 기준정보 작업본 (미완성 허용, ADR-23 D2)
+        schemaVersion:
+          type: string
+          maxLength: 20
+          default: '1.0'
     PlanContext:
       type: object
-      description: See 03_json-schema/plan-context.schema.json
+      description: '엄격 검증: contracts/schemas/plan-context.schema.json
+        (additionalProperties 불가). Snapshot 확정은 전체 스키마 통과 필수,
+        draft는 required/minLength/minItems만 유예'
       additionalProperties: true
     TocGenerationRequest:
       type: object
@@ -7350,6 +7779,18 @@ components:
             $ref: '#/components/schemas/ErrorEnvelope'
     Unprocessable:
       description: Unprocessable Entity
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    PreconditionFailed:
+      description: Precondition Failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    PreconditionRequired:
+      description: Precondition Required
       content:
         application/json:
           schema:
