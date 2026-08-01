@@ -72,10 +72,16 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Workspace deps resolve to dist/ (gitignored) — tests that import
+      # @une/domain / @une/provider-adapters need a build first (QA 필수-1).
+      - run: pnpm build
       - run: pnpm --filter @une/db-integration test
       # CC-100: HTTP e2e (mock auth/tenant/RBAC) runs its transactions with
       # SET LOCAL ROLE une_app, so FORCE RLS applies as in production.
       - run: pnpm --filter @une/api test
+      # CC-120: worker e2e claims jobs as SET LOCAL ROLE une_worker (dispatch
+      # policies + tenant-scoped terminal writes exactly as in production).
+      - run: pnpm --filter @une/worker test
       - run: pnpm db:data-dictionary
       # git add -N makes an untracked (never-committed) dictionary fail too.
       - run: git add -N -- docs/db/DATA_DICTIONARY.md && git diff --exit-code -- docs/db/DATA_DICTIONARY.md

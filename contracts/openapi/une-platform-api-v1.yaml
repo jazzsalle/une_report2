@@ -1152,14 +1152,15 @@ paths:
         required: true
         schema:
           type: string
-      - $ref: '#/components/parameters/IdempotencyKey'
+          format: uuid
+      - $ref: '#/components/parameters/IdempotencyKeyRequired'
       responses:
         '202':
-          description: Success
+          description: Accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/GenerationJobResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1170,6 +1171,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -1178,10 +1181,20 @@ paths:
       x-permission: PLAN_GENERATE
       x-db-tables:
       - generation_job
+      - job_event
+      - plan
+      - audit_log
       x-error-codes:
       - T3Q-502-001
+      - PLAN-412-001
+      - PLAN-412-002
+      - PLAN-409-002
+      - PLAN-4001
+      - PLAN-4003
+      - COM-0400
+      - COM-0409
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -1211,13 +1224,14 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenerationJob'
+                $ref: '#/components/schemas/GenerationJobResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1236,6 +1250,8 @@ paths:
       x-permission: PLAN_READ
       x-db-tables:
       - generation_job
+      # 완료 Job의 result(tocVersionId/tocVersionNo)는 job_event에서 투영한다.
+      - job_event
       x-error-codes:
       - JOB-404-001
       security:
@@ -1263,9 +1279,31 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
+      - $ref: '#/components/parameters/LastEventId'
       responses:
         '200':
-          description: SSE stream
+          description: 'text/event-stream. 공개 이벤트 어휘: job.queued, job.started,
+            job.progress, toc.section, job.completed, job.failed,
+            job.cancel_requested, job.cancelled, job.retry_requested.
+
+
+            각 이벤트 프레임은 id(= job_event.sequence_no), event, data를 포함한다.
+            Provider 원문 이벤트는 노출하지 않고 화면용 DTO로 투영한다 (설계 10 §2).
+
+
+            heartbeat는 15초 주기로 전송한다. heartbeat 프레임의 id는 마지막으로
+            전달한 sequence_no를 반복하므로 Last-Event-ID 재개 지점을 이동시키지
+            않는다.
+
+
+            재접속 시 Last-Event-ID에 마지막으로 수신한 sequence_no를 보내면 그
+            다음 순번부터 재전송한다.
+
+
+            스트림 최대 수명은 30분이며 서버가 종료한 뒤에는 클라이언트가
+            Last-Event-ID로 재접속한다 (설계 10 §5 "총시간 정책"이 값을 정하지
+            않아 CC-120에서 정한 잠정 운영값).'
           content:
             text/event-stream:
               schema:
@@ -1290,6 +1328,7 @@ paths:
       - generation_job
       - job_event
       x-error-codes:
+      - JOB-404-001
       - JOB-503-001
       security:
       - BearerAuth: []
@@ -1316,14 +1355,15 @@ paths:
         required: true
         schema:
           type: string
-      - $ref: '#/components/parameters/IdempotencyKey'
+          format: uuid
+      - $ref: '#/components/parameters/IdempotencyKeyRequired'
       responses:
         '202':
-          description: Success
+          description: Accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenerationJob'
+                $ref: '#/components/schemas/GenerationJobResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1343,14 +1383,19 @@ paths:
       x-db-tables:
       - generation_job
       - job_event
+      - plan
+      - audit_log
       x-error-codes:
       - JOB-409-001
+      - JOB-404-001
+      - COM-0400
+      - COM-0409
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/GenerationJobCancelRequest'
       security:
       - BearerAuth: []
   /plan-jobs/{jobId}/retry:
@@ -1376,14 +1421,15 @@ paths:
         required: true
         schema:
           type: string
-      - $ref: '#/components/parameters/IdempotencyKey'
+          format: uuid
+      - $ref: '#/components/parameters/IdempotencyKeyRequired'
       responses:
         '202':
-          description: Success
+          description: Accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenerationJob'
+                $ref: '#/components/schemas/GenerationJobResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1402,14 +1448,21 @@ paths:
       x-permission: PLAN_GENERATE
       x-db-tables:
       - generation_job
+      - job_event
+      - plan
+      - audit_log
       x-error-codes:
       - JOB-409-002
+      - JOB-404-001
+      - PLAN-4001
+      - COM-0400
+      - COM-0409
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/GenerationJobRetryRequest'
       security:
       - BearerAuth: []
   /plans/{planId}/toc-versions:
@@ -1435,14 +1488,15 @@ paths:
         required: true
         schema:
           type: string
-      - $ref: '#/components/parameters/IdempotencyKey'
+          format: uuid
+      - $ref: '#/components/parameters/IdempotencyKeyRequired'
       responses:
-        '200':
-          description: Success
+        '201':
+          description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/TocVersionResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1453,6 +1507,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -1462,14 +1518,22 @@ paths:
       x-db-tables:
       - toc_version
       - toc_node
+      - plan
+      - audit_log
       x-error-codes:
       - TOC-409-001
+      - TOC-404-001
+      - PLAN-422-002
+      - PLAN-4003
+      - PLAN-412-002
+      - COM-0400
+      - COM-0409
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/TocVersionSaveRequest'
       security:
       - BearerAuth: []
   /plans/{planId}/toc-versions/{id}:
@@ -1495,18 +1559,20 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       - name: id
         in: path
         required: true
         schema:
           type: string
+          format: uuid
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Plan'
+                $ref: '#/components/schemas/TocVersionResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1528,6 +1594,7 @@ paths:
       - toc_node
       x-error-codes:
       - TOC-404-001
+      - PLAN-4003
       security:
       - BearerAuth: []
   /plans/{planId}/content-jobs:
@@ -6989,6 +7056,14 @@ components:
       required: false
       schema:
         type: string
+    # SSE 재접속 지점. 값은 마지막으로 수신한 job_event.sequence_no (설계 10 §2 SSE 규칙).
+    LastEventId:
+      name: Last-Event-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: '^[0-9]{1,18}$'
   schemas:
     Meta:
       type: object
@@ -7455,6 +7530,228 @@ components:
         (additionalProperties 불가). Snapshot 확정은 전체 스키마 통과 필수,
         draft는 required/minLength/minItems만 유예'
       additionalProperties: true
+    # CC-120: UNE-PLAN-009~015 (목차 생성 Job / SSE / 목차 버전) 슬라이스.
+    # 아래 `GenerationJob` placeholder는 후속 항목이 소유한 operation
+    # (content-jobs, SOP 생성 Job 등)이 아직 참조하므로 남겨둔다.
+    JobStatus:
+      type: string
+      enum:
+      - QUEUED
+      - RUNNING
+      - CANCEL_REQUESTED
+      - COMPLETED
+      - FAILED
+      - CANCELLED
+    GenerationJobResource:
+      type: object
+      required:
+      - jobId
+      - jobType
+      - aggregateType
+      - aggregateId
+      - providerCode
+      - status
+      - progressPct
+      - attemptNo
+      - correlationId
+      - createdAt
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        jobType:
+          type: string
+          enum:
+          - TOC
+          - CONTENT
+          - AI_EDIT
+          - SOP
+        aggregateType:
+          type: string
+          maxLength: 30
+          description: 대상 Aggregate 종류 (설계 10 §6.15 어휘 PLAN/DOCUMENT/SITUATION)
+        aggregateId:
+          type: string
+          format: uuid
+        providerCode:
+          type: string
+          enum:
+          - T3Q
+          - UNI
+          - UNE
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        progressPct:
+          type: number
+          minimum: 0
+          maximum: 100
+        attemptNo:
+          type: integer
+          minimum: 0
+          description: 워커 실행 시도 횟수. 생성 시 0이고 워커가 선점할 때마다 +1 한다
+            (첫 실행 후 1). UNE-PLAN-013 사용자 재시도는 0으로 리셋한다
+            (마이그레이션 0015 generation_job.attempt_no / ADR-25 D9).
+        correlationId:
+          type: string
+          maxLength: 80
+        startedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        finishedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        error:
+          type:
+          - object
+          - 'null'
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            retryable:
+              type: boolean
+        result:
+          type:
+          - object
+          - 'null'
+          description: 완료된 TOC Job의 산출물. 진행 중이거나 실패면 null.
+          properties:
+            tocVersionId:
+              type: string
+              format: uuid
+            tocVersionNo:
+              type: integer
+        createdAt:
+          type: string
+          format: date-time
+    GenerationJobResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/GenerationJobResource'
+        meta:
+          type: object
+    TocNodeResource:
+      type: object
+      required:
+      - nodeKey
+      - title
+      - level
+      - sortOrder
+      properties:
+        nodeKey:
+          type: string
+          maxLength: 80
+        title:
+          type: string
+          maxLength: 500
+        level:
+          type: integer
+          minimum: 1
+          maximum: 6
+          description: 목차 계층은 1~6단계 (마이그레이션 0015 ck_toc_node_level, SCR-PLAN-006)
+        sortOrder:
+          type: integer
+          minimum: 0
+        generationPolicy:
+          type: object
+          additionalProperties: true
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/TocNodeResource'
+    TocVersionResource:
+      type: object
+      required:
+      - tocVersionId
+      - planId
+      - versionNo
+      - sourceType
+      - baseSnapshotId
+      - status
+      - contentHash
+      - createdBy
+      - createdAt
+      - nodes
+      properties:
+        tocVersionId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+          format: uuid
+        versionNo:
+          type: integer
+        sourceType:
+          type: string
+          enum:
+          - AI
+          - USER
+        baseSnapshotId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - CONFIRMED
+        contentHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TocNodeResource'
+    TocVersionResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/TocVersionResource'
+        meta:
+          type: object
+    TocTreeNodeInput:
+      type: object
+      required:
+      - title
+      properties:
+        nodeKey:
+          type: string
+          maxLength: 80
+          description: 기존 노드를 승계할 때만 지정한다. 미지정이면 서버가 새로 발급한다.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        generationPolicy:
+          type: object
+          additionalProperties: true
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/TocTreeNodeInput'
     TocGenerationRequest:
       type: object
       required:
@@ -7465,6 +7762,51 @@ components:
           format: uuid
         generationOption:
           type: object
+          additionalProperties: false
+          properties:
+            additionalInstruction:
+              type: string
+              maxLength: 2000
+            notes:
+              type: string
+              maxLength: 2000
+    GenerationJobCancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+    GenerationJobRetryRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+        blockIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: TOC Job은 전체 단위 재시도라 blockIds를 지원하지 않는다 (값이 오면 400 PLAN-4001).
+            RPT-002 본문 생성 Job(CC-130)용 필드.
+    TocVersionSaveRequest:
+      type: object
+      required:
+      - baseVersionId
+      - tocTree
+      properties:
+        baseVersionId:
+          type: string
+          format: uuid
+        tocTree:
+          type: array
+          minItems: 1
+          description: 중첩 깊이는 6단계까지 허용한다 (초과 시 422 PLAN-422-002).
+          items:
+            $ref: '#/components/schemas/TocTreeNodeInput'
+        confirm:
+          type: boolean
+          default: false
     ContentGenerationRequest:
       type: object
       required:

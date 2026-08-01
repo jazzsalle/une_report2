@@ -210,7 +210,7 @@ work_items:
   gate: G2
   dependencies:
   - CC-115
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - job/idempotency
   - adapter mapping
@@ -221,7 +221,12 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/evidence/CC-120-t3q-toc-job-verification.md
+  - docs/adr/ADR-25-cc120-toc-job-worker-and-tenant-dispatch.md
+  - database/migrations/0015_generation_job_worker_and_toc.sql (une_worker + dispatch RLS)
+  - '@une/api 175/175 (TOC e2e 11 incl. full journey + SSE resume), @une/worker 12/12 (runner e2e 7), @une/db-integration 41/41'
+  - contracts UNE-PLAN-009~015 detailed + mock-server 18 routes payload-valid; dual review fixed same day
 - id: CC-125
   title: Implement dual Legacy and Target-v2 T3Q Plan adapters with mocks
   gate: G2

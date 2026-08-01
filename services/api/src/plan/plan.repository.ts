@@ -316,6 +316,51 @@ export class PlanRepository {
     return Number(result.rows[0].next);
   }
 
+  /** Status-only transition (CC-120: TOC job start/abort/retry). The next
+   * status is decided by the domain (plan-status.ts); version_no is bumped so
+   * a concurrent If-Match PATCH sees the change. */
+  async updatePlanStatus(
+    client: PoolClient,
+    tenantId: string,
+    planId: string,
+    nextStatus: string,
+  ): Promise<PlanRow | null> {
+    const result = await client.query(
+      `UPDATE plan
+       SET status = $3, version_no = version_no + 1
+       WHERE plan_id = $1 AND tenant_id = $2
+       RETURNING plan_id, tenant_id, title, hazard_type, management_phase, status, start_mode,
+                 document_id, current_context_snapshot_id, current_toc_version_id,
+                 owner_id, version_no, deleted_at, created_at, updated_at`,
+      [planId, tenantId, nextStatus],
+    );
+    return result.rows[0] ? toPlanRow(result.rows[0]) : null;
+  }
+
+  /** Same-transaction pointer/status update on TOC version save
+   * (UNE-PLAN-014). fk_plan_current_toc_version is DEFERRABLE, so the pointer
+   * and the version row are written in one transaction. */
+  async setCurrentTocVersion(
+    client: PoolClient,
+    tenantId: string,
+    planId: string,
+    tocVersionId: string,
+    nextStatus: string,
+  ): Promise<PlanRow> {
+    const result = await client.query(
+      `UPDATE plan
+       SET current_toc_version_id = $3,
+           status = $4,
+           version_no = version_no + 1
+       WHERE plan_id = $1 AND tenant_id = $2
+       RETURNING plan_id, tenant_id, title, hazard_type, management_phase, status, start_mode,
+                 document_id, current_context_snapshot_id, current_toc_version_id,
+                 owner_id, version_no, deleted_at, created_at, updated_at`,
+      [planId, tenantId, tocVersionId, nextStatus],
+    );
+    return toPlanRow(result.rows[0]);
+  }
+
   /** Same-transaction plan pointer/status update on snapshot confirm.
    * The status transition is decided by the domain (plan-status.ts,
    * ADR-23 D4); this method only records the decided value. */

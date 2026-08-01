@@ -111,6 +111,10 @@ importers:
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(yaml@2.9.0)
 
   packages/provider-adapters:
+    dependencies:
+      '@une/domain':
+        specifier: workspace:*
+        version: link:../domain
     devDependencies:
       typescript:
         specifier: ^5.9.2
@@ -164,6 +168,9 @@ importers:
       '@types/pg':
         specifier: ^8.15.0
         version: 8.20.0
+      '@une/provider-adapters':
+        specifier: workspace:*
+        version: link:../../packages/provider-adapters
       node-pg-migrate:
         specifier: ^9.0.0
         version: 9.0.0(@types/pg@8.20.0)(pg@8.22.0)
@@ -194,6 +201,12 @@ importers:
       '@une/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@une/provider-adapters':
+        specifier: workspace:*
+        version: link:../../packages/provider-adapters
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -204,6 +217,12 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.1
+      '@types/pg':
+        specifier: ^8.15.0
+        version: 8.20.0
+      node-pg-migrate:
+        specifier: ^9.0.0
+        version: 9.0.0(@types/pg@8.20.0)(pg@8.22.0)
       typescript:
         specifier: ^5.9.2
         version: 5.9.3

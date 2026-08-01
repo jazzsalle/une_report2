@@ -20,10 +20,47 @@
   (59번째 테이블; 설계 §7 재생 의미론 vs §6 물리 목록 누락 해소, RLS
   ENABLE+FORCE, 런타임 DELETE 회수), `uk_plan_context_draft_plan`(계획서당
   draft 1행), `plan.start_mode`(US-PLAN-002 AC-02 저장 컬럼 부재 해소).
-- 새 마이그레이션은 `0015_name.sql`부터 4자리 숫자 접두사로 이어간다.
+- `0015`: 생성 Job 실행면 (CC-120, ADR-25) — 신규 테이블 0건.
+  generation_job에 `created_at/updated_at`(+`trg_generation_job_updated_at`)과
+  `attempt_no` 추가(§6.15 인덱스 정의가 created_at을 요구하나 컬럼 목록에
+  없던 기준선 결함, ADR-21 선례), job/TOC 상태집합 CHECK 8종, 0007이 빠뜨린
+  FK 3종(`fk_toc_version_base_snapshot`, `fk_toc_node_parent`,
+  `fk_plan_current_toc_version`), `uk_toc_version_plan_version`·
+  `uk_job_event_seq`(SSE Last-Event-ID 재개점 유일성), 디스패치/기관조회
+  인덱스 4종, job_event append-only(REVOKE UPDATE/DELETE), **`une_worker`
+  롤 신설**과 워커 전용 RLS 정책 2종.
+- 새 마이그레이션은 `0016_name.sql`부터 4자리 숫자 접두사로 이어간다.
 - **마이그레이션 주체 전제**: 전역 행(tenant_id IS NULL) 시드는 FORCE RLS
   아래에서 주체의 RLS 우회를 전제한다 — 마이그레이션은 항상
   superuser/BYPASSRLS 롤로 실행한다(런타임 une_app 금지; 관리형 호스트 포함).
+
+## 런타임 롤 (une_app / une_worker)
+
+| 롤 | 주체 | 테넌트 컨텍스트 | 권한 부여 방식 |
+|---|---|---|---|
+| `une_app` | `services/api` | 전 트랜잭션에서 `app.tenant_id` 설정 필수 | 0011의 `ALL TABLES` + append-only 회수 |
+| `une_worker` | `services/worker` | 큐 스캔 구간에만 미설정 허용 | 0015의 **테이블별 최소권한**(광역 GRANT·기본권한 금지) |
+
+- 두 롤 모두 NOLOGIN NOSUPERUSER NOBYPASSRLS이며 접속 계정은 배포 환경에서
+  멤버십으로 부여한다. 마이그레이션은 두 롤 어느 쪽으로도 실행하지 않는다.
+- **워커 정책 의미론** (0015 §7): `une_current_tenant_id()`는
+  `app.tenant_id` 미설정/빈 문자열에서 NULL이므로(0001) `IS NULL`이 곧
+  "테넌트 컨텍스트 없는 디스패치 모드"다. 워커 정책 2종은 PERMISSIVE라
+  기존 `p_generation_job_tenant`(TO PUBLIC, FOR ALL)와 OR로 합쳐진다.
+  - 테넌트 설정 → `IS NULL`=false → 기존 테넌트 정책만 유효(API와 동일 격리).
+  - 테넌트 미설정 → 테넌트 정책이 절대 참이 아니므로 워커 정책만 유효하고,
+    가시 범위는 QUEUED/RUNNING/CANCEL_REQUESTED로 제한된다.
+  - claim 정책의 `WITH CHECK (status IN ('QUEUED','RUNNING'))`가 테넌트 없는
+    트랜잭션의 종결 쓰기(COMPLETED/FAILED/CANCELLED)를 차단한다. 종결은
+    결과(toc_version/toc_node/plan)를 쓰는 **테넌트 스코프 트랜잭션**에서만
+    가능하므로 결과와 종결이 한 테넌트 경계 안에 남는다.
+- **새 테이블을 워커가 읽/쓰려면** 그 마이그레이션에서 `une_worker`에게
+  테이블별로 명시 GRANT해야 한다(0015는 의도적으로 `ALTER DEFAULT
+  PRIVILEGES`를 쓰지 않는다). 통합 테스트
+  `generation-job-worker-rls.test.ts`의 `EXPECTED_WORKER_GRANTS`가 광역
+  GRANT 유입을 차단한다.
+- `job_event`에는 tenant_id가 없어 RLS 대상이 아니다(0011 note와 동일한 하위
+  테이블 보상통제: 서비스 레이어가 job_id로 조인해 테넌트를 좁힌다).
 
 ## 새 마이그레이션 체크리스트
 
@@ -62,15 +99,18 @@ psql "$DATABASE_URL" -c 'SELECT * FROM pgmigrations ORDER BY id'
 ```
 
 PowerShell에서는 `$env:DATABASE_URL = "..."` 후 `pnpm db:migrate`.
-Windows에서 localhost:5432 접속 전에 WSL을 먼저 깨울 것
+포트는 `infrastructure/.env`의 `UNE_DB_PORT`를 따른다 — 네이티브 PostgreSQL이
+5432를 점유한 PC에서는 `15432`처럼 다른 포트로 뜬다.
+Windows에서 컨테이너 DB에 접속하기 전에 WSL을 먼저 깨울 것
 (`infrastructure/README.md`의 WSL 유휴 종료 주의 참조).
 
 ## 검증
 
 - 통합 테스트: `DATABASE_URL=<superuser url> pnpm --filter @une/db-integration test`
-  (빈 DB 적용 57테이블, 픽스처 업그레이드, outbox 원자성·멱등키, RLS 격리 —
-  DATABASE_URL 미설정 시 전부 skip. 따라서 **루트 `pnpm test`의 초록은 DB
-  커버리지를 의미하지 않는다**; 실제 실행은 CI `db-verify` 잡)
+  (빈 DB 적용 59테이블, 픽스처 업그레이드, outbox 원자성·멱등키, RLS 격리,
+  워커 롤 권한·디스패치 정책 — DATABASE_URL 미설정 시 전부 skip. 따라서
+  **루트 `pnpm test`의 초록은 DB 커버리지를 의미하지 않는다**; 실제 실행은
+  CI `db-verify` 잡)
 - RLS의 DB 강제는 tenant_id 보유 17테이블뿐이다. 하위 테이블(dispatch, task
   등)은 서비스 레이어 조인이 보상통제다 (ADR-21 "테넌트 격리의 범위")
 - 데이터 사전: `pnpm db:data-dictionary` → `docs/db/DATA_DICTIONARY.md`

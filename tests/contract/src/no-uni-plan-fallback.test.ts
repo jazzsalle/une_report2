@@ -21,6 +21,7 @@ const GUARDED_ROOTS = [
   'apps/field-web/src',
   'packages/domain/src',
   'packages/provider-adapters/src/capability',
+  'packages/provider-adapters/src/t3q',
 ];
 const MIN_SCANNED = 10;
 

@@ -11,7 +11,7 @@ import { from, of, throwError, type Observable } from 'rxjs';
 import { catchError, mergeMap } from 'rxjs/operators';
 import { DatabaseService } from '../db/database.service';
 import { ApiError, authErrors } from './api-error';
-import { canonicalHash } from './canonical-json';
+import { canonicalHash } from '@une/domain';
 import { IDEMPOTENT, type IdempotentOptions } from './decorators';
 import {
   IdempotencyRepository,

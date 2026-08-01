@@ -14,12 +14,13 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { ApiError, authErrors, type ErrorViolation } from '../common/api-error';
+import { ApiError, type ErrorViolation } from '../common/api-error';
+import { requestMeta, requireAuth, uuidParam } from '../common/controller-utils';
 import { Idempotent, RequirePermission } from '../common/decorators';
 import { ok, type SuccessEnvelope } from '../common/envelope';
-import type { ApiRequest, AuthContext } from '../common/request-context';
+import type { ApiRequest } from '../common/request-context';
 import { HAZARD_TYPES, MANAGEMENT_PHASES } from './plan-context.validator';
-import { PLAN_STATUSES } from './plan-status';
+import { PLAN_STATUSES } from '@une/domain';
 import {
   PlanService,
   planErrors,
@@ -27,33 +28,13 @@ import {
   type PlanDetailResource,
   type PlanPage,
   type PlanResource,
-  type RequestMeta,
   type SnapshotResource,
 } from './plan.service';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const START_MODES = ['BLANK', 'UPLOAD_HWPX', 'RECENT'] as const;
 
-function requireAuth(req: ApiRequest): AuthContext {
-  if (!req.auth) throw authErrors.unauthenticated();
-  return req.auth;
-}
-
-function requestMeta(req: ApiRequest): RequestMeta {
-  return {
-    correlationId: req.correlationId,
-    ip: req.ip,
-    userAgent: req.headers['user-agent'],
-  };
-}
-
 function planIdParam(planId: string): string {
-  if (!UUID_RE.test(planId)) {
-    throw new ApiError(400, 'COM-0400', '경로 파라미터가 올바르지 않습니다.', {
-      violations: [{ field: 'planId', reason: 'UUID 형식이어야 합니다.' }],
-    });
-  }
-  return planId;
+  return uuidParam('planId', planId);
 }
 
 /** If-Match carries the plan version_no as a strong entity tag: `"3"`.

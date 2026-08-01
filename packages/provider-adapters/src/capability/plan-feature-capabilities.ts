@@ -48,10 +48,12 @@ export const T3Q_PLAN_FEATURE_CAPABILITIES: readonly PlanFeatureCapability[] = [
     requestId: 'RPT-001',
     state: 'MOCK_ONLY',
     adapterImplemented: false,
-    mockAvailable: false,
+    mockAvailable: true,
     openBinding: 'OB-01',
     providerEvidence: null,
-    notes: '목차 생성. LegacyT3qPlanAdapter는 CC-125.',
+    notes:
+      '목차 생성. CC-120: 결정적 in-process mock(MockLegacyT3qTocAdapter) 구현 — ' +
+      '실 HTTP LegacyT3qPlanAdapter는 CC-125.',
   },
   {
     featureId: 'legacyContent',
@@ -188,4 +190,20 @@ export const T3Q_PLAN_FEATURE_CAPABILITIES: readonly PlanFeatureCapability[] = [
 
 export function getPlanFeatureCapability(featureId: string): PlanFeatureCapability | undefined {
   return T3Q_PLAN_FEATURE_CAPABILITIES.find((entry) => entry.featureId === featureId);
+}
+
+/**
+ * Human-readable capability line for UI/logs/test reports (AT-T3Q-012).
+ * Always renders the qualifying flags with the state so `MOCK_ONLY` with no
+ * mock yet cannot read as "mock is ready" (CC-115 review N6; the helper was
+ * lost to a test-restore in CC-115 and lands with CC-120) — consumers should
+ * display this, not `state` alone.
+ */
+export function describeCapability(entry: PlanFeatureCapability): string {
+  const qualifiers = [
+    entry.mockAvailable ? 'mock 있음' : 'mock 미구현',
+    entry.adapterImplemented ? '어댑터 구현됨' : '어댑터 미구현',
+  ];
+  if (entry.openBinding) qualifiers.push(`바인딩 ${entry.openBinding}`);
+  return `${entry.featureId}: ${entry.state} (${qualifiers.join(', ')})`;
 }

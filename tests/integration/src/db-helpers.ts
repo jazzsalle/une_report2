@@ -27,6 +27,7 @@ export const APPEND_ONLY_TABLES = [
   'task_event',
   'plan_context_snapshot',
   'situation_snapshot',
+  'job_event',
 ];
 
 export async function withClient<T>(url: string, fn: (c: Client) => Promise<T>): Promise<T> {
