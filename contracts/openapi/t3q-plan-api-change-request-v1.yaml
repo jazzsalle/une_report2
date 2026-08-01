@@ -1,11 +1,15 @@
 openapi: 3.1.0
 info:
   title: UNE Request Specification for T3Q Plan Generation API v2
-  version: 1.0.0-request
+  version: 1.0.1-request
   description: >-
     Target contract requested by UNE. This is not evidence of T3Q implementation.
     UNE must keep LegacyT3qPlanAdapter for current RPT-001/002 and use
     TargetV2T3qPlanAdapter with mocks until the provider contract is accepted.
+
+
+    1.0.1-request: 필드 수준 요청 내용 변경 없음 — 스키마 합성 결함(allOf+additionalProperties)의
+    편집상 수정 (ADR-24).
 servers:
   - url: https://plf.mois-disaster.t3q.ai
     description: Candidate host from current v0.8.5 specification; final binding is OPEN.
@@ -33,18 +37,29 @@ paths:
               default:
                 value:
                   schemaVersion: '2.0'
-                  requestId: req-20260728-001
-                  correlationId: corr-001
-                  planId: 018f-plan
-                  documentId: 018f-doc
-                  baseRevisionId: 018f-rev
-                  planContextSnapshotId: 018f-snapshot
-                  contextHash: sha256:abc
-                  subject: 코로나19 재유행 대비계획
-                  backgroundInfo: { hazardType: INFECTIOUS_DISEASE, phase: PREPAREDNESS }
-                  contentInstruction: { requiredElements: [법적 근거, 최근 통계] }
-                  expressionRule: { style: BULLET, scope: body_only }
-                  purposeOfDocument: { role: 재난안전계획 수립 담당자, audiences: [중앙정부] }
+                  requestId: 7c1f0a52-3d64-4a19-9b0e-2f8c5d1a7e30
+                  correlationId: 1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18
+                  clientContext:
+                    tenantId: 5a2c9f10-7b34-4e58-9c21-0d6f8a3b5e47
+                    userId: 8e14d7b2-96af-4c03-b5d8-31e7f2a90c65
+                    organizationId: null
+                    locale: ko-KR
+                    timezone: Asia/Seoul
+                    clientVersion: une-web/1.0.0
+                  planId: 2d47b8e1-0c95-4f36-a7d2-6b13e8f5c904
+                  documentId: 6b05a9c3-1e72-4b48-9f30-c5d8e1a7b264
+                  baseRevisionId: 0a3e7c94-5b18-4d62-af07-93c1e6b2d580
+                  planContextSnapshotId: 4f81d0b6-2c53-49a7-8e14-b7a6c30d9f21
+                  contextHash: a3f1c2d4e5b60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
+                  subject: 폭염 대비 취약계층 보호대책
+                  backgroundInfo: { disasterType: 폭염, controlPhase: 대비 }
+                  contentInstruction: { essentialFactors: [법적 근거, 최근 3년 온열질환자 통계] }
+                  expressionRule: { scope: body_only, paragraphSymbol: '□', tone: 공문서체 }
+                  purposeOfDocument:
+                    goalOfBusiness: 폭염 취약계층 보호체계 정비
+                    role: 재난안전계획 수립 담당자
+                    targetAudiences: [중앙정부, 지자체]
+                  requestedAt: '2026-08-02T09:00:00+09:00'
       responses:
         '202': { $ref: '#/components/responses/GenerationAccepted' }
         '400': { $ref: '#/components/responses/Error' }
@@ -61,6 +76,56 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ContentGenerationRequest' }
+            examples:
+              default:
+                value:
+                  schemaVersion: '2.0'
+                  requestId: b4d70e19-8c25-4a63-9f07-3e1a5c8b2d64
+                  correlationId: 1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18
+                  clientContext:
+                    tenantId: 5a2c9f10-7b34-4e58-9c21-0d6f8a3b5e47
+                    userId: 8e14d7b2-96af-4c03-b5d8-31e7f2a90c65
+                    organizationId: null
+                    locale: ko-KR
+                    timezone: Asia/Seoul
+                    clientVersion: une-web/1.0.0
+                  planId: 2d47b8e1-0c95-4f36-a7d2-6b13e8f5c904
+                  documentId: 6b05a9c3-1e72-4b48-9f30-c5d8e1a7b264
+                  baseRevisionId: 0a3e7c94-5b18-4d62-af07-93c1e6b2d580
+                  planContextSnapshotId: 4f81d0b6-2c53-49a7-8e14-b7a6c30d9f21
+                  contextHash: a3f1c2d4e5b60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
+                  subject: 폭염 대비 취약계층 보호대책
+                  backgroundInfo: { disasterType: 폭염, controlPhase: 대비 }
+                  contentInstruction: { essentialFactors: [법적 근거, 최근 3년 온열질환자 통계] }
+                  expressionRule: { scope: body_only, paragraphSymbol: '□', tone: 공문서체 }
+                  purposeOfDocument:
+                    goalOfBusiness: 폭염 취약계층 보호체계 정비
+                    role: 재난안전계획 수립 담당자
+                    targetAudiences: [중앙정부, 지자체]
+                  requestedAt: '2026-08-02T09:05:00+09:00'
+                  outline:
+                    - sectionId: 3c9a1f45-7b02-4e68-9d13-5a8c2e0b7f36
+                      parentSectionId: null
+                      outlineLevel: 1
+                      order: 0
+                      title: 1. 추진 배경
+                      semanticRole: BACKGROUND
+                      generationPolicy: GENERATE
+                      required: true
+                    - sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                      parentSectionId: null
+                      outlineLevel: 1
+                      order: 1
+                      title: 2. 세부 추진계획
+                      semanticRole: ACTION_PLAN
+                      generationPolicy: GENERATE
+                      required: true
+                      instruction: 부서별 역할과 시행시기를 표로 정리
+                  generationScope: SECTIONS
+                  targetSectionIds: [e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304]
+                  protectedBlockIds: [9d2c7a10-3f56-4b84-8e29-c1b07a6d4f53]
+                  generationOption:
+                    { stream: true, citationRequired: true, partialResultAllowed: true }
       responses:
         '202': { $ref: '#/components/responses/GenerationAccepted' }
         '400': { $ref: '#/components/responses/Error' }
@@ -77,6 +142,45 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/SemanticEditRequest' }
+            examples:
+              default:
+                value:
+                  schemaVersion: '2.0'
+                  requestId: 5e83c0a7-1d46-4b92-8c35-7f0e2a9d6b18
+                  correlationId: 1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18
+                  clientContext:
+                    tenantId: 5a2c9f10-7b34-4e58-9c21-0d6f8a3b5e47
+                    userId: 8e14d7b2-96af-4c03-b5d8-31e7f2a90c65
+                    organizationId: null
+                    locale: ko-KR
+                    timezone: Asia/Seoul
+                    clientVersion: une-web/1.0.0
+                  planId: 2d47b8e1-0c95-4f36-a7d2-6b13e8f5c904
+                  documentId: 6b05a9c3-1e72-4b48-9f30-c5d8e1a7b264
+                  baseRevisionId: 0a3e7c94-5b18-4d62-af07-93c1e6b2d580
+                  planContextSnapshotId: 4f81d0b6-2c53-49a7-8e14-b7a6c30d9f21
+                  contextHash: a3f1c2d4e5b60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
+                  subject: 폭염 대비 취약계층 보호대책
+                  backgroundInfo: { disasterType: 폭염, controlPhase: 대비 }
+                  contentInstruction: { writingGuide: 간결한 개조식 문장 유지 }
+                  expressionRule: { scope: body_only, maxSentenceLength: '80' }
+                  purposeOfDocument:
+                    goalOfBusiness: 폭염 취약계층 보호체계 정비
+                    role: 재난안전계획 수립 담당자
+                    targetAudiences: [내부보고]
+                  requestedAt: '2026-08-02T09:12:00+09:00'
+                  target:
+                    targetType: BLOCK
+                    sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                    blockId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                    range: null
+                  instruction: 문장을 개조식으로 다듬고 근거 통계를 유지할 것
+                  selectedText: 무더위쉼터를 확대 운영한다.
+                  surroundingContext:
+                    before: 2. 세부 추진계획
+                    after: 부서별 역할은 아래 표와 같다.
+                  preserveCitationIds: [c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350]
+                  protectedBlockIds: [9d2c7a10-3f56-4b84-8e29-c1b07a6d4f53]
       responses:
         '200':
           description: Change proposal
@@ -94,6 +198,38 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/EvidenceSearchRequest' }
+            examples:
+              default:
+                value:
+                  schemaVersion: '2.0'
+                  requestId: 9a06f3b1-7c28-4e50-8d97-4b1e6c3a0f25
+                  correlationId: 1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18
+                  clientContext:
+                    tenantId: 5a2c9f10-7b34-4e58-9c21-0d6f8a3b5e47
+                    userId: 8e14d7b2-96af-4c03-b5d8-31e7f2a90c65
+                    organizationId: null
+                    locale: ko-KR
+                    timezone: Asia/Seoul
+                    clientVersion: une-web/1.0.0
+                  planId: 2d47b8e1-0c95-4f36-a7d2-6b13e8f5c904
+                  documentId: 6b05a9c3-1e72-4b48-9f30-c5d8e1a7b264
+                  baseRevisionId: 0a3e7c94-5b18-4d62-af07-93c1e6b2d580
+                  planContextSnapshotId: 4f81d0b6-2c53-49a7-8e14-b7a6c30d9f21
+                  contextHash: a3f1c2d4e5b60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
+                  subject: 폭염 대비 취약계층 보호대책
+                  backgroundInfo: { disasterType: 폭염, controlPhase: 대비 }
+                  contentInstruction: { source: 행정안전부 폭염 종합대책 }
+                  expressionRule: { scope: body_only }
+                  purposeOfDocument:
+                    goalOfBusiness: 폭염 취약계층 보호체계 정비
+                    role: 재난안전계획 수립 담당자
+                    targetAudiences: [중앙정부]
+                  requestedAt: '2026-08-02T09:18:00+09:00'
+                  referenceDocumentIds: [f52b8d07-3a94-4c16-b0e8-6d7a91c25f43]
+                  query: 무더위쉼터 운영 기준과 최근 3년 온열질환자 통계
+                  topK: 5
+                  filters: { documentType: 지침, year: 2025 }
+                  supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
       responses:
         '200':
           description: Evidence results
@@ -117,6 +253,64 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ValidationRequest' }
+            examples:
+              default:
+                value:
+                  schemaVersion: '2.0'
+                  requestId: 30f7c1e8-6b45-4a09-9d2c-8e5b7a10f346
+                  correlationId: 1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18
+                  clientContext:
+                    tenantId: 5a2c9f10-7b34-4e58-9c21-0d6f8a3b5e47
+                    userId: 8e14d7b2-96af-4c03-b5d8-31e7f2a90c65
+                    organizationId: null
+                    locale: ko-KR
+                    timezone: Asia/Seoul
+                    clientVersion: une-web/1.0.0
+                  planId: 2d47b8e1-0c95-4f36-a7d2-6b13e8f5c904
+                  documentId: 6b05a9c3-1e72-4b48-9f30-c5d8e1a7b264
+                  baseRevisionId: 0a3e7c94-5b18-4d62-af07-93c1e6b2d580
+                  planContextSnapshotId: 4f81d0b6-2c53-49a7-8e14-b7a6c30d9f21
+                  contextHash: a3f1c2d4e5b60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
+                  subject: 폭염 대비 취약계층 보호대책
+                  backgroundInfo: { disasterType: 폭염, controlPhase: 대비 }
+                  contentInstruction: { essentialFactors: [법적 근거] }
+                  expressionRule: { scope: body_only }
+                  purposeOfDocument:
+                    goalOfBusiness: 폭염 취약계층 보호체계 정비
+                    role: 재난안전계획 수립 담당자
+                    targetAudiences: [중앙정부]
+                  requestedAt: '2026-08-02T09:25:00+09:00'
+                  validationTypes: [SCHEMA, CITATION_COVERAGE, EXPRESSION_RULE]
+                  outline:
+                    - sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                      parentSectionId: null
+                      outlineLevel: 1
+                      order: 1
+                      title: 2. 세부 추진계획
+                      semanticRole: ACTION_PLAN
+                      generationPolicy: GENERATE
+                      required: true
+                  blocks:
+                    - blockId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                      sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                      blockType: BULLET
+                      order: 0
+                      text: 무더위쉼터 1,240개소를 지정·운영하고 취약계층 방문 확인을 주 2회 시행
+                      structuredData: null
+                      citations:
+                        - citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                          sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                          documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                          fileName: 2025_폭염종합대책.pdf
+                          page: 12
+                          chunkId: chunk-0012-03
+                          excerpt: 무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.
+                          score: 0.87
+                          supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                          retrievedAt: '2026-08-02T09:24:31+09:00'
+                      warnings: []
+                      status: GENERATED
+                      contentHash: b7e4d0916c3a2f58e1d0b6a4c93f75208d1e6b3a0c5f849726d0a1b3c8e5f472
       responses:
         '200':
           description: Validation report
@@ -138,7 +332,20 @@ paths:
       responses:
         '200':
           description: Job status
-          content: { application/json: { schema: { $ref: '#/components/schemas/GenerationStatus' } } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationStatus' }
+              examples:
+                partial:
+                  value:
+                    generationId: c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248
+                    status: PARTIAL
+                    progress: 60
+                    completedTargetIds: [e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304]
+                    failedTargetIds: [3c9a1f45-7b02-4e68-9d13-5a8c2e0b7f36]
+                    warnings: [일부 섹션에서 인용 근거를 찾지 못했습니다.]
+                    error: null
+                    updatedAt: '2026-08-02T09:07:42+09:00'
         '404': { $ref: '#/components/responses/Error' }
   /model-api/{modelId}/v2/generation-jobs/{generationId}/events:
     get:
@@ -169,7 +376,12 @@ paths:
               type: object
               properties: { reason: { type: string, maxLength: 500 } }
       responses:
-        '200': { description: Cancel accepted, content: { application/json: { schema: { $ref: '#/components/schemas/GenerationStatus' } } } }
+        '200':
+          {
+            description: Cancel accepted,
+            content:
+              { application/json: { schema: { $ref: '#/components/schemas/GenerationStatus' } } },
+          }
         '409': { $ref: '#/components/responses/Error' }
   /model-api/{modelId}/v2/generation-jobs/{generationId}/retry:
     post:
@@ -189,6 +401,12 @@ paths:
                 targetType: { type: string, enum: [SECTION, BLOCK] }
                 targetIds: { type: array, minItems: 1, items: { type: string } }
                 instructionOverride: { type: string, maxLength: 2000 }
+            examples:
+              default:
+                value:
+                  targetType: BLOCK
+                  targetIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                  instructionOverride: 인용 근거를 포함해 다시 생성할 것
       responses:
         '202': { $ref: '#/components/responses/GenerationAccepted' }
         '409': { $ref: '#/components/responses/Error' }
@@ -232,6 +450,30 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ProviderCapabilities' }
+              # Illustrative contract-shape example only. It is not evidence of
+              # T3Q support, and no such mock build exists yet (the UNE
+              # in-process mock arrives with CC-125; sync this example then).
+              examples:
+                mock:
+                  value:
+                    providerBuild: contract-example-only
+                    contractVersions: ['2.0']
+                    features:
+                      tocV2: true
+                      contentV2: true
+                      semanticEdit: true
+                      evidenceSearch: true
+                      validation: true
+                      referenceUpload: false
+                      jobSse: true
+                      partialRetry: true
+                    limits:
+                      maxInputChars: 200000
+                      maxSections: 200
+                      maxBlocks: 5000
+                      maxConcurrentJobsPerTenant: 4
+                      maxReferenceFileBytes: 52428800
+                      supportedReferenceMimeTypes: [application/pdf, text/plain]
 components:
   parameters:
     ModelId:
@@ -247,10 +489,33 @@ components:
   responses:
     GenerationAccepted:
       description: Asynchronous generation accepted
-      content: { application/json: { schema: { $ref: '#/components/schemas/GenerationAccepted' } } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/GenerationAccepted' }
+          examples:
+            default:
+              value:
+                generationId: c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248
+                status: QUEUED
+                statusUrl: /model-api/plan-v2/v2/generation-jobs/c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248
+                eventStreamUrl: /model-api/plan-v2/v2/generation-jobs/c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248/events
+                acceptedAt: '2026-08-02T09:05:01+09:00'
+                requestId: b4d70e19-8c25-4a63-9f07-3e1a5c8b2d64
+                correlationId: 1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18
     Error:
       description: Standard error
-      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          examples:
+            default:
+              value:
+                code: PLAN-V2-422-001
+                message: expressionRule.scope must be body_only
+                retryable: false
+                field: expressionRule.scope
+                correlationId: 1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18
+                details: { received: full_document }
   schemas:
     ClientContext:
       type: object
@@ -263,10 +528,31 @@ components:
         locale: { type: string, default: ko-KR }
         timezone: { type: string, default: Asia/Seoul }
         clientVersion: { type: string }
+    # ADR-24 / 1.0.1-request: `additionalProperties: false` here made every
+    # allOf-composed request schema unsatisfiable under JSON Schema 2020-12
+    # (the base branch sees the subtype's own properties as unknown). The
+    # closed-object intent moves to `unevaluatedProperties: false` on each
+    # composed request schema, which is evaluated after all allOf branches.
     PlanRequestBase:
       type: object
-      additionalProperties: false
-      required: [schemaVersion, requestId, correlationId, clientContext, planId, documentId, baseRevisionId, planContextSnapshotId, contextHash, subject, backgroundInfo, contentInstruction, expressionRule, purposeOfDocument, requestedAt]
+      required:
+        [
+          schemaVersion,
+          requestId,
+          correlationId,
+          clientContext,
+          planId,
+          documentId,
+          baseRevisionId,
+          planContextSnapshotId,
+          contextHash,
+          subject,
+          backgroundInfo,
+          contentInstruction,
+          expressionRule,
+          purposeOfDocument,
+          requestedAt,
+        ]
       properties:
         schemaVersion: { type: string, const: '2.0' }
         requestId: { type: string }
@@ -291,6 +577,7 @@ components:
         systemPromptVersion: { type: string }
         requestedAt: { type: string, format: date-time }
     TocGenerationRequest:
+      unevaluatedProperties: false
       allOf:
         - { $ref: '#/components/schemas/PlanRequestBase' }
         - type: object
@@ -302,12 +589,14 @@ components:
                 preserveSectionIds: { type: array, items: { type: string } }
                 maxDepth: { type: integer, minimum: 1, maximum: 10 }
     ContentGenerationRequest:
+      unevaluatedProperties: false
       allOf:
         - { $ref: '#/components/schemas/PlanRequestBase' }
         - type: object
           required: [outline, generationScope]
           properties:
-            outline: { type: array, minItems: 1, items: { $ref: '#/components/schemas/OutlineSection' } }
+            outline:
+              { type: array, minItems: 1, items: { $ref: '#/components/schemas/OutlineSection' } }
             generationScope: { type: string, enum: [ALL, SECTIONS, BLOCKS] }
             targetSectionIds: { type: array, items: { type: string } }
             targetBlockIds: { type: array, items: { type: string } }
@@ -329,7 +618,11 @@ components:
         outlineLevel: { type: integer, minimum: 1, maximum: 10 }
         order: { type: integer, minimum: 0 }
         title: { type: string, minLength: 1, maxLength: 300 }
-        semanticRole: { type: string, examples: [BACKGROUND, CURRENT_STATUS, OUTLOOK, ACTION_PLAN, SCHEDULE, APPENDIX] }
+        semanticRole:
+          {
+            type: string,
+            examples: [BACKGROUND, CURRENT_STATUS, OUTLOOK, ACTION_PLAN, SCHEDULE, APPENDIX],
+          }
         generationPolicy: { type: string, enum: [GENERATE, PRESERVE, USER_ONLY, REFERENCE_ONLY] }
         required: { type: boolean, default: false }
         instruction: { type: string, maxLength: 2000 }
@@ -389,6 +682,7 @@ components:
         error: { anyOf: [{ $ref: '#/components/schemas/ErrorResponse' }, { type: 'null' }] }
         updatedAt: { type: string, format: date-time }
     SemanticEditRequest:
+      unevaluatedProperties: false
       allOf:
         - { $ref: '#/components/schemas/PlanRequestBase' }
         - type: object
@@ -426,13 +720,15 @@ components:
             type: object
             required: [operationType]
             properties:
-              operationType: { type: string, enum: [REPLACE_RANGE, REPLACE_BLOCK, INSERT_BLOCK, DELETE_BLOCK] }
+              operationType:
+                { type: string, enum: [REPLACE_RANGE, REPLACE_BLOCK, INSERT_BLOCK, DELETE_BLOCK] }
               targetId: { type: [string, 'null'] }
               payload: { type: object, additionalProperties: true }
         proposedBlocks: { type: array, items: { $ref: '#/components/schemas/ContentBlock' } }
         citations: { type: array, items: { $ref: '#/components/schemas/Citation' } }
         warnings: { type: array, items: { type: string } }
     EvidenceSearchRequest:
+      unevaluatedProperties: false
       allOf:
         - { $ref: '#/components/schemas/PlanRequestBase' }
         - type: object
@@ -443,6 +739,7 @@ components:
             filters: { type: object, additionalProperties: true }
             supportsBlockIds: { type: array, items: { type: string } }
     ValidationRequest:
+      unevaluatedProperties: false
       allOf:
         - { $ref: '#/components/schemas/PlanRequestBase' }
         - type: object
@@ -451,7 +748,19 @@ components:
             validationTypes:
               type: array
               uniqueItems: true
-              items: { type: string, enum: [SCHEMA, CITATION_COVERAGE, UNSUPPORTED_CLAIM, DUPLICATE_CONTENT, EXPRESSION_RULE, MISSING_REQUIRED_SECTION] }
+              items:
+                {
+                  type: string,
+                  enum:
+                    [
+                      SCHEMA,
+                      CITATION_COVERAGE,
+                      UNSUPPORTED_CLAIM,
+                      DUPLICATE_CONTENT,
+                      EXPRESSION_RULE,
+                      MISSING_REQUIRED_SECTION,
+                    ],
+                }
             outline: { type: array, items: { $ref: '#/components/schemas/OutlineSection' } }
             blocks: { type: array, items: { $ref: '#/components/schemas/ContentBlock' } }
     ValidationIssue:
@@ -474,7 +783,8 @@ components:
         contractVersions: { type: array, items: { type: string } }
         features:
           type: object
-          required: [tocV2, contentV2, semanticEdit, evidenceSearch, validation, jobSse, partialRetry]
+          required:
+            [tocV2, contentV2, semanticEdit, evidenceSearch, validation, jobSse, partialRetry]
           properties:
             tocV2: { type: boolean }
             contentV2: { type: boolean }

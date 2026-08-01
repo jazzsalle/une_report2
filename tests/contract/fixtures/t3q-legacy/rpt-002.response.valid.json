@@ -1,0 +1,44 @@
+{
+  "sections": [
+    {
+      "name": "Ⅰ. 개요",
+      "content": "",
+      "references": [],
+      "children": [
+        {
+          "name": "1. 추진 배경",
+          "content": "□ 최근 5년간 폭염일수가 지속 증가하여 인명·재산 피해 우려가 커지고 있다.",
+          "references": [
+            {
+              "id": "ref-001",
+              "fileId": "file-2026-0001",
+              "fileName": "행정안전부_폭염대응지침_2026.pdf",
+              "page": "12"
+            }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "Ⅱ. 대비 대책",
+      "content": "",
+      "references": [],
+      "children": [
+        {
+          "name": "1. 무더위쉼터 운영",
+          "content": "□ 관할 무더위쉼터를 사전 점검하고 운영 시간을 연장한다.",
+          "references": [
+            {
+              "id": "ref-002",
+              "fileId": "file-2026-0002",
+              "fileName": "무더위쉼터_운영기준.hwpx",
+              "page": "3"
+            }
+          ],
+          "children": []
+        }
+      ]
+    }
+  ]
+}

@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+- CC-115 (2026-08-02): T3Q contract baseline. target-v2 contract fixed
+  editorially (1.0.1-request, user-approved): allOf+additionalProperties
+  composition defect (4/5 request schemas structurally unsatisfiable, Toc on
+  own-field use) corrected with unevaluatedProperties; the only example was
+  missing required clientContext/requestedAt; 10 examples added with
+  PlanContext vocabulary. Field-level request content unchanged (footnote in
+  provider-requests + ADR-24 D1). validate-contracts.mjs section 4: media-type
+  example<->schema gate (all-operations-minus-documented-exemptions coverage,
+  2xx-only credit, legacy transcript SHA-256 pin). New workspace
+  tests/contract (@une/contract-tests, CC-003 deferred wiring): legacy fixture
+  tests 13 (UNE-authored, provider-unverified, SSE .assumed.), field gap
+  matrix drift 5 (docs/handoff/T3Q_PLAN_FIELD_GAP_MATRIX.md path existence +
+  3-way completeness + row correspondence), capability governance 6, no-UNI
+  static guard 2 (AT-T3Q-011 static half). Capability registry
+  (provider-adapters/src/capability, source-controlled, 14 features all
+  MOCK_ONLY, promotions gated on evidence+bindings; vitest alias pins tests to
+  source not dist). Generated-type banner reads contract version dynamically.
+  No migration (feature_flags_json stays CC-125 runtime-toggle). redocly
+  re-deferred to CC-400 (ADR-24 D5); T3qPlanProvider port left to CC-125
+  (ADR-24 D8). Dual review (architecture-guardian 1 BLOCKER/3 MAJOR/10 MINOR;
+  qa-gate-reviewer PASS WITH CONDITIONS, 2 mandatory) fixed same day.
+- CC-110 (2026-08-01): plan CRUD + immutable PlanContextSnapshot
+  (UNE-PLAN-001~008). If-Match/version_no optimistic locking (strong ETags,
+  428/COM-0428), soft-delete trash (idempotent 204, APPROVED/FINAL blocked),
+  draft relaxed AJV validation (required/minLength/minItems tolerated) with
+  single-draft upsert, snapshot strict validation + canonical SHA-256 +
+  per-plan version serialization (FOR UPDATE) + supersedes chain + same-hash
+  dedupe + DRAFT->CONTEXT_READY via domain transition fn + approval lock 412
+  PLAN-412-002 — all in one tx with audit (before_json on update/delete).
+  Idempotency-Key common interceptor (ADR-22 D6 resolved) + migration 0014
+  api_idempotency (59th table, ADR-23; concrete-path+principal replay
+  identity after review B1) + uk_plan_context_draft_plan + plan.start_mode.
+  Contract plan slice finalized (envelope schemas, query params, 412/428
+  responses, IdempotencyKeyRequired) + mock-server plan sync. @une/api
+  107/107 x5 consecutive (vitest fileParallelism:false fixes e2e DB race),
+  db-integration 30/30. Dual review (1 BLOCKER/7 MAJOR + QA 6 mandatory)
+  fixed same day. docs/evidence/CC-110-plan-context-snapshot-verification.md.
 - CC-100 (2026-07-31): mock authentication, tenant scoping, and RBAC.
   UNE-AUTH-001~007 in services/api (NestJS): AUTH_MODE=mock issues HS256 UNE
   JWTs (UNE_AUTH_JWT_SECRET >=32 chars from env, no default; non-mock mode

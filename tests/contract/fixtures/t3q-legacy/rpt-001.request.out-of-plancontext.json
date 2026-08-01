@@ -1,0 +1,14 @@
+{
+  "data": {
+    "subject": "2026년 여름철 집중호우·홍수 대비 계획",
+    "backgroundInfo": {
+      "disasterType": "홍수",
+      "controlPhase": "대비"
+    },
+    "purposeOfDocument": {
+      "goalOfBusiness": "하천 범람 피해 최소화",
+      "role": "재난안전 담당자",
+      "targetAudiences": ["지자체"]
+    }
+  }
+}
