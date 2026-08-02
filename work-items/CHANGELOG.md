@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+- CC-125 (2026-08-02): Dual Legacy/Target-v2 T3Q plan adapters behind one
+  port. Unified T3qPlanProvider (t3q-plan-port.ts): complete operation
+  vocabulary, TocCapable/ContentCapable mixins (semantic-edit family waits
+  for CC-135 canonical types — ADR-24 D8 logic), T3qPlanResult<T> envelope
+  with PER-CALL adapterId/mappingVersion/operation/httpStatus; T3qTocPort
+  absorbed and deleted (ADR-25 D3 follow-through). LegacyT3qPlanAdapter:
+  real HTTP over undici (split connect/response timeouts 5s/60s as UNE
+  baseline — NOT provider-agreed, OB-01), fail-closed config (base URL/auth
+  injected only, no transcript fallback, no default auth convention, TLS
+  disable inexpressible + static hygiene test), retry ×1 only for
+  pre-response failures + 429/503 Retry-After (capped), per-operation
+  circuit breaker (5→open 30s→half-open probe), lease>call-budget startup
+  validation; verified by 20 local node:http fixture-server cases (timeout/
+  refused/SSE-truncation measured on real sockets). RPT-002 scope: transport
+  + mapping + guard + SSE parser + canonical-lite ContentDraft in
+  @une/domain (derived from ContentSection∩ContentBlock); content JOB
+  pipeline stays CC-130. TargetV2T3qPlanAdapter: tocV2 only, faithful
+  202→poll→COMPLETED against a deterministic in-process transport,
+  request machine-validated against TocGenerationRequest
+  (unevaluatedProperties:false catches typo fields — negative pinned),
+  sectionId→nodeKey stable ids, mock-only documentId/baseRevisionId
+  placeholders until CC-150. Selection: UNE_T3Q_PLAN_ADAPTER env
+  (mock-legacy|legacy-http|mock-target-v2) via pure factory; retired
+  UNE_T3Q_TOC_ADAPTER hard-fails; production+mock blocked without explicit
+  opt-in; provider_config toggle deferred with reserved key t3q.planAdapter
+  (ADR-26 D6). Traceability: guard-violation raw loss fixed (failures carry
+  rawRequest+rawResponse; worker e2e regression), provider.requested
+  emission (identity/budget only — no headers/tokens), provider.responded/
+  failed enriched with operation/httpStatus/result-based mappingVersion;
+  dedicated trace store declined (ADR-25 D10 closed). Migration 0016:
+  EXISTS-parent FORCE RLS on job_event/toc_version/plan_context_snapshot/
+  toc_node (ADR-25 D2 closed; dispatch-scope access now denied — known-limit
+  pin reversed; EXPLAIN pins uk_job_event_seq index path; db-integration
+  51/51). Capability: legacyToc→UNE_ADAPTER_READY (구현∧결선∧live spec),
+  legacyContent/tocV2 stay MOCK_ONLY with implemented flags; new governance
+  invariant pins every CR-T3Q-* feature to MOCK_ONLY while OB-10/11 open.
+  Contracts: target-v2 examples-only +2 (version unchanged at
+  1.0.1-request), example-gate exemptions 3→2, transcript pin untouched;
+  port contract tests validate mapper outputs against both contracts.
+  Dual review fixed same day (arch: M1 ContentDraft wording + provenance
+  slots, M2 runtimeMode + live-placeholder fail-closed, M3 MOCK RUNTIME
+  capability marking, 11 minors; QA: PASS WITH CONDITIONS, all numbers
+  independently reproduced, 503/403 tests added). Suites: provider-adapters
+  67, domain 35, contract-tests 38, worker 24 (3 new e2e journeys incl.
+  legacy-http full journey), api 175, db-integration 51, baseline 6.
+  ADR-26; docs/evidence/CC-125-t3q-dual-adapter-verification.md.
 - CC-120 (2026-08-02): T3Q RPT-001 TOC job with mock adapter.
   UNE-PLAN-009~015: job create (2-layer idempotency — api_idempotency
   interceptor + uk_job_idempotency sha256(jobType|endpoint|planId|clientKey)),

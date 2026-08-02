@@ -10,6 +10,10 @@ info:
 
     1.0.1-request: 필드 수준 요청 내용 변경 없음 — 스키마 합성 결함(allOf+additionalProperties)의
     편집상 수정 (ADR-24).
+
+
+    편집 로그: 2026-08-02 CC-125 — 예제 2건 추가(cancelGenerationJob 요청,
+    getGenerationJob COMPLETED 응답), 스키마·필드 무변경, 버전 미상향 (ADR-26 D10).
 servers:
   - url: https://plf.mois-disaster.t3q.ai
     description: Candidate host from current v0.8.5 specification; final binding is OPEN.
@@ -346,6 +350,45 @@ paths:
                     warnings: [일부 섹션에서 인용 근거를 찾지 못했습니다.]
                     error: null
                     updatedAt: '2026-08-02T09:07:42+09:00'
+                completed:
+                  value:
+                    generationId: c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248
+                    status: COMPLETED
+                    progress: 100
+                    completedTargetIds:
+                      - 3c9a1f45-7b02-4e68-9d13-5a8c2e0b7f36
+                      - e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                      - b18f6c34-9a07-4d51-8e26-7c05d9a3f612
+                    failedTargetIds: []
+                    outline:
+                      - sectionId: 3c9a1f45-7b02-4e68-9d13-5a8c2e0b7f36
+                        parentSectionId: null
+                        outlineLevel: 1
+                        order: 0
+                        title: 1. 추진 배경
+                        semanticRole: BACKGROUND
+                        generationPolicy: GENERATE
+                        required: true
+                      - sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                        parentSectionId: null
+                        outlineLevel: 1
+                        order: 1
+                        title: 2. 세부 추진계획
+                        semanticRole: ACTION_PLAN
+                        generationPolicy: GENERATE
+                        required: true
+                        instruction: 부서별 역할과 시행시기를 표로 정리
+                      - sectionId: b18f6c34-9a07-4d51-8e26-7c05d9a3f612
+                        parentSectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                        outlineLevel: 2
+                        order: 0
+                        title: 2-1. 부서별 역할과 시행시기
+                        semanticRole: ACTION_PLAN
+                        generationPolicy: GENERATE
+                        required: false
+                    warnings: []
+                    error: null
+                    updatedAt: '2026-08-02T09:09:15+09:00'
         '404': { $ref: '#/components/responses/Error' }
   /model-api/{modelId}/v2/generation-jobs/{generationId}/events:
     get:
@@ -375,6 +418,10 @@ paths:
             schema:
               type: object
               properties: { reason: { type: string, maxLength: 500 } }
+            examples:
+              default:
+                value:
+                  reason: 사용자가 계획서 범위를 변경하여 진행 중인 생성을 중단함
       responses:
         '200':
           {
@@ -451,8 +498,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ProviderCapabilities' }
               # Illustrative contract-shape example only. It is not evidence of
-              # T3Q support, and no such mock build exists yet (the UNE
-              # in-process mock arrives with CC-125; sync this example then).
+              # T3Q support, and no such mock build exists yet (CC-125 mocked
+              # only the tocV2 202+poll path; the capabilities-discovery mock
+              # arrives with CC-135 — sync this example then).
               examples:
                 mock:
                   value:

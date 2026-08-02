@@ -3,9 +3,10 @@ import type { PoolClient } from 'pg';
 import { PUBLIC_JOB_EVENT_TYPES, type JobEventType } from '@une/domain';
 
 /** job_event is append-only (0015 §5 revokes UPDATE/DELETE from une_app) and
- * carries no tenant_id: every read joins generation_job and filters on
- * g.tenant_id (ADR-21 compensating control for child tables RLS does not
- * cover). */
+ * carries no tenant_id. Since 0016 (CC-125, ADR-26 D9) it has EXISTS-parent
+ * FORCE RLS through generation_job; the explicit g.tenant_id join here stays
+ * as defense in depth and keeps the query planner on uk_job_event_seq
+ * (EXPLAIN pinned in tests/integration). */
 
 export interface JobEventRow {
   sequenceNo: number;

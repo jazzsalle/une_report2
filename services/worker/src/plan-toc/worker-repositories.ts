@@ -3,12 +3,13 @@ import type { FlatTocNode, JobEventType } from '@une/domain';
 
 /** Worker-side raw-SQL repositories. Deliberately small duplicates of the
  * services/api repositories (ADR-25 D12: extraction is triggered by CC-130);
- * tenant-scoped queries keep explicit predicates on top of RLS. job_event and
- * toc_* have no tenant_id and no RLS: READ paths join through generation_job
- * / plan (ADR-21 compensating control), while the WRITE helpers below
- * (appendJobEvent, insertTocVersion/Nodes, nextTocVersionNo) rely on the
- * CALLER passing ids that came out of a tenant-verified FOR UPDATE row —
- * they must never be called with unverified ids (review minor 8). */
+ * tenant-scoped queries keep explicit predicates on top of RLS. Since 0016
+ * (CC-125, ADR-26 D9) job_event and toc_* are covered by EXISTS-parent
+ * FORCE RLS, so these helpers only work inside a tenant-scoped transaction;
+ * the explicit joins and the rule that WRITE helpers (appendJobEvent,
+ * insertTocVersion/Nodes, nextTocVersionNo) take only ids from a
+ * tenant-verified FOR UPDATE row remain as defense in depth (review
+ * minor 8). */
 
 export interface ClaimedJob {
   jobId: string;

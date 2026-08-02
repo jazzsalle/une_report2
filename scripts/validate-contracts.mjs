@@ -117,8 +117,9 @@ const EXAMPLE_REQUIRED_FILES = {
   't3q-plan-api-change-request-v1.yaml': {
     // operationId -> reason it is exempt from the example requirement.
     streamGenerationEvents: 'SSE text/event-stream (schema is an opaque string)',
-    cancelGenerationJob: 'response example deferred to the CC-125 mock build',
-    registerPlanReferenceDocument: 'multipart upload; example deferred to CC-125',
+    registerPlanReferenceDocument:
+      'multipart/form-data with a binary part; example deferred to the CC-135 mock build ' +
+      '(CR-T3Q-007 is CONDITIONAL — OB-10/OB-11 close at CC-400)',
   },
 };
 

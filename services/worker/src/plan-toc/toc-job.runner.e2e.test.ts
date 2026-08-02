@@ -4,7 +4,11 @@ import { runner as migrate } from 'node-pg-migrate';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTocJobRequest, canonicalHash, jobIdempotencyKey } from '@une/domain';
-import { MOCK_FAIL_PREFIX, MockLegacyT3qTocAdapter } from '@une/provider-adapters';
+import {
+  MOCK_FAIL_PREFIX,
+  MockLegacyT3qPlanAdapter,
+  createT3qPlanProvider,
+} from '@une/provider-adapters';
 import { loadWorkerConfig, type WorkerConfig } from '../config/worker-config';
 import { WorkerDatabase } from '../db/worker-database.service';
 import { TocJobRunner } from './toc-job.runner';
@@ -51,7 +55,7 @@ describe.skipIf(!ADMIN_URL)('CC-120 TOC job runner e2e', () => {
   let config: WorkerConfig;
   let db: WorkerDatabase;
 
-  const newRunner = (adapter = new MockLegacyT3qTocAdapter()): TocJobRunner =>
+  const newRunner = (adapter = new MockLegacyT3qPlanAdapter()): TocJobRunner =>
     new TocJobRunner(db, adapter, config);
 
   const insertFixture = async (
@@ -308,7 +312,7 @@ describe.skipIf(!ADMIN_URL)('CC-120 TOC job runner e2e', () => {
     const jobId = await withClient(dbUrl, (c) => enqueueJob(c, fx, { context: failingContext }));
 
     const summary = await newRunner(
-      new MockLegacyT3qTocAdapter({ scenariosEnabled: true }),
+      new MockLegacyT3qPlanAdapter({ scenariosEnabled: true }),
     ).runOnce();
     expect(summary.failed).toBe(1);
 
@@ -406,6 +410,173 @@ describe.skipIf(!ADMIN_URL)('CC-120 TOC job runner e2e', () => {
       expect(job.status).toBe('FAILED');
       expect(job.attempt_no).toBe(3);
       expect(job.error_json.reason).toBe('MAX_ATTEMPTS_EXCEEDED');
+    });
+  });
+
+  // ── CC-125: real-HTTP and target-v2 adapters through the SAME runner ──
+
+  it('legacy-http full journey: fixture server → toc_version + provider.requested/responded traces', async () => {
+    const { createServer } = await import('node:http');
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      requests.push(req.url ?? '');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          title: 'HTTP 목차',
+          sections: [
+            { name: 'Ⅰ. 개요', children: [{ name: '1. 추진 배경', children: [] }] },
+            { name: 'Ⅱ. 대비 대책', children: [] },
+          ],
+        }),
+      );
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const httpConfig = loadWorkerConfig({
+        DATABASE_URL: dbUrl,
+        UNE_DB_RUNTIME_ROLE: 'une_worker',
+        UNE_WORKER_LEASE_TIMEOUT_MS: '60000',
+        UNE_T3Q_PLAN_ADAPTER: 'legacy-http',
+        UNE_T3Q_BASE_URL: `http://127.0.0.1:${port}`,
+        UNE_T3Q_AUTH_MODE: 'header',
+        UNE_T3Q_AUTH_HEADER_NAME: 'X-T3Q-Key',
+        UNE_T3Q_AUTH_TOKEN: 'e2e-token',
+        UNE_T3Q_CONNECT_TIMEOUT_MS: '1000',
+        UNE_T3Q_RESPONSE_TIMEOUT_MS: '2000',
+      });
+      const adapter = createT3qPlanProvider({
+        kind: 'legacy-http',
+        legacyHttp: httpConfig.t3qHttp as NonNullable<typeof httpConfig.t3qHttp>,
+      });
+      const fx = await withClient(dbUrl, (c) => insertFixture(c, 'http'));
+      const jobId = await withClient(dbUrl, (c) => enqueueJob(c, fx));
+
+      const summary = await new TocJobRunner(db, adapter, httpConfig).runOnce();
+      expect(summary).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+      expect(requests).toEqual(['/model-api/ae894/reports/plan/toc']);
+
+      await withClient(dbUrl, async (c) => {
+        const events = (
+          await c.query(
+            `SELECT event_type, payload_json FROM job_event WHERE job_id=$1 ORDER BY sequence_no`,
+            [jobId],
+          )
+        ).rows;
+        const requested = events.find((e) => e.event_type === 'provider.requested');
+        expect(requested.payload_json).toMatchObject({
+          phase: 'intent',
+          adapterId: 'legacy-http-v0.8.5',
+          variant: 'legacy',
+          runtimeMode: 'live',
+          operation: 'toc',
+          baseUrlHost: `127.0.0.1:${port}`,
+        });
+        // Budget only — never headers/tokens.
+        expect(JSON.stringify(requested.payload_json)).not.toContain('e2e-token');
+        const responded = events.find((e) => e.event_type === 'provider.responded');
+        expect(responded.payload_json).toMatchObject({
+          adapterId: 'legacy-http-v0.8.5',
+          mappingVersion: 'legacy-v0.8.5-une1@1',
+          operation: 'toc',
+          httpStatus: 200,
+        });
+        expect(JSON.stringify(responded.payload_json)).not.toContain('e2e-token');
+        const nodes = (
+          await c.query(
+            `SELECT n.title FROM toc_node n
+             JOIN toc_version v ON v.toc_version_id = n.toc_version_id
+             WHERE v.plan_id=$1 ORDER BY n.sort_order`,
+            [fx.planId],
+          )
+        ).rows.map((r) => r.title);
+        expect(nodes).toContain('Ⅰ. 개요');
+      });
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it('legacy-http guard violation: FAILED with rawResponse preserved on provider.failed (CC-120 defect fix)', async () => {
+    const { createServer } = await import('node:http');
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"title":"부서진 응답","sections":"nope"}');
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const adapter = createT3qPlanProvider({
+        kind: 'legacy-http',
+        legacyHttp: { baseUrl: `http://127.0.0.1:${port}`, authMode: 'none' },
+      });
+      const fx = await withClient(dbUrl, (c) => insertFixture(c, 'guard'));
+      const jobId = await withClient(dbUrl, (c) => enqueueJob(c, fx));
+
+      const summary = await new TocJobRunner(db, adapter, config).runOnce();
+      expect(summary.failed).toBe(1);
+      await withClient(dbUrl, async (c) => {
+        const job = (
+          await c.query(`SELECT status, error_json FROM generation_job WHERE job_id=$1`, [jobId])
+        ).rows[0];
+        expect(job.status).toBe('FAILED');
+        expect(job.error_json.providerCode).toBe('T3Q_RESPONSE_CONTRACT_VIOLATION');
+        const failed = (
+          await c.query(
+            `SELECT payload_json FROM job_event WHERE job_id=$1 AND event_type='provider.failed'`,
+            [jobId],
+          )
+        ).rows[0];
+        // The raw response used to be lost exactly here (runner M3 backstop
+        // swallowed it) — now the adapter carries it into the failure value.
+        expect(failed.payload_json.rawResponse).toMatchObject({ title: '부서진 응답' });
+        expect(failed.payload_json.rawRequest).toBeDefined();
+      });
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it('mock-target-v2 journey: PlanRequestBase bindings from job context, stable sectionId node keys', async () => {
+    const adapter = createT3qPlanProvider({ kind: 'mock-target-v2' });
+    const fx = await withClient(dbUrl, (c) => insertFixture(c, 'v2'));
+    const jobId = await withClient(dbUrl, (c) => enqueueJob(c, fx));
+
+    const summary = await new TocJobRunner(db, adapter, config).runOnce();
+    expect(summary).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+
+    await withClient(dbUrl, async (c) => {
+      const responded = (
+        await c.query(
+          `SELECT payload_json FROM job_event WHERE job_id=$1 AND event_type='provider.responded'`,
+          [jobId],
+        )
+      ).rows[0].payload_json;
+      expect(responded).toMatchObject({
+        adapterId: 'mock-target-v2-1.0.1',
+        mappingVersion: 'v2-1.0.1-request@1',
+      });
+      // The raw v2 request binds the REAL job context — snapshot, hash, ids.
+      expect(responded.rawRequest).toMatchObject({
+        schemaVersion: '2.0',
+        planId: fx.planId,
+        planContextSnapshotId: fx.snapshotId,
+        // Per-attempt idempotency anchor (review minor 6): retry = new
+        // generation, so the requestId carries the attempt number.
+        requestId: `${jobId}#1`,
+        documentId: 'une-mock:document:pending-cc150',
+      });
+      const keys = (
+        await c.query(
+          `SELECT n.node_key FROM toc_node n
+           JOIN toc_version v ON v.toc_version_id = n.toc_version_id
+           WHERE v.plan_id=$1`,
+          [fx.planId],
+        )
+      ).rows.map((r) => r.node_key as string);
+      expect(keys.length).toBeGreaterThan(0);
+      expect(keys.every((k) => k.startsWith('s-'))).toBe(true);
     });
   });
 });

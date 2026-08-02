@@ -232,7 +232,7 @@ work_items:
   gate: G2
   dependencies:
   - CC-120
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - one T3qPlanProvider port
   - legacy adapter current RPT-001/002
@@ -243,7 +243,9 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - T3Q_PLAN_API_CHANGE_REQUEST
-  evidence: []
+  evidence:
+  - docs/evidence/CC-125-t3q-dual-adapter-verification.md
+  - docs/adr/ADR-26-cc125-plan-provider-port-and-dual-adapters.md
 - id: CC-130
   title: Implement T3Q RPT-002 content job and protected blocks
   gate: G2

@@ -72,6 +72,7 @@ PlanRequestBase까지 — 사유: 나머지는 기능 단위로 아래에 대응
 | 근거 | 응답 내 references만 | 독립 검색 API(Citation) | evidenceSearch |
 | Job | 동기(+SSE 본문 한정) | 202+상태/SSE/취소/부분재시도 | jobStatus/jobSse/jobCancel/partialRetry |
 | 검증 | 없음 | ValidationRequest 6유형 | validation |
+| 멱등성 | **멱등키 없음**(요청·헤더 어디에도 멱등키 필드 없음 → 타임아웃 재시도 시 provider 중복 실행 가능) | PlanRequestBase.requestId를 멱등키로 사용 — 중복 요청은 동일 Job/결과 반환(설계13 §4) | - |
 | 오류 | **스키마 없음**(422/500 설명뿐) | ErrorResponse{code,message,retryable,field,correlationId,details} | - |
 | 운영 | 인증·타임아웃·한도 전부 OPEN | capabilities 협상 API | capabilityDiscovery |
 
@@ -80,6 +81,11 @@ PlanRequestBase까지 — 사유: 나머지는 기능 단위로 아래에 대응
 - 인증/타임아웃/레이트리밋/오류 스키마(legacy): **OB-01**. 설계 10 §4.2의
   연결 5s/응답 60s/SSE heartbeat 15s는 UNE 측 기준선일 뿐 provider 합의값
   아님.
+- 재시도 멱등성(legacy): 계약에 멱등키가 전혀 없다(`Idempotency-Key`류 헤더도,
+  요청 본문의 requestId류 필드도 부재). 따라서 타임아웃·네트워크 실패 후
+  재시도하면 provider가 같은 요청을 중복 실행할 수 있고, UNE 내부 멱등키는
+  UNE 측 중복 저장만 막을 뿐 provider 중복 실행은 막지 못한다. provider의
+  중복 요청 처리 방식은 미확정 — **OB-01**.
 - SSE 프레이밍(legacy): 계약은 `x-sse-done: '[DONE]'`만 명시. 프레임 구조는
   UNE 가정(픽스처 `.assumed.` 표기) — OB-01에서 확정.
 - v2 수락 여부: CR-001/002/003/004/009 = **OB-10**, CR-005/006 = **OB-11**,

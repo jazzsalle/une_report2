@@ -44,6 +44,21 @@ describe('T3Q capability governance', () => {
     }
   });
 
+  it('pins EVERY CR-T3Q-* feature to MOCK_ONLY while its requested contract is unaccepted (ADR-26 D7)', () => {
+    // Generalization of the rule above (CC-125): UNE_ADAPTER_READY requires
+    // 구현 ∧ 런타임 결선 ∧ live spec. A requested contract (CR-T3Q-*) is not a
+    // live spec while its binding (OB-10/OB-11) is OPEN — an adapter against
+    // it can only ever be MOCK_ONLY, no matter how complete the code is.
+    for (const entry of T3Q_PLAN_FEATURE_CAPABILITIES) {
+      if (!entry.requestId.startsWith('CR-T3Q-')) continue;
+      if (entry.openBinding === null || open.has(entry.openBinding)) {
+        expect(entry.state, `${entry.featureId} (${entry.requestId}, unaccepted)`).toBe(
+          'MOCK_ONLY',
+        );
+      }
+    }
+  });
+
   it('requires a real evidence document for any T3Q_*_VERIFIED state', () => {
     for (const entry of T3Q_PLAN_FEATURE_CAPABILITIES) {
       if (entry.state === 'T3Q_DEV_VERIFIED' || entry.state === 'T3Q_PROD_VERIFIED') {
