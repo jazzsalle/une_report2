@@ -1069,6 +1069,9 @@ describe.skipIf(!ADMIN_URL || !existsSync(TEMPLATE))(
         (await applied.json()) as { data: { changeSetId: string; newRevisionId: string } }
       ).data;
 
+      // Undo는 **연산을 싣지 않는다**: 되돌릴 ChangeSet만 지목하면 서버가 저장된
+      // 역연산을 쓴다(ADR-30 D6 보정). 클라이언트가 IR 조각을 요청 표면에 실을
+      // 방법 자체가 없다.
       const undone = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
         ifMatch: '"2"',
         body: {
@@ -1076,7 +1079,6 @@ describe.skipIf(!ADMIN_URL || !existsSync(TEMPLATE))(
           origin: 'UNDO',
           undoesChangeSetId: first.changeSetId,
           clientMutationId: `m-${randomUUID().slice(0, 8)}`,
-          operations: [replaceOp(doc, first.newRevisionId, '되돌림')],
         },
       });
       expect(undone.status).toBe(200);
@@ -1344,6 +1346,424 @@ describe.skipIf(!ADMIN_URL || !existsSync(TEMPLATE))(
         ]),
       );
       expect(revisions.rows[0].n).toBe(1);
+    });
+
+    it('materialize: 한 ChangeSet에 GENERATED_BLOCKS 소스가 둘이면 fail-closed 422다', async () => {
+      // 첫 소스만 검사하면 두 번째부터가 3중 방어를 지나간다(낡은 목차버전이
+      // 200으로 끝나고 같은 블록이 두 번 삽입된다). 검사할 수 없는 형태는 받지
+      // 않는다.
+      const doc = await importDocument();
+      const plan = await attachPlanWithBlocks(doc.documentId, [
+        { nodeKey: 'n-1', text: '본문', protectionState: 'NONE', status: 'GENERATED' },
+      ]);
+      const generated = (order: number, tocVersionId: string): unknown => ({
+        type: 'INSERT_BLOCKS',
+        order,
+        anchor: { relation: 'LAST_CHILD', ref: doc.sectionId },
+        source: { kind: 'GENERATED_BLOCKS', planId: plan.planId, tocVersionId },
+      });
+      const res = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"1"',
+        body: {
+          baseRevisionId: doc.revisionId,
+          origin: 'MATERIALIZE',
+          clientMutationId: `mat-${randomUUID().slice(0, 8)}`,
+          operations: [
+            generated(0, plan.currentTocVersionId),
+            generated(1, plan.staleTocVersionId),
+          ],
+        },
+      });
+      expect(res.status).toBe(422);
+      const error = (await res.json()) as { error: { violations: { reason: string }[] } };
+      expect(error.error.violations[0].reason).toContain('하나만');
+      const revisions = await withClient(dbUrl, (c) =>
+        c.query(`SELECT count(*)::int AS n FROM document_revision WHERE document_id=$1`, [
+          doc.documentId,
+        ]),
+      );
+      expect(revisions.rows[0].n).toBe(1);
+    });
+
+    // ── 요청 표면의 신뢰 경계 (이중 리뷰 반영) ────────────────────────────
+
+    it('요청은 역연산 전용 필드(restore/restoreRuns)를 실을 수 없다(400)', async () => {
+      // `{restore: …}`는 서버가 만든 역연산의 형태다. 요청에서 받아 주면
+      // 클라이언트가 origin:'SOURCE'·위조 앵커·locked:true 노드를 문서에 직접
+      // 심을 수 있다 — 판별 유니온은 컴파일 시점 보장이라 이 경로를 막지 못한다.
+      const doc = await importDocument();
+      const forged = {
+        kind: 'PARAGRAPH',
+        origin: 'SOURCE',
+        paragraphId: 'P-forged',
+        rawXmlAnchor: 'Contents/section0.xml#p[9999]',
+        runs: [],
+        styleRef: { paraPrId: null, charPrId: null, numberingId: null, styleId: null },
+        editState: { editedByUser: false, locked: true },
+      };
+      const cases: { label: string; operation: unknown }[] = [
+        {
+          label: 'INLINE restore',
+          operation: {
+            type: 'INSERT_BLOCKS',
+            order: 0,
+            anchor: { relation: 'LAST_CHILD', ref: doc.sectionId },
+            source: { kind: 'INLINE', blocks: [{ restore: forged }] },
+          },
+        },
+        {
+          label: 'INLINE restore null (엔진 진입 시 500이 되던 형태)',
+          operation: {
+            type: 'INSERT_BLOCKS',
+            order: 0,
+            anchor: { relation: 'LAST_CHILD', ref: doc.sectionId },
+            source: { kind: 'INLINE', blocks: [{ restore: null }] },
+          },
+        },
+        {
+          label: 'INLINE 미허용 속성',
+          operation: {
+            type: 'INSERT_BLOCKS',
+            order: 0,
+            anchor: { relation: 'LAST_CHILD', ref: doc.sectionId },
+            source: { kind: 'INLINE', blocks: [{ text: 'ok', editState: { locked: true } }] },
+          },
+        },
+        {
+          label: 'payload.restoreRuns',
+          operation: {
+            type: 'REPLACE_RANGE',
+            order: 0,
+            selection: {
+              kind: 'CURSOR',
+              baseRevisionId: doc.revisionId,
+              at: { paragraphId: doc.editableParagraphId, offset: 0 },
+            },
+            payload: { restoreRuns: [{ runId: 'R-x', text: '위조', controls: [] }] },
+          },
+        },
+        {
+          label: 'payload.cellOps[].restore',
+          operation: {
+            type: 'TABLE_PATCH',
+            order: 0,
+            payload: {
+              tableId: 'T-1',
+              cellOps: [{ cellId: 'C-1', kind: 'RESTORE', restore: { rowSpan: 1, colSpan: 1 } }],
+            },
+          },
+        },
+      ];
+      for (const item of cases) {
+        const res = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+          ifMatch: '"1"',
+          body: {
+            baseRevisionId: doc.revisionId,
+            origin: 'USER',
+            clientMutationId: `forge-${randomUUID().slice(0, 8)}`,
+            operations: [item.operation],
+          },
+        });
+        expect(res.status, item.label).toBe(400);
+      }
+      // 문서는 한 글자도 움직이지 않았다.
+      const revisions = await withClient(dbUrl, (c) =>
+        c.query(`SELECT count(*)::int AS n FROM document_revision WHERE document_id=$1`, [
+          doc.documentId,
+        ]),
+      );
+      expect(revisions.rows[0].n).toBe(1);
+    });
+
+    it('Undo는 응답을 되보내는 것이 아니라 ChangeSet을 지목한다 — 문서가 편집 이전 해시로 돌아온다', async () => {
+      const doc = await importDocument();
+      const before = (
+        (await (await call('GET', `/api/v1/documents/${doc.documentId}/ir`, tokenA)).json()) as {
+          data: { irHash: string };
+        }
+      ).data.irHash;
+
+      const applied = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"1"',
+        body: {
+          baseRevisionId: doc.revisionId,
+          origin: 'USER',
+          clientMutationId: `m-${randomUUID().slice(0, 8)}`,
+          operations: [replaceOp(doc, doc.revisionId, '왕복')],
+        },
+      });
+      const first = (
+        (await applied.json()) as {
+          data: { changeSetId: string; newRevisionId: string; irHash: string };
+        }
+      ).data;
+      expect(first.irHash).not.toBe(before);
+
+      // 연산을 실으면 400이다(요청 표면에 IR 조각이 들어올 자리가 없다).
+      const withOps = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"2"',
+        body: {
+          baseRevisionId: first.newRevisionId,
+          origin: 'UNDO',
+          undoesChangeSetId: first.changeSetId,
+          clientMutationId: `u-${randomUUID().slice(0, 8)}`,
+          operations: [replaceOp(doc, first.newRevisionId, '아무거나')],
+        },
+      });
+      expect(withOps.status).toBe(400);
+
+      const undone = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"2"',
+        body: {
+          baseRevisionId: first.newRevisionId,
+          origin: 'UNDO',
+          undoesChangeSetId: first.changeSetId,
+          clientMutationId: `u-${randomUUID().slice(0, 8)}`,
+        },
+      });
+      expect(undone.status).toBe(200);
+      const undoData = ((await undone.json()) as { data: { irHash: string; applied: boolean } })
+        .data;
+      // invert ∘ apply == identity 가 **HTTP 표면을 통과해서** 성립한다.
+      expect(undoData.applied).toBe(true);
+      expect(undoData.irHash).toBe(before);
+    });
+
+    it('되돌리려는 편집 이후 같은 노드가 다시 바뀌면 UNDO_CONFLICT 422다(US-PLAN-017 E-03)', async () => {
+      const doc = await importDocument();
+      const first = (
+        (await (
+          await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+            ifMatch: '"1"',
+            body: {
+              baseRevisionId: doc.revisionId,
+              origin: 'USER',
+              clientMutationId: `a-${randomUUID().slice(0, 8)}`,
+              operations: [replaceOp(doc, doc.revisionId, '첫번째')],
+            },
+          })
+        ).json()) as { data: { changeSetId: string; newRevisionId: string } }
+      ).data;
+      await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"2"',
+        body: {
+          baseRevisionId: first.newRevisionId,
+          origin: 'USER',
+          clientMutationId: `b-${randomUUID().slice(0, 8)}`,
+          operations: [replaceOp(doc, first.newRevisionId, '두번째')],
+        },
+      });
+
+      const res = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"3"',
+        body: {
+          baseRevisionId: (
+            (await (
+              await call('GET', `/api/v1/documents/${doc.documentId}/ir`, tokenA)
+            ).json()) as { data: { revisionId: string } }
+          ).data.revisionId,
+          origin: 'UNDO',
+          undoesChangeSetId: first.changeSetId,
+          clientMutationId: `u-${randomUUID().slice(0, 8)}`,
+        },
+      });
+      expect(res.status).toBe(422);
+      const error = (await res.json()) as {
+        error: { code: string; violations: { field: string; reason: string }[] };
+      };
+      expect(error.error.code).toBe('DOC-422-004');
+      expect(error.error.violations[0].reason).toContain('UNDO_CONFLICT');
+      // 영향 노드를 알려 준다(화면이 어디를 보여 줄지 정할 수 있어야 한다).
+      expect(error.error.violations[0].field).toBe(doc.editableParagraphId);
+    });
+
+    it('거절된 요청의 재전송은 200이 아니라 다시 422다', async () => {
+      // 200 + applied:false를 주면 오프라인 큐가 성공으로 처리하고 사용자의
+      // 편집이 조용히 사라진다. 같은 요청에는 같은 답을 준다.
+      const doc = await importDocument();
+      const body = {
+        baseRevisionId: doc.revisionId,
+        origin: 'USER',
+        clientMutationId: `r-${randomUUID().slice(0, 8)}`,
+        operations: [
+          {
+            type: 'REPLACE_RANGE',
+            order: 0,
+            selection: {
+              kind: 'TEXT_RANGE',
+              baseRevisionId: doc.revisionId,
+              start: { paragraphId: 'P-없는문단', offset: 0 },
+              end: { paragraphId: 'P-없는문단', offset: 1 },
+            },
+            payload: { text: 'x' },
+          },
+        ],
+      };
+      const first = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"1"',
+        body,
+      });
+      expect(first.status).toBe(422);
+      const again = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"1"',
+        body,
+      });
+      expect(again.status).toBe(422);
+      const error = (await again.json()) as { error: { violations: { reason: string }[] } };
+      expect(error.error.violations[0].reason).toContain('앞선 동일 요청이 거절되었습니다');
+    });
+
+    it('EDITING이 아닌 문서는 편집·자동저장·복원이 모두 422다', async () => {
+      const doc = await importDocument();
+      await withClient(dbUrl, (c) =>
+        c.query(`UPDATE document SET status='APPROVED' WHERE document_id=$1`, [doc.documentId]),
+      );
+      const edit = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"1"',
+        body: {
+          baseRevisionId: doc.revisionId,
+          origin: 'USER',
+          clientMutationId: `s-${randomUUID().slice(0, 8)}`,
+          operations: [replaceOp(doc, doc.revisionId, '승인후')],
+        },
+      });
+      expect(edit.status).toBe(422);
+      const autosave = await call('POST', `/api/v1/documents/${doc.documentId}/autosaves`, tokenA, {
+        ifMatch: '"1"',
+        body: {
+          baseRevisionId: doc.revisionId,
+          clientMutationId: `s-${randomUUID().slice(0, 8)}`,
+          delta: { operations: [replaceOp(doc, doc.revisionId, '승인후')] },
+        },
+      });
+      expect(autosave.status).toBe(422);
+      const revisions = await withClient(dbUrl, (c) =>
+        c.query(`SELECT count(*)::int AS n FROM document_revision WHERE document_id=$1`, [
+          doc.documentId,
+        ]),
+      );
+      expect(revisions.rows[0].n).toBe(1);
+    });
+
+    it('자동저장: 내용이 그대로면 새 revision을 만들지 않고 head를 receipt로 준다(D8)', async () => {
+      const doc = await importDocument();
+      const head = (
+        (await (await call('GET', `/api/v1/documents/${doc.documentId}/ir`, tokenA)).json()) as {
+          data: { irHash: string };
+        }
+      ).data;
+      // 같은 문자를 같은 자리에 다시 넣는 batch — 사용자에게는 정상 동작이다.
+      const sameText = await withClient(dbUrl, async (c) => {
+        const row = await c.query(
+          `SELECT ir_json FROM document_revision WHERE document_id=$1 AND revision_no=1`,
+          [doc.documentId],
+        );
+        const ir = row.rows[0].ir_json as DocumentIR;
+        for (const section of ir.sections) {
+          for (const block of section.blocks) {
+            if (block.kind === 'PARAGRAPH' && block.paragraphId === doc.editableParagraphId) {
+              return block.runs
+                .map((run) => run.text)
+                .join('')
+                .slice(0, 3);
+            }
+          }
+        }
+        throw new Error('editable paragraph not found');
+      });
+      const res = await call('POST', `/api/v1/documents/${doc.documentId}/autosaves`, tokenA, {
+        ifMatch: '"1"',
+        body: {
+          baseRevisionId: doc.revisionId,
+          clientMutationId: `noop-${randomUUID().slice(0, 8)}`,
+          delta: { operations: [replaceOp(doc, doc.revisionId, sameText)] },
+        },
+      });
+      expect(res.status).toBe(200);
+      const receipt = (
+        (await res.json()) as {
+          data: { status: string; resultRevisionId: string; irHash: string };
+        }
+      ).data;
+      expect(receipt.status).toBe('ACCEPTED');
+      expect(receipt.irHash).toBe(head.irHash);
+      const rows = await withClient(dbUrl, async (c) => ({
+        revisions: (
+          await c.query(`SELECT count(*)::int AS n FROM document_revision WHERE document_id=$1`, [
+            doc.documentId,
+          ])
+        ).rows[0].n as number,
+        journal: (
+          await c.query(`SELECT count(*)::int AS n FROM document_autosave WHERE document_id=$1`, [
+            doc.documentId,
+          ])
+        ).rows[0].n as number,
+      }));
+      // 리비전은 늘지 않고, 저장 요청이 있었다는 사실은 저널에 남는다.
+      expect(rows.revisions).toBe(1);
+      expect(rows.journal).toBe(1);
+    });
+
+    it('자동저장도 If-Match와 baseRevisionId가 어긋나면 422다(409가 아니다)', async () => {
+      const doc = await importDocument();
+      const applied = await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+        ifMatch: '"1"',
+        body: {
+          baseRevisionId: doc.revisionId,
+          origin: 'USER',
+          clientMutationId: `m-${randomUUID().slice(0, 8)}`,
+          operations: [replaceOp(doc, doc.revisionId, '이동')],
+        },
+      });
+      expect(applied.status).toBe(200);
+      // If-Match는 head(2)를 가리키는데 baseRevisionId는 1번 리비전이다.
+      const res = await call('POST', `/api/v1/documents/${doc.documentId}/autosaves`, tokenA, {
+        ifMatch: '"2"',
+        body: {
+          baseRevisionId: doc.revisionId,
+          clientMutationId: `x-${randomUUID().slice(0, 8)}`,
+          delta: { operations: [replaceOp(doc, doc.revisionId, '자기모순')] },
+        },
+      });
+      expect(res.status).toBe(422);
+      const error = (await res.json()) as { error: { code: string } };
+      expect(error.error.code).toBe('DOC-422-004');
+    });
+
+    it('자동저장 충돌 저널은 요청이 기준으로 삼은 Revision을 적는다(재현 가능성)', async () => {
+      const doc = await importDocument();
+      const first = (
+        (await (
+          await call('POST', `/api/v1/documents/${doc.documentId}/changesets`, tokenA, {
+            ifMatch: '"1"',
+            body: {
+              baseRevisionId: doc.revisionId,
+              origin: 'USER',
+              clientMutationId: `m-${randomUUID().slice(0, 8)}`,
+              operations: [replaceOp(doc, doc.revisionId, '선행')],
+            },
+          })
+        ).json()) as { data: { newRevisionId: string } }
+      ).data;
+      // If-Match는 낡은 1을 들고 있고 baseRevisionId도 1번 리비전 — 자기모순이
+      // 아니라 순수한 낙관 잠금 실패다.
+      const res = await call('POST', `/api/v1/documents/${doc.documentId}/autosaves`, tokenA, {
+        ifMatch: '"1"',
+        body: {
+          baseRevisionId: doc.revisionId,
+          clientMutationId: `c-${randomUUID().slice(0, 8)}`,
+          delta: { operations: [replaceOp(doc, doc.revisionId, '충돌')] },
+        },
+      });
+      expect(res.status).toBe(409);
+      const row = await withClient(dbUrl, (c) =>
+        c.query(`SELECT base_revision_id, status FROM document_autosave WHERE document_id=$1`, [
+          doc.documentId,
+        ]),
+      );
+      expect(row.rows[0].status).toBe('CONFLICT');
+      expect(row.rows[0].base_revision_id).toBe(doc.revisionId);
+      expect(row.rows[0].base_revision_id).not.toBe(first.newRevisionId);
     });
 
     it('가져오기가 template_profile과 style_prototype을 함께 만든다(UNE-DOC-004의 실제 테이블)', async () => {

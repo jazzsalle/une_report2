@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- CC-150 (2026-08-02): document Revision/ChangeSet/Selection/Autosave server core
+  (ADR-30). **Server side only** — the editing UI needs rhwp, which is still not
+  imported (OB-12), and HWPX save/export is CC-160. Design 07 §1.8-4 ("visual
+  coordinates never enter the contract") is what made that split safe.
+  Migrations: 0018 puts FORCE RLS on the eight document child tables (closing the
+  blocking prerequisite ADR-29 D9 registered) and 0019 adds `document_autosave`
+  as the 61st table — the same class of baseline defect as `generated_block`
+  (ADR-27 D2): design 10 §3.4, the §7 trace table and the OpenAPI `x-db-tables`
+  all name it, but the physical DDL table never defined it. Domain gets the
+  selection three-layer split, the 8-op ChangeSet vocabulary, and Document IR v2
+  whose `NodeProvenance` discriminated union makes "a node with neither anchor
+  nor hint" fail to compile. The engine gets SelectionResolver, ChangeSetExecutor,
+  inverse-op derivation and prototype resolve; atomicity is a property of the data
+  structure rather than of rollback, because the failure result type has no `ir`
+  field for a caller to persist. The API gets UNE-DOC-005~009 with the ETag +
+  baseRevisionId double guard (self-contradicting requests are 422, a moved head
+  is 409 with the authoritative ETag header and `meta.conflict`), idempotency on
+  `clientMutationId`, and materialize carrying ADR-27 D4's triple defence.
+  Measurement caught three defects during implementation: CC-140's stable ids were
+  derived from raw XML anchors and therefore collapse the moment a paragraph is
+  inserted (ids are now frozen and authored ids derived separately); the §1.9
+  inverse table is simply wrong for character deletion and SPLIT — all six corpus
+  documents mismatched by hash until the inverse became a run-level restore; and
+  RLS turned an unindexed child scan 30x slower (173ms -> 1.2ms once 0019 pinned
+  the uniqueness key). The parallel dual review then opened arch 2 BLOCKER/6
+  MAJOR/7 MINOR and a QA FAIL, with both reviewers independently finding the same
+  three: the request surface accepted `{restore: ...}` IR fragments (letting a
+  DOC_EDIT holder plant SOURCE-origin nodes with forged anchors, permanently
+  locked blocks, or trigger a 500); Undo could not actually execute because the
+  returned inverse operations carry a sentinel `baseRevisionId` that the validator
+  and the contract both reject — the 200 response violated its own schema; and
+  materialize validated only the first GENERATED_BLOCKS source. All applied the
+  same day (ADR-30 D16): Undo now names the ChangeSet to reverse and carries no
+  operations at all, UNDO_CONFLICT is implemented from `touchedNodeIds` lineage,
+  aliases are no longer followed for nodes that still exist (which is what made
+  post-restore edits land on the wrong paragraph), `checkEditInvariants` runs
+  before commit, autosave dedupes on `ir_hash`, REJECTED replays answer 422 again
+  instead of a silent 200, and `document.status` is enforced. Verified by a single
+  `pnpm test` (exit 0, DATABASE_URL set so nothing skips): domain 62,
+  hwpx-engine 353, contract-tests 188, api 242, db-integration 107,
+  provider-adapters 108, worker 33, baseline 10; contracts/intake/handoff PASS;
+  build/typecheck/lint/format PASS; contract-type regeneration diff 0.
+  Evidence: docs/evidence/CC-150-document-edit-verification.md.
+
 - CC-140 (2026-08-02): HWPX intake gate, package analysis, Document IR, and
   compatibility classification (ADR-29). **rhwp is still not imported** — this
   item builds the gate that makes intake enforceable (OB-12):

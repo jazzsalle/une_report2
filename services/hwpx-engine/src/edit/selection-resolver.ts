@@ -65,16 +65,36 @@ function fail(
   return { ok: false, code, latestRevisionId, violations, adjustments };
 }
 
-/** §1.8-2 alias map 재해석. 체인을 따라가되 순환은 즉시 끊는다. */
+/**
+ * §1.8-2 alias map 재해석. 체인을 따라가되 순환은 즉시 끊는다.
+ *
+ * ## 살아 있는 노드는 재사상하지 않는다 (ADR-30 D14 보정)
+ *
+ * alias는 "이 노드는 더 이상 없다, 저 노드가 되었다"는 진술이다. 그러므로
+ * **노드가 현재 문서에 실제로 있으면 alias를 밟지 않는다.** 이 선행 규칙이
+ * 없으면 복원·Undo가 문단을 되살린 뒤에도 과거 MERGE의 alias가 계속 살아 있어
+ * 되살아난 문단을 가리키는 선택이 조용히 왼쪽 문단으로 끌려간다(그리고
+ * `offsetDelta`만큼 위치까지 밀린다) — 오류 없이 **다른 문단이 편집된다.**
+ *
+ * append-only 이력에서 "어느 alias가 아직 유효한가"를 change_set 계보로 판정하는
+ * 것은 이력이 길어질수록 비싸고 취약하다. 반면 "노드가 있으면 재사상하지
+ * 않는다"는 **현재 문서 상태만 보고** 같은 결론을 내며, merge→undo→merge 반복에도
+ * 그대로 성립한다.
+ *
+ * @param exists 현재 IR에 그 ID의 노드가 있는지. 주지 않으면 순수한 체인 추적이
+ *   되므로 **호출자는 반드시 넘겨야 한다** — 생략은 테스트/도구용이다.
+ */
 export function resolveAlias(
   aliases: readonly NodeAlias[],
   id: string,
+  exists?: (nodeId: string) => boolean,
 ): { readonly id: string; readonly offsetDelta: number; readonly remapped: boolean } {
   let current = id;
   let offsetDelta = 0;
   let remapped = false;
   const seen = new Set<string>([id]);
   for (;;) {
+    if (exists?.(current)) break;
     const hit = aliases.find((alias) => alias.from === current);
     if (!hit || seen.has(hit.to)) break;
     current = hit.to;
@@ -210,6 +230,8 @@ export function resolveSelection(
 ): SelectionResolution {
   const index = input.index ?? indexDocument(input.ir);
   const aliases = input.aliases ?? [];
+  /** 살아 있는 노드는 재사상하지 않는다(`resolveAlias` 주석 참조). */
+  const nodeExists = (nodeId: string): boolean => index.blocks.has(nodeId);
   const checks: Checks = { index, staticRegions: input.staticRegionAnchors ?? [] };
   const adjustments: SelectionAdjustment[] = [];
   const violations: ChangeViolation[] = [];
@@ -228,7 +250,7 @@ export function resolveSelection(
 
   // 2. 노드 존재 확인 + alias 재해석 (§1.8-2).
   const remap = (position: TextPosition): { position: TextPosition; found: ParagraphIR | null } => {
-    const alias = resolveAlias(aliases, position.paragraphId);
+    const alias = resolveAlias(aliases, position.paragraphId, nodeExists);
     if (alias.remapped && !adjustments.includes('ALIAS_REMAPPED')) {
       adjustments.push('ALIAS_REMAPPED');
     }
@@ -334,7 +356,7 @@ export function resolveSelection(
   if (envelope.kind === 'BLOCK') {
     const ids: string[] = [];
     for (const rawId of envelope.blockIds) {
-      const alias = resolveAlias(aliases, rawId);
+      const alias = resolveAlias(aliases, rawId, nodeExists);
       if (alias.remapped && !adjustments.includes('ALIAS_REMAPPED')) {
         adjustments.push('ALIAS_REMAPPED');
       }

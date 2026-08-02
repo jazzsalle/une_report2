@@ -129,6 +129,42 @@ describe('change-set.schema.json', () => {
     ).toBe(false);
   });
 
+  it('Undo/Redo 형태: undoesChangeSetId만 싣고 operations는 싣지 않는다', () => {
+    const undo = {
+      baseRevisionId: REV,
+      origin: 'UNDO',
+      clientMutationId: 'undo-0001',
+      undoesChangeSetId: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+    };
+    // 정상 케이스 수용 — 제약이 vacuous하지 않음을 함께 고정한다.
+    expect(validate(undo), ajvErrors(validate)).toBe(true);
+    expect(validate({ ...undo, origin: 'REDO' }), ajvErrors(validate)).toBe(true);
+
+    // operations를 함께 실으면 거부. 역연산은 서버가 가진 데이터이며 요청
+    // 표면에 IR 조각이 들어올 자리를 만들지 않는다.
+    expect(validate({ ...undo, operations: [MINIMAL_OPERATIONS.DELETE_RANGE] })).toBe(false);
+    // undoesChangeSetId를 실었는데 origin이 UNDO/REDO가 아니면 거부.
+    expect(validate({ ...undo, origin: 'USER' })).toBe(false);
+    // 일반 편집은 여전히 operations가 필수다.
+    expect(validate({ baseRevisionId: REV, origin: 'USER', clientMutationId: 'e-1' })).toBe(false);
+  });
+
+  it('INLINE 블록은 text만 받는다 — 역연산 전용 restore는 계약에 없다', () => {
+    const forge = (block: unknown): unknown =>
+      request([
+        {
+          type: 'INSERT_BLOCKS',
+          order: 0,
+          anchor: { relation: 'AFTER', ref: 'P-1' },
+          source: { kind: 'INLINE', blocks: [block] },
+        },
+      ]);
+    expect(validate(forge({ text: '가', styleRole: 'BODY', outlineLevel: 1 }))).toBe(true);
+    expect(validate(forge({ restore: { kind: 'PARAGRAPH', paragraphId: 'P-9' } }))).toBe(false);
+    expect(validate(forge({ text: '가', editState: { locked: true } }))).toBe(false);
+    expect(validate(forge({ text: '가', origin: 'SOURCE' }))).toBe(false);
+  });
+
   it('APPLY_STYLE_ROLE은 styleId 직접 지정을 거부한다(§1.9)', () => {
     expect(
       validate(

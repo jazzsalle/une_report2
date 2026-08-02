@@ -12,7 +12,6 @@ import {
   type NodeAlias,
 } from '@une/domain';
 import { applyChangeSet, liftV1, type AuthoredBlockSpec } from '@une/hwpx-engine';
-import type { Prototype } from '@une/hwpx-engine';
 import type { ErrorViolation } from '../common/api-error';
 import type { RequestMetaLike } from '../common/controller-utils';
 import type { AuthContext } from '../common/request-context';
@@ -149,6 +148,17 @@ function selectionsOf(operations: readonly ChangeOperation[]): unknown[] {
   return operations.filter((op) => op.selection !== undefined).map((op) => op.selection);
 }
 
+/** 이 ChangeSet이 건드린 노드 ID(Diff에서). UNDO_CONFLICT 판정의 입력이며,
+ * 노드 ID는 본문이 아니라 좌표이므로 저장해도 개인정보 최소화에 어긋나지 않는다. */
+function touchedOf(diff: readonly DiffEntry[]): string[] {
+  return [...new Set(diff.map((entry) => entry.nodeId))];
+}
+
+function touchedNodeIdsOf(selectionJson: Record<string, unknown>): readonly string[] {
+  const value = (selectionJson as { touchedNodeIds?: unknown }).touchedNodeIds;
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+}
+
 @Injectable()
 export class ChangeSetService {
   constructor(
@@ -183,20 +193,53 @@ export class ChangeSetService {
     body: ApplyChangeSetBody,
     meta: RequestMetaLike,
   ): Promise<Verdict<ChangeSetResultResource>> {
-    const { head } = await this.documents.loadEditContext(c, auth, documentId);
+    const { document, head } = await this.documents.loadEditContext(c, auth, documentId);
     const fingerprint = canonicalHash({
       baseRevisionId: body.baseRevisionId,
       origin: body.origin,
       operations: body.operations,
+      undoesChangeSetId: body.undoesChangeSetId ?? null,
       dryRun: body.dryRun === true,
     });
 
     // 1) 멱등. 재전송은 새 편집이 아니다 — 잠금을 잡은 뒤 가장 먼저 본다.
     const replay = await this.repo.findChangeSetByMutationId(c, documentId, body.clientMutationId);
     if (replay) {
-      const stored = replay.selectionJson as { requestHash?: string };
+      const stored = replay.selectionJson as {
+        requestHash?: string;
+        rejected?: { reason: string; nodeId: string | null; operationOrder: number | null }[];
+      };
       if (stored.requestHash !== fingerprint) return { kind: 'MUTATION_REUSED' };
+      if (replay.status === 'REJECTED') {
+        // 거절된 요청의 재전송에 200을 주면 **첫 응답(422)과 다른 사실**이 된다.
+        // 오프라인 큐는 200을 성공으로 처리하고 사용자의 편집은 조용히 사라진다.
+        // 같은 요청에는 같은 답을 준다 — 원 거절 사유를 그대로 다시 낸다.
+        return {
+          kind: 'REJECTED',
+          violations: (stored.rejected ?? []).map((item) => ({
+            field:
+              item.nodeId ??
+              (item.operationOrder === null ? 'operations' : `operations[${item.operationOrder}]`),
+            reason: `${item.reason}: 앞선 동일 요청이 거절되었습니다.`,
+          })),
+        };
+      }
       return { kind: 'OK', value: await this.replayResult(c, documentId, replay) };
+    }
+
+    // 1-a) 집합체 상태(backend.md 검증 순서의 "aggregate state").
+    //      승인·검토 중인 문서는 편집 대상이 아니다. 재조회로 고쳐지지 않으므로
+    //      409가 아니라 422다.
+    if (document.status !== 'EDITING') {
+      return {
+        kind: 'REJECTED',
+        violations: [
+          {
+            field: 'document.status',
+            reason: `상태가 ${document.status}인 문서는 편집할 수 없습니다(EDITING만 가능).`,
+          },
+        ],
+      };
     }
 
     // 2) baseRevisionId ↔ If-Match 정합. 둘이 어긋나면 요청 자체가 자기모순이라
@@ -245,9 +288,20 @@ export class ChangeSetService {
       return { kind: 'CONFLICT', state: conflictStateOf(head) };
     }
 
+    // 3-a) 서버측 Undo/Redo: 연산은 요청이 아니라 저장된 역연산에서 온다.
+    let operations = body.operations;
+    if (body.undoesChangeSetId) {
+      const undo = await this.resolveUndo(c, documentId, body.undoesChangeSetId);
+      if (!undo.ok) return { kind: 'REJECTED', violations: undo.violations };
+      operations = undo.operations;
+    }
+
     // 4) 엔진(순수 함수). ID 좌표가 되므로 changeSetId를 먼저 발급한다(ADR-30 D2).
     const changeSetId = randomUUID();
-    const outcome = await this.runEngine(c, auth, documentId, changeSetId, head, body);
+    const outcome = await this.runEngine(c, auth, documentId, changeSetId, head, {
+      ...body,
+      operations,
+    });
     if (!outcome.ok) {
       if (!body.dryRun) {
         // 거절도 보존한다(US-PLAN-017 A-01). 리비전은 만들지 않으므로 문서는 불변.
@@ -258,9 +312,10 @@ export class ChangeSetService {
           selectionJson: {
             schema: 'change-set-request/1',
             requestHash: fingerprint,
-            selections: selectionsOf(body.operations),
+            selections: selectionsOf(operations),
             aliases: [],
             aliasRemovals: [],
+            touchedNodeIds: [],
             rejected: outcome.violations.map((v) => ({
               reason: v.reason,
               nodeId: v.nodeId ?? null,
@@ -317,9 +372,11 @@ export class ChangeSetService {
       selectionJson: {
         schema: 'change-set-request/1',
         requestHash: fingerprint,
-        selections: selectionsOf(body.operations),
+        selections: selectionsOf(operations),
         aliases: outcome.aliases,
         aliasRemovals: outcome.aliasRemovals,
+        // UNDO_CONFLICT 판정의 입력(ADR-30 D7). Diff의 노드 ID만 남긴다.
+        touchedNodeIds: touchedOf(outcome.diff),
       },
       status: 'APPLIED',
       origin: body.origin,
@@ -327,7 +384,7 @@ export class ChangeSetService {
       createdBy: auth.userId,
       changeSetId,
     });
-    await this.writeOperations(c, changeSetId, body.operations, outcome.inverseOperations);
+    await this.writeOperations(c, changeSetId, operations, outcome.inverseOperations);
     const ir: DocumentIR = { ...outcome.ir, revision: null };
     const revision = await this.repo.insertRevision(c, {
       documentId,
@@ -340,7 +397,7 @@ export class ChangeSetService {
       checkpointLabel: body.checkpointLabel?.trim() || null,
       createdBy: auth.userId,
     });
-    await this.repo.setChangeSetResult(c, changeSetId, revision.revisionId);
+    await this.repo.setChangeSetResult(c, changeSetId, revision.revisionId, documentId);
     await this.repo.setCurrentRevision(c, auth.tenantId, documentId, revision.revisionId);
 
     await this.documents.insertDocumentAudit(
@@ -352,8 +409,9 @@ export class ChangeSetService {
       {
         changeSetId,
         origin: body.origin,
-        operationCount: body.operations.length,
-        operationTypes: body.operations.map((op) => op.type),
+        ...(body.undoesChangeSetId ? { undoesChangeSetId: body.undoesChangeSetId } : {}),
+        operationCount: operations.length,
+        operationTypes: operations.map((op) => op.type),
         newRevisionId: revision.revisionId,
         newRevisionNo: revision.revisionNo,
         ...(outcome.materialize ? { materialize: outcome.materialize } : {}),
@@ -422,9 +480,20 @@ export class ChangeSetService {
     body: AutosaveRequestBody,
     meta: RequestMetaLike,
   ): Promise<Verdict<AutosaveReceiptResource>> {
-    const { head } = await this.documents.loadEditContext(c, auth, documentId);
+    const { document, head } = await this.documents.loadEditContext(c, auth, documentId);
     const delta = { operations: body.delta.operations };
     const fingerprint = canonicalHash(delta);
+    if (document.status !== 'EDITING') {
+      return {
+        kind: 'REJECTED',
+        violations: [
+          {
+            field: 'document.status',
+            reason: `상태가 ${document.status}인 문서는 편집할 수 없습니다(EDITING만 가능).`,
+          },
+        ],
+      };
+    }
 
     // 1) 멱등. 오프라인 큐는 같은 항목을 여러 번 재전송하는 것이 정상 동작이다.
     const existing = await this.repo.findAutosaveByMutationId(c, documentId, body.clientMutationId);
@@ -481,14 +550,39 @@ export class ChangeSetService {
       return { kind: 'OK', value: this.toReceipt(row, null, null) };
     }
 
+    // 2-a) 자기모순 요청은 409가 아니라 422다(ADR-30 D4 — 적용 경로와 같은 규칙).
+    //      If-Match가 가리키는 Revision과 baseRevisionId가 서로 다른 Revision을
+    //      가리키면 재조회해도 고쳐지지 않으므로, 409로 답하면 클라이언트가 무한히
+    //      재시도한다.
+    const requestedBase = (await this.repo.findRevision(
+      c,
+      documentId,
+      body.baseRevisionId,
+    )) as RevisionRow | null;
+    if (!requestedBase || requestedBase.revisionNo !== expectedRevisionNo) {
+      return {
+        kind: 'REJECTED',
+        violations: [
+          {
+            field: 'baseRevisionId',
+            reason: requestedBase
+              ? `If-Match(${expectedRevisionNo})가 가리키는 Revision과 baseRevisionId(${requestedBase.revisionNo})가 다릅니다.`
+              : '이 문서의 Revision이 아닙니다.',
+          },
+        ],
+      };
+    }
+
     // 3) 충돌. 판정 자체가 기록으로 남아야 화면이 "저장 실패"를 표시할 수 있다
     //    (US-PLAN-020 AC-02) — 그래서 행을 쓰고 커밋한 뒤 409를 만든다.
-    const baseMatches =
-      body.baseRevisionId === head.revisionId && head.revisionNo === expectedRevisionNo;
-    if (!baseMatches) {
+    if (head.revisionNo !== expectedRevisionNo) {
       const row = await this.repo.insertAutosave(c, {
         documentId,
-        baseRevisionId: head.revisionId,
+        // 저널의 `base_revision_id`는 **요청이 기준으로 삼은 Revision**이다
+        // (0019 §1 COMMENT). head를 적으면 US-PLAN-020 AC-03의 "command
+        // journal로 재현"이 불가능해진다 — 무엇을 기준으로 만든 delta인지가
+        // 사라지기 때문이다.
+        baseRevisionId: body.baseRevisionId,
         clientMutationId: body.clientMutationId,
         seq,
         delta,
@@ -537,6 +631,35 @@ export class ChangeSetService {
       return { kind: 'REJECTED', violations: toErrorViolations(outcome.violations) };
     }
 
+    // 4-a) 내용이 그대로면 새 리비전을 만들지 않는다(ADR-30 D8).
+    //
+    // 같은 텍스트 재입력·입력 후 즉시 취소 같은 batch는 정상 동작인데, 그때마다
+    // 리비전을 하나씩 쌓으면 버전이력이 의미 없는 행으로 덮인다. `ir_hash`가
+    // head와 같다는 것은 "이 batch는 문서를 움직이지 않았다"는 사실이므로,
+    // 기존 head를 receipt로 돌려준다(plan `confirmSnapshot`의 content-hash 중복
+    // 제거 선례). 저널 행은 남긴다 — 저장 요청이 있었다는 사실 자체는 기록이다.
+    if (outcome.irHash === head.irHash) {
+      const unchanged = await this.repo.insertAutosave(c, {
+        documentId,
+        baseRevisionId: body.baseRevisionId,
+        clientMutationId: body.clientMutationId,
+        seq,
+        delta,
+        resultRevisionId: head.revisionId,
+        status: 'ACCEPTED',
+        createdBy: auth.userId,
+      });
+      await this.documents.insertDocumentAudit(c, auth, meta, 'AUTOSAVE_SUCCESS', documentId, {
+        autosaveId: unchanged.autosaveId,
+        status: 'ACCEPTED',
+        seq,
+        unchanged: true,
+        headRevisionId: head.revisionId,
+        headRevisionNo: head.revisionNo,
+      });
+      return { kind: 'OK', value: this.toReceipt(unchanged, head.revisionNo, head.irHash) };
+    }
+
     await this.repo.insertChangeSet(c, {
       documentId,
       baseRevisionId: body.baseRevisionId,
@@ -547,6 +670,7 @@ export class ChangeSetService {
         selections: selectionsOf(delta.operations),
         aliases: outcome.aliases,
         aliasRemovals: outcome.aliasRemovals,
+        touchedNodeIds: touchedOf(outcome.diff),
         autosaveSeq: seq,
       },
       status: 'APPLIED',
@@ -567,7 +691,7 @@ export class ChangeSetService {
       checkpointLabel: null,
       createdBy: auth.userId,
     });
-    await this.repo.setChangeSetResult(c, changeSetId, revision.revisionId);
+    await this.repo.setChangeSetResult(c, changeSetId, revision.revisionId, documentId);
     await this.repo.setCurrentRevision(c, auth.tenantId, documentId, revision.revisionId);
     const row = await this.repo.insertAutosave(c, {
       documentId,
@@ -666,7 +790,7 @@ export class ChangeSetService {
       newRevisionNo: revision?.revisionNo ?? null,
       irHash: revision?.irHash ?? '',
       diff: [],
-      inverseOperations: await this.repo.findInverseOperations(c, replay.changeSetId),
+      inverseOperations: await this.repo.findInverseOperations(c, replay.changeSetId, documentId),
       aliases: stored.aliases ?? [],
       aliasRemovals: stored.aliasRemovals ?? [],
       warnings: [],
@@ -741,7 +865,7 @@ export class ChangeSetService {
       request,
       changeSetId,
       currentRevisionId: head.revisionId,
-      prototypes: (profile?.profile.prototypes ?? []) as unknown as readonly Prototype[],
+      prototypes: profile?.profile.prototypes ?? [],
       staticRegionAnchors: (profile?.profile.staticRegions ?? []).map((region) => region.locator),
       aliases: await this.aliasHistory(c, documentId),
       generatedBlocks: materialize.provider,
@@ -772,18 +896,21 @@ export class ChangeSetService {
     };
   }
 
-  /** 이전 ChangeSet들이 남긴 alias 이력(§1.8-2). 제거분을 반영해 접는다 —
+  /**
+   * 이전 ChangeSet들이 남긴 alias 이력(§1.8-2). 제거분을 반영해 접는다 —
    * MERGE를 되돌린 뒤에도 "right → left" 재사상이 살아 있으면 되살아난 문단을
-   * 가리키는 선택이 계속 왼쪽으로 끌려간다. */
+   * 가리키는 선택이 계속 왼쪽으로 끌려간다.
+   *
+   * append-only 목록만으로는 복원(UNE-DOC-008)이 만든 무효화를 표현할 수 없다.
+   * 그래서 이 목록은 **후보**이고, 최종 판정은 엔진의 `resolveAlias`가 "노드가
+   * 현재 IR에 살아 있으면 재사상하지 않는다"로 내린다(ADR-30 D14 보정) —
+   * 이력 길이와 무관하게 현재 문서 상태만으로 결론이 난다.
+   */
   private async aliasHistory(c: PoolClient, documentId: string): Promise<NodeAlias[]> {
-    const res = await c.query(
-      `SELECT selection_json FROM change_set
-       WHERE document_id = $1 AND status = 'APPLIED' ORDER BY created_at, change_set_id`,
-      [documentId],
-    );
+    const rows = await this.repo.listAppliedChangeSets(c, documentId);
     const aliases: NodeAlias[] = [];
-    for (const row of res.rows as { selection_json: Record<string, unknown> }[]) {
-      const stored = row.selection_json as {
+    for (const row of rows) {
+      const stored = row.selectionJson as {
         aliases?: NodeAlias[];
         aliasRemovals?: NodeAlias[];
       };
@@ -796,6 +923,87 @@ export class ChangeSetService {
       }
     }
     return aliases;
+  }
+
+  /**
+   * 서버측 Undo/Redo (ADR-30 D6/D7 보정).
+   *
+   * ## 왜 클라이언트가 역연산을 되보내지 않는가
+   *
+   * 원안은 "응답의 `inverseOperations`를 그대로 다시 제출한다"였다. 그런데 그
+   * 배열은 **아직 존재하지 않는 개정**을 기준으로 하고(센티널) 삭제 복원에는
+   * 원본 블록 IR이 통째로 들어 있다. 그것을 요청 표면에서 받으려면 임의의 IR
+   * 조각을 신뢰해야 하고, 그 순간 클라이언트가 `origin:'SOURCE'`·위조 앵커·
+   * `locked:true` 노드를 문서에 직접 심을 수 있게 된다(판별 유니온은 컴파일
+   * 시점 보장이라 이 경로를 막지 못한다). 역연산은 **서버가 이미 갖고 있는
+   * 데이터**이므로, 클라이언트는 "무엇을 되돌릴지"만 지목하면 된다.
+   *
+   * ## UNDO_CONFLICT (US-PLAN-017 E-03)
+   *
+   * 대상 ChangeSet 이후에 **그 노드를 건드린** ChangeSet이 있으면 자동 Undo를
+   * 거부하고 영향 노드를 돌려준다. 계보 판정에 쓰는 노드 집합은 적용 시점의
+   * Diff에서 나온 `touchedNodeIds`다.
+   */
+  private async resolveUndo(
+    c: PoolClient,
+    documentId: string,
+    undoesChangeSetId: string,
+  ): Promise<
+    { ok: true; operations: ChangeOperation[] } | { ok: false; violations: ErrorViolation[] }
+  > {
+    const target = await this.repo.findChangeSet(c, documentId, undoesChangeSetId);
+    if (!target) {
+      return {
+        ok: false,
+        violations: [{ field: 'undoesChangeSetId', reason: '이 문서의 ChangeSet이 아닙니다.' }],
+      };
+    }
+    if (target.status !== 'APPLIED') {
+      return {
+        ok: false,
+        violations: [
+          {
+            field: 'undoesChangeSetId',
+            reason: `적용되지 않은 ChangeSet(${target.status})은 되돌릴 수 없습니다.`,
+          },
+        ],
+      };
+    }
+
+    const touched = new Set(touchedNodeIdsOf(target.selectionJson));
+    const later = await this.repo.listAppliedChangeSets(c, documentId, target.changeSetId);
+    const conflicting: string[] = [];
+    for (const row of later) {
+      // 이미 이 ChangeSet을 되돌린 기록은 충돌이 아니라 상태다(이중 Undo는
+      // 아래 result 검사가 아니라 사용자의 Redo로 처리된다).
+      if (row.undoesChangeSetId === target.changeSetId) continue;
+      for (const nodeId of touchedNodeIdsOf(row.selectionJson)) {
+        if (touched.has(nodeId) && !conflicting.includes(nodeId)) conflicting.push(nodeId);
+      }
+    }
+    if (conflicting.length > 0) {
+      return {
+        ok: false,
+        violations: conflicting.map((nodeId) => ({
+          field: nodeId,
+          reason: 'UNDO_CONFLICT: 되돌리려는 편집 이후 이 노드가 다시 수정되었습니다.',
+        })),
+      };
+    }
+
+    const operations = await this.repo.findInverseOperations(c, undoesChangeSetId, documentId);
+    if (operations.length === 0) {
+      return {
+        ok: false,
+        violations: [
+          {
+            field: 'undoesChangeSetId',
+            reason: '이 ChangeSet에는 되돌릴 역연산이 없습니다.',
+          },
+        ],
+      };
+    }
+    return { ok: true, operations };
   }
 
   /**
@@ -822,6 +1030,19 @@ export class ChangeSetService {
   }> {
     if (sources.length === 0) {
       return { provider: undefined, report: null, warnings: [], blockedReason: null };
+    }
+    if (sources.length > 1) {
+      // 첫 소스만 검사하면 두 번째부터가 3중 방어를 그냥 지나간다(낡은
+      // 목차버전 요청이 200으로 끝나고 같은 블록이 두 번 삽입된다). 한
+      // ChangeSet이 같은 생성 결과를 여러 번 실체화할 이유도 없으므로
+      // **소스는 하나로 닫는다** — 검사할 수 없는 형태를 허용하지 않는 것이
+      // fail-closed의 뜻이다.
+      return {
+        provider: () => null,
+        report: null,
+        warnings: [],
+        blockedReason: '한 ChangeSet에는 GENERATED_BLOCKS 소스를 하나만 실을 수 있습니다.',
+      };
     }
     const source = sources[0];
     const plan = await this.repo.findPlanForDocument(c, auth.tenantId, documentId);
@@ -886,7 +1107,16 @@ export class ChangeSetService {
     return {
       // fail-closed: 방어 중 하나라도 걸리면 주입 자체를 하지 않는다. 엔진은
       // 소스가 없으면 해당 연산을 위반으로 끝내므로 부분 적용이 생길 수 없다.
-      provider: blockedReason ? () => null : () => blocks,
+      //
+      // 주입 함수는 **인자에 의존한다**: 엔진은 연산마다 그 연산의 좌표를 넘기고,
+      // 검증된 좌표와 다르면 null을 준다. 인자를 무시하고 항상 같은 블록을
+      // 돌려주면 "검사한 소스"와 "삽입되는 소스"가 어긋날 수 있다.
+      provider: blockedReason
+        ? () => null
+        : (request) =>
+            request.planId === source.planId && request.tocVersionId === source.tocVersionId
+              ? blocks
+              : null,
       report,
       warnings,
       blockedReason,

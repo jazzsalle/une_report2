@@ -307,7 +307,7 @@ work_items:
   dependencies:
   - CC-135
   - CC-140
-  status: IN_PROGRESS
+  status: DONE
   acceptance_criteria:
   - ETag/version conflict
   - selection anchors
@@ -317,7 +317,9 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/evidence/CC-150-document-edit-verification.md
+  - docs/adr/ADR-30-cc150-document-revision-changeset-and-selection.md
 - id: CC-160
   title: Implement HWPX preservation export and Track A validation
   gate: G4

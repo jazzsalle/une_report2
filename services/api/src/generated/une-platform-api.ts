@@ -824,7 +824,11 @@ export type paths = {
          *
          *     dryRun: 검증과 Diff까지만 하고 아무 행도 쓰지 않는다(US-PLAN-017 AC-01). ETag는 그대로 head의 값이 나간다.
          *
-         *     멱등: clientMutationId가 앵커다(uk_change_set_mutation). 같은 값 + 같은 내용은 원래 결과를 replayed=true로 되돌려 주고, 같은 값 + 다른 내용은 409 COM-0409다. 재전송 응답의 diff는 비어 있다 — 문서 본문 미리보기를 재생산하려고 저장해 두지 않는다.
+         *     멱등: clientMutationId가 앵커다(uk_change_set_mutation). 같은 값 + 같은 내용은 원래 결과를 replayed=true로 되돌려 주고, 같은 값 + 다른 내용은 409 COM-0409다. 재전송 응답의 diff는 비어 있다 — 문서 본문 미리보기를 재생산하려고 저장해 두지 않는다. **거절(REJECTED)된 요청의 재전송은 200이 아니라 다시 422다**: 200 + applied=false를 주면 오프라인 큐가 성공으로 처리해 사용자의 편집이 조용히 사라진다.
+         *
+         *     Undo/Redo: operations를 싣지 않고 undoesChangeSetId로 되돌릴 ChangeSet만 지목한다. 서버가 저장해 둔 역연산을 적용하므로 요청 표면에 IR 조각이 들어올 자리가 없다. 대상 이후 같은 노드를 건드린 ChangeSet이 있으면 422 DOC-422-004이며 violations에 영향 노드 ID가 실린다(US-PLAN-017 E-03).
+         *
+         *     상태: document.status가 EDITING이 아니면 422 DOC-422-004다(재조회로 고쳐지지 않는다).
          */
         post: operations["une_doc_006"];
         delete?: never;
@@ -916,9 +920,9 @@ export type paths = {
          *
          *     batch 1건이 저널 1행(document_autosave) + ChangeSet 1건 + Revision 1건이다. 수신확인(receipt)의 status는 셋뿐이다:
          *
-         *     ACCEPTED — 새 리비전이 생겼다. resultRevisionId가 그것을 가리킨다.
+         *     ACCEPTED — 반영되었다. resultRevisionId가 결과 리비전을 가리킨다. **내용이 그대로면 새 리비전을 만들지 않고 기존 head를 가리킨다**(ir_hash 동일 → ADR-30 D8 중복 제거): 같은 문자 재입력·입력 후 즉시 취소 같은 batch가 버전이력을 의미 없는 행으로 덮지 않게 한다. 저널 행은 그때도 남는다.
          *
-         *     CONFLICT — baseRevisionId가 최신이 아니었다. 409 DOC-409-003으로 나가지만 판정 자체는 저널에 남는다 — 그래야 화면이 저장 실패를 표시할 수 있다(US-PLAN-020 AC-02).
+         *     CONFLICT — head가 이미 움직였다. 409 DOC-409-003으로 나가지만 판정 자체는 저널에 남는다 — 그래야 화면이 저장 실패를 표시할 수 있다(US-PLAN-020 AC-02). 저널의 base_revision_id에는 **요청이 기준으로 삼은 Revision**을 적는다(재현 가능성). If-Match와 baseRevisionId가 서로 다른 Revision을 가리키는 자기모순 요청은 409가 아니라 422 DOC-422-004다 — 적용(UNE-DOC-006)과 같은 규칙이며, 재조회로 고쳐지지 않는 오류를 409로 답하면 클라이언트가 무한히 재시도한다.
          *
          *     SUPERSEDED — 도착했을 때 이미 같은 문서의 더 나중 자동저장이 반영돼 있었다 (A-01 오프라인 재동기화). 실패가 아니라 무해한 폐기이므로 200이다. 이 판정을 충돌보다 먼저 하는 이유: 늦게 도착한 항목은 baseRevisionId가 낡아 있는 것이 정상이라, 충돌로 판정하면 사용자에게 거짓 경보가 된다.
          *
@@ -3397,6 +3401,13 @@ export type components = {
             /** Format: uuid */
             planId?: string | null;
         };
+        /**
+         * @description 일반 편집은 `operations`가 필수다. **Undo/Redo는 반대로 `operations`를 싣지
+         *     않는다** — `undoesChangeSetId`로 되돌릴 ChangeSet만 지목하면 서버가 저장해 둔
+         *     역연산을 쓴다(ADR-30 D6 보정). 역연산은 원본 블록 IR을 통째로 나르므로, 요청
+         *     표면에서 받으면 클라이언트가 origin:'SOURCE'·위조 앵커·locked 노드를 문서에
+         *     직접 심을 수 있다.
+         */
         ChangeSetRequest: {
             /**
              * Format: uuid
@@ -3404,7 +3415,7 @@ export type components = {
              */
             baseRevisionId: string;
             origin: components["schemas"]["ChangeSetOrigin"];
-            operations: components["schemas"]["ChangeOperation"][];
+            operations?: components["schemas"]["ChangeOperation"][];
             /** @description 문서 범위 멱등 앵커(uk_change_set_mutation). */
             clientMutationId: string;
             /**
@@ -3414,12 +3425,14 @@ export type components = {
             dryRun: boolean;
             /**
              * Format: uuid
-             * @description Undo 계보(change_set.undoes_change_set_id).
+             * @description 되돌릴 ChangeSet(change_set.undoes_change_set_id). 이 값을 실으면 origin은
+             *     UNDO 또는 REDO여야 하고 operations를 실을 수 없다. 대상 이후 같은 노드를
+             *     건드린 ChangeSet이 있으면 422 DOC-422-004(UNDO_CONFLICT)다.
              */
             undoesChangeSetId?: string;
             checkpointLabel?: string;
             changeSummary?: string;
-        };
+        } & unknown;
         /** @enum {string} */
         ChangeSetOrigin: "USER" | "AI" | "AUTOSAVE" | "UNDO" | "REDO" | "RESTORE" | "MATERIALIZE";
         /**
@@ -4991,7 +5004,6 @@ export interface operations {
             header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
                 "If-Match": components["parameters"]["IfMatchRequired"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
                 documentId: string;
@@ -5067,7 +5079,6 @@ export interface operations {
             header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
                 "If-Match": components["parameters"]["IfMatchRequired"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
                 documentId: string;
@@ -5109,7 +5120,6 @@ export interface operations {
             header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
                 "If-Match": components["parameters"]["IfMatchRequired"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
                 documentId: string;

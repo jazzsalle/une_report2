@@ -99,7 +99,7 @@ function cursor(paragraphId: string, offset: number, revision = REV): SelectionE
 }
 
 describe('§1.8-1 baseRevision 검사', () => {
-  it('불일치는 throw가 아니라 DAI-1401 값으로 보고한다', () => {
+  it('불일치는 throw가 아니라 DOC-409-001(STALE_REVISION) 값으로 보고한다', () => {
     const result = resolveSelection(cursor('P-1', 0, 'rev-0'), base);
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -114,7 +114,7 @@ describe('§1.8-1 baseRevision 검사', () => {
 });
 
 describe('§1.8-2 노드 존재와 alias 재해석', () => {
-  it('없는 문단은 DAI-1402로 보고한다', () => {
+  it('없는 문단은 DOC-422-004(NODE_NOT_FOUND)로 보고한다', () => {
     const result = resolveSelection(cursor('P-없음', 0), base);
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -139,6 +139,31 @@ describe('§1.8-2 노드 존재와 alias 재해석', () => {
       { from: 'B', to: 'A', offsetDelta: 1 },
     ];
     expect(resolveAlias(cyclic, 'A')).toEqual({ id: 'B', offsetDelta: 1, remapped: true });
+  });
+
+  it('노드가 문서에 살아 있으면 alias를 밟지 않는다(복원·Undo 이후의 오편집 차단)', () => {
+    // 복원이 병합 이전 상태로 되돌리면 P-1이 다시 존재한다. 그런데 append-only
+    // alias 이력에는 "P-1 → P-2" 재사상이 그대로 남아 있다. 이때 재사상을
+    // 그대로 밟으면 사용자가 P-1을 골랐는데 **P-2가 편집된다** — 오류 없이.
+    const stale: NodeAlias[] = [{ from: 'P-1', to: 'P-2', offsetDelta: 5 }];
+    const result = resolveSelection(cursor('P-1', 1), { ...base, aliases: stale });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.selection.targetIds).toEqual(['P-1']);
+    expect(result.selection.start?.offset).toBe(1);
+    expect(result.selection.adjustments).not.toContain('ALIAS_REMAPPED');
+  });
+
+  it('exists를 주면 체인 중간에서도 살아 있는 노드에서 멈춘다', () => {
+    const chain: NodeAlias[] = [
+      { from: 'A', to: 'B', offsetDelta: 1 },
+      { from: 'B', to: 'C', offsetDelta: 2 },
+    ];
+    expect(resolveAlias(chain, 'A', (id) => id === 'B')).toEqual({
+      id: 'B',
+      offsetDelta: 1,
+      remapped: true,
+    });
   });
 });
 

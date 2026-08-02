@@ -19,6 +19,7 @@ import {
 } from '@une/domain';
 import type { Prototype } from '../analysis/prototype-registry';
 import { AuthoredIdCollisionError, AuthoredIdIssuer } from './authored-id';
+import { checkEditInvariants } from './edit-invariants';
 import {
   indexDocument,
   insertAt,
@@ -414,8 +415,35 @@ function authorParagraph(
   };
 }
 
-function isRestoreEntry(value: unknown): value is { restore: BlockIR } {
+function hasRestoreKey(value: unknown): boolean {
   return value !== null && typeof value === 'object' && 'restore' in (value as object);
+}
+
+/**
+ * 역연산이 실어 보낸 블록 복원 항목을 **구조 검사 후** 꺼낸다.
+ *
+ * `'restore' in value`만 보고 그대로 IR에 넣으면 요청 본문에서 온 임의의 객체가
+ * `document_revision.ir_json`에 영속된다 — 판별 유니온(ADR-30 D3)은 **컴파일
+ * 시점** 보장이라 이 캐스트 경로에서는 아무 것도 막지 못한다. 요청 검증기가
+ * 클라이언트 `restore`를 이미 거부하지만(400), 엔진은 다른 호출자를 가정해야
+ * 하므로 여기서도 최소 형태를 확인한다.
+ */
+function restoredBlockOf(value: unknown): BlockIR | null {
+  if (!hasRestoreKey(value)) return null;
+  const block = (value as { restore: unknown }).restore;
+  if (block === null || typeof block !== 'object') return null;
+  const record = block as Record<string, unknown>;
+  const idKey =
+    record.kind === 'PARAGRAPH'
+      ? 'paragraphId'
+      : record.kind === 'TABLE'
+        ? 'tableId'
+        : record.kind === 'PRESERVED'
+          ? 'preservedId'
+          : null;
+  if (idKey === null) return null;
+  const id = record[idKey];
+  return typeof id === 'string' && id.length > 0 ? (block as BlockIR) : null;
 }
 
 function toBlockSpec(value: unknown): AuthoredBlockSpec | null {
@@ -442,8 +470,20 @@ function buildIncomingBlocks(
   if (source.kind === 'INLINE') {
     const out: BlockIR[] = [];
     for (const entry of source.blocks) {
-      if (isRestoreEntry(entry)) {
-        out.push(entry.restore);
+      if (hasRestoreKey(entry)) {
+        const restored = restoredBlockOf(entry);
+        if (!restored) {
+          violations.push(
+            violation(
+              'UNSUPPORTED_OPERATION',
+              'INLINE restore 항목의 형태가 올바르지 않습니다',
+              undefined,
+              op.order,
+            ),
+          );
+          continue;
+        }
+        out.push(restored);
         continue;
       }
       const spec = toBlockSpec(entry);
@@ -572,6 +612,17 @@ function applyInsertBlocks(ctx: Ctx, op: ChangeOperation): OpOutcome {
   checkEditable(ctx, anchor.ref, op.order, violations);
   const blocks = buildIncomingBlocks(ctx, op, anchor, violations);
   if (violations.length > 0) return { before: null, violations };
+  if (blocks.length === 0) {
+    // 0건 삽입은 성공이 아니라 위반이다(ADR-30 D11). 조용히 200을 주면 화면은
+    // "실체화했다"고 표시하는데 문서에는 아무것도 들어가지 않는다 — 이 보장을
+    // 호출자(API)의 fail-closed 판정에만 맡기면 다른 호출자에게는 사라진다.
+    return {
+      before: null,
+      violations: [
+        violation('UNSUPPORTED_OPERATION', '삽입할 블록이 없습니다', undefined, op.order),
+      ],
+    };
+  }
   const next = insertAt(ctx.ir, anchor, blocks);
   if (!next) {
     return {
@@ -1440,6 +1491,27 @@ export function applyChangeSet(input: ApplyChangeSetInput): ApplyChangeSetResult
   // rebuildIndexesAndReferences()
   const rebuilt = rebuildIndexesAndReferences(ctx.ir);
   if (rebuilt.violations.length > 0) return { ok: false, violations: rebuilt.violations };
+
+  // checkEditInvariants() — 커밋 전 마지막 관문.
+  //
+  // `rebuildIndexesAndReferences`는 ID 중복·셀 최소문단·AUTHORED 스타일 참조만
+  // 본다. I2(SOURCE 앵커 형식)·I8(sourceHash 승계)·I9(AUTHORED anchorHint)는
+  // 거기 없으므로, 검사기를 만들어 놓고 쓰지 않으면 위반 IR이 그대로
+  // `document_revision.ir_json`에 영속된다. 실패 결과 타입에 `ir`가 없다는
+  // 원자성 보장(ADR-30 D13)은 "실패로 끝낼 수 있을 때"만 의미가 있다.
+  const invariants = checkEditInvariants({ ir: rebuilt.ir, baseIr: input.ir });
+  if (!invariants.ok) {
+    return {
+      ok: false,
+      violations: invariants.violations.map((item) =>
+        violation(
+          'UNSUPPORTED_OPERATION',
+          `편집 후 불변식 ${item.invariant} 위반: ${item.detail}`,
+          item.locator,
+        ),
+      ),
+    };
+  }
 
   // generateInverseOperations() + incrementRevision()
   //   개정 번호 자체는 DB(`document_revision.revision_no`)의 것이므로 여기서는

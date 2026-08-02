@@ -89,13 +89,29 @@ export class DocumentController {
       violations,
     );
     const origin = validateOrigin(body?.origin ?? 'USER', violations);
-    const operations = validateOperations(body?.operations, violations);
     if (body?.dryRun !== undefined && typeof body.dryRun !== 'boolean') {
       violations.push({ field: 'dryRun', reason: 'boolean이어야 합니다.' });
     }
-    if (body?.undoesChangeSetId !== undefined) {
-      validateUuid(body.undoesChangeSetId, 'undoesChangeSetId', violations);
+    // Undo/Redo는 **연산을 싣지 않는다**(ADR-30 D6 보정). 되돌릴 ChangeSet만
+    // 지목하면 서버가 저장된 역연산을 쓴다 — 클라이언트가 IR 조각을 요청에
+    // 실어 보낼 수 있는 표면 자체를 없앤다.
+    const undoing = body?.undoesChangeSetId !== undefined;
+    if (undoing) {
+      validateUuid(body?.undoesChangeSetId, 'undoesChangeSetId', violations);
+      if (body?.operations !== undefined) {
+        violations.push({
+          field: 'operations',
+          reason: 'Undo/Redo 요청에는 연산을 실을 수 없습니다(서버가 저장된 역연산을 씁니다).',
+        });
+      }
+      if (origin !== 'UNDO' && origin !== 'REDO') {
+        violations.push({
+          field: 'origin',
+          reason: 'undoesChangeSetId를 실은 요청의 origin은 UNDO 또는 REDO여야 합니다.',
+        });
+      }
     }
+    const operations = undoing ? [] : validateOperations(body?.operations, violations);
     for (const [field, max] of [
       ['checkpointLabel', 100],
       ['changeSummary', 2000],

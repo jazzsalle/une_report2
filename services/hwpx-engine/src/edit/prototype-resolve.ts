@@ -64,6 +64,15 @@ export function resolveSeed(input: ResolveSeedInput): AuthoredParagraphSeed {
       : input.index.blocks.get(prototype.sourceParagraphId);
   const sourceParagraph = source && source.block.kind === 'PARAGRAPH' ? source.block : null;
 
+  // 원본 문단이 사라져 styleRef가 비는 것은 **말없이 넘어갈 사실이 아니다**:
+  // 새 문단이 서식 없이 만들어지고 그 사실이 어디에도 남지 않으면, 사용자는
+  // CC-160 저장 이후에야 서식이 빠진 것을 발견한다. 폴백 단계 경고
+  // (`resolved.warning`)와는 다른 층의 사실이므로 둘 다 실어 보낸다.
+  const missingSource =
+    prototype.sourceParagraphId !== null && sourceParagraph === null
+      ? `prototype ${prototype.prototypeId}의 원본 문단(${prototype.sourceParagraphId})이 문서에 없어 styleRef를 승계하지 못했습니다`
+      : null;
+
   return {
     styleRef: sourceParagraph ? sourceParagraph.styleRef : EMPTY_STYLE_REF,
     styleRole: prototype.styleRole,
@@ -73,7 +82,7 @@ export function resolveSeed(input: ResolveSeedInput): AuthoredParagraphSeed {
     prefixPolicy: prototype.prefixPolicy,
     sourcePrefix: sourceParagraph ? prefixOf(paragraphTextOf(sourceParagraph)) : '',
     step: resolved.step,
-    warning: resolved.warning,
+    warning: resolved.warning ?? missingSource,
   };
 }
 

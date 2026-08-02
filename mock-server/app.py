@@ -468,12 +468,22 @@ def apply_change_set(document_id: str, body: dict[str, Any],
     doc = get_document_or_404(document_id)
     head = head_revision(doc)
     mutation = body.get("clientMutationId")
-    if not body.get("baseRevisionId") or not mutation or not body.get("operations"):
-        raise HTTPException(400, "COM-0400: baseRevisionId, clientMutationId, operations are required")
+    undoes = body.get("undoesChangeSetId")
+    if not body.get("baseRevisionId") or not mutation:
+        raise HTTPException(400, "COM-0400: baseRevisionId and clientMutationId are required")
+    # Undo/Redo는 연산을 싣지 않는다(ADR-30 D6 보정): 되돌릴 ChangeSet만 지목하면
+    # 서버가 저장된 역연산을 쓴다. 나머지 편집은 operations가 필수다.
+    if undoes:
+        if body.get("operations") is not None:
+            raise HTTPException(400, "COM-0400: undo requests must not carry operations")
+        if body.get("origin") not in ("UNDO", "REDO"):
+            raise HTTPException(400, "COM-0400: undoesChangeSetId requires origin UNDO or REDO")
+    elif not body.get("operations"):
+        raise HTTPException(400, "COM-0400: operations are required")
     key = document_id + "/" + str(mutation)
     if key in DB["changeSets"]:
         prior = DB["changeSets"][key]
-        if prior["requestHash"] != content_hash(body.get("operations")):
+        if prior["requestHash"] != content_hash([body.get("operations"), undoes]):
             raise HTTPException(409, "COM-0409: clientMutationId reused with a different payload")
         replayed = dict(prior["result"]); replayed["replayed"] = True
         return JSONResponse(envelope(replayed), headers=etag(head["revisionNo"]))
@@ -496,7 +506,7 @@ def apply_change_set(document_id: str, body: dict[str, Any],
     result.update({"changeSetId": str(uuid4()), "applied": True,
                    "newRevisionId": rev["revisionId"], "newRevisionNo": rev["revisionNo"],
                    "irHash": rev["irHash"]})
-    DB["changeSets"][key] = {"requestHash": content_hash(body.get("operations")), "result": result}
+    DB["changeSets"][key] = {"requestHash": content_hash([body.get("operations"), undoes]), "result": result}
     return JSONResponse(envelope(result), headers=etag(rev["revisionNo"]))
 
 @app.get("/api/v1/documents/{document_id}/revisions")
@@ -550,7 +560,12 @@ def autosave(document_id: str, body: dict[str, Any],
         replayed = dict(prior["receipt"]); replayed["replayed"] = True
         return JSONResponse(envelope(replayed), headers=etag(head["revisionNo"]))
     seq = body.get("seq", len(DB["autosaves"]) + 1)
-    if body["baseRevisionId"] != head["revisionId"] or head["revisionNo"] != expected:
+    base = DB["revisions"].get(body["baseRevisionId"])
+    if not base or base["documentId"] != document_id or base["revisionNo"] != expected:
+        # If-Match와 baseRevisionId가 어긋나는 자기모순 요청은 재조회로 고쳐지지
+        # 않으므로 409가 아니라 422다(UNE-DOC-006과 같은 규칙).
+        raise HTTPException(422, "DOC-422-004: If-Match and baseRevisionId disagree")
+    if head["revisionNo"] != expected:
         return conflict_response(head, "DOC-409-003")
     rev = append_revision(doc, head["ir"], "AUTOSAVE", None, None)
     receipt = {"autosaveId": str(uuid4()), "documentId": document_id, "clientMutationId": mutation,

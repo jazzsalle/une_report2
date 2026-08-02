@@ -210,10 +210,30 @@ export class DocumentService {
     body: { reason?: string; checkpointLabel?: string },
     meta: RequestMetaLike,
   ): Promise<RestoreResult> {
-    return this.db.withTenant(auth.tenantId, async (c) => {
-      const { head } = await this.loadEditContext(c, auth, documentId);
+    // 충돌 판정을 **값으로** 돌려받는다: 트랜잭션 안에서 던지면 그 판정을 적은
+    // 감사 행까지 함께 롤백되어, 복원 충돌만 사후 관측이 불가능해진다(적용·
+    // 자동저장은 ADR-30 D8에 따라 이미 값 반환이다 — 비대칭을 없앤다).
+    const outcome = await this.db.withTenant(auth.tenantId, async (c) => {
+      const { document, head } = await this.loadEditContext(c, auth, documentId);
       if (head.revisionNo !== expectedRevisionNo) {
-        throw documentErrors.restoreConflict(conflictStateOf(head));
+        await this.insertDocumentAudit(c, auth, meta, 'REVISION_RESTORE_CONFLICTED', documentId, {
+          requestedRevisionId: revisionId,
+          expectedRevisionNo,
+          headRevisionId: head.revisionId,
+          headRevisionNo: head.revisionNo,
+        });
+        return { kind: 'CONFLICT' as const, state: conflictStateOf(head) };
+      }
+      if (document.status !== 'EDITING') {
+        return {
+          kind: 'REJECTED' as const,
+          violations: [
+            {
+              field: 'document.status',
+              reason: `상태가 ${document.status}인 문서는 복원할 수 없습니다(EDITING만 가능).`,
+            },
+          ],
+        };
       }
       const source = (await this.repo.findRevision(c, documentId, revisionId, {
         withIr: true,
@@ -259,7 +279,7 @@ export class DocumentService {
         checkpointLabel: body.checkpointLabel?.trim() || null,
         createdBy: auth.userId,
       });
-      await this.repo.setChangeSetResult(c, changeSet.changeSetId, revision.revisionId);
+      await this.repo.setChangeSetResult(c, changeSet.changeSetId, revision.revisionId, documentId);
       await this.repo.setCurrentRevision(c, auth.tenantId, documentId, revision.revisionId);
 
       await this.insertDocumentAudit(c, auth, meta, 'REVISION_RESTORED', documentId, {
@@ -277,12 +297,18 @@ export class DocumentService {
         irHash,
       });
       return {
-        revision: toRevisionResource(revision, revision.revisionNo),
-        changeSetId: changeSet.changeSetId,
-        restoredFromRevisionId: source.revisionId,
-        restoredFromRevisionNo: source.revisionNo,
+        kind: 'OK' as const,
+        value: {
+          revision: toRevisionResource(revision, revision.revisionNo),
+          changeSetId: changeSet.changeSetId,
+          restoredFromRevisionId: source.revisionId,
+          restoredFromRevisionNo: source.revisionNo,
+        },
       };
     });
+    if (outcome.kind === 'CONFLICT') throw documentErrors.restoreConflict(outcome.state);
+    if (outcome.kind === 'REJECTED') throw documentErrors.unprocessable(outcome.violations);
+    return outcome.value;
   }
 
   /** 편집 트랜잭션 진입: 문서 잠금 → head 확보. 두 단계가 갈라지면 동시성

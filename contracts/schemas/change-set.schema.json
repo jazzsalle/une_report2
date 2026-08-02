@@ -5,7 +5,19 @@
   "description": "Atomic edit request for UNE-DOC-006 (POST /documents/{documentId}/changesets) and the delta of UNE-DOC-009 (autosaves). A ChangeSet is the ONLY way a document changes (design 07 §1.9): either every operation applies and a new revision exists, or nothing happened. Corrections are new ChangeSets — an applied one is never rewritten (CLAUDE.md: never overwrite audit history). The vocabularies here are the same values as packages/domain/src/document/{change-set,selection}.ts; that file is the runtime source of truth and this schema is its wire contract.\n\nComposition note (ADR-24 D4): this document never combines `allOf` with `additionalProperties:false`. Under JSON Schema 2020-12 a branch carrying `additionalProperties:false` cannot see properties declared in a sibling branch, so such a combination rejects every instance. Shared shapes are therefore inlined, and `allOf` is used only for if/then constraints that add `required` without adding properties.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["baseRevisionId", "origin", "operations", "clientMutationId"],
+  "required": ["baseRevisionId", "origin", "clientMutationId"],
+  "allOf": [
+    {
+      "title": "Undo/Redo carries no operations",
+      "description": "Normal edits require `operations`. Undo/Redo instead name the ChangeSet to reverse and carry none: the stored inverse set is server-side data (ADR-30 D6 as amended). Accepting it back on the request surface would mean trusting arbitrary IR fragments — a client could plant SOURCE-origin nodes, forged rawXmlAnchors or locked blocks, and the discriminated union cannot stop that because it is a compile-time guarantee.",
+      "if": { "required": ["undoesChangeSetId"] },
+      "then": {
+        "properties": { "origin": { "enum": ["UNDO", "REDO"] } },
+        "not": { "required": ["operations"] }
+      },
+      "else": { "required": ["operations"] }
+    }
+  ],
   "properties": {
     "baseRevisionId": {
       "$ref": "#/$defs/uuid",
@@ -31,7 +43,7 @@
     },
     "undoesChangeSetId": {
       "$ref": "#/$defs/uuid",
-      "description": "Undo lineage (change_set.undoes_change_set_id). Undo is a NEW ChangeSet, so the edge is what makes Redo targeting and UNDO_CONFLICT detection queryable instead of memory-resident."
+      "description": "ChangeSet to reverse (change_set.undoes_change_set_id). Undo is a NEW ChangeSet, so the edge is what makes Redo targeting and UNDO_CONFLICT detection queryable instead of memory-resident. Present ⇒ origin is UNDO/REDO and `operations` must be absent: the server applies the stored inverse set. If any later applied ChangeSet touched the same nodes, the undo is refused with 422 DOC-422-004 and the affected node ids (US-PLAN-017 E-03)."
     },
     "checkpointLabel": {
       "type": "string",

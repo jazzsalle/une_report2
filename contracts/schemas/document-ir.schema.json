@@ -17,8 +17,8 @@
   ],
   "properties": {
     "irVersion": {
-      "enum": ["1", "2"],
-      "description": "IR shape version. v2 adds node provenance (CC-150, ADR-30 D3); v1 rows are lifted on read. Bumped when the shape changes so rows written by earlier code stay interpretable."
+      "const": "2",
+      "description": "IR shape version. This schema describes the WIRE shape, and every wire representation is v2: the API lifts v1 rows on read (`liftV1`) and the builder emits v2 directly (CC-150, ADR-30 D3). Allowing \"1\" here would have been vacuous in the other direction — a genuine v1 instance has no `origin`, which the provenance constraints below require, so it could never validate anyway. Persisted v1 `ir_json` rows remain readable; they are simply not a wire shape."
     },
     "documentId": { "type": "string", "minLength": 1 },
     "revision": {

@@ -159,6 +159,82 @@ describe('INSERT_BLOCKS', () => {
     expect(first.ok && second.ok && first.irHash === second.irHash).toBe(true);
   });
 
+  it('0건 삽입은 조용한 성공이 아니라 위반이다', () => {
+    // 주입이 없는 GENERATED_BLOCKS는 이미 위반이므로, 여기서는 "주입은 됐는데
+    // 결과가 0건"인 경우를 본다. 성공으로 넘기면 화면은 실체화했다고 표시하고
+    // 문서에는 아무것도 들어가지 않는다.
+    const result = apply(
+      fx.ir,
+      [
+        {
+          type: 'INSERT_BLOCKS',
+          order: 0,
+          anchor: { relation: 'AFTER', ref: OUTLINE1_ID },
+          source: {
+            kind: 'GENERATED_BLOCKS',
+            planId: '11111111-1111-4111-8111-111111111111',
+            tocVersionId: '22222222-2222-4222-8222-222222222222',
+          },
+        },
+      ],
+      { generatedBlocks: () => [] },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.violations[0].detail).toContain('삽입할 블록이 없습니다');
+  });
+
+  it('형태가 틀린 restore 항목은 IR에 들어가지 못한다', () => {
+    // `'restore' in value`만 보고 그대로 넣으면 요청에서 온 임의의 객체가
+    // ir_json에 영속된다(판별 유니온은 컴파일 시점 보장이라 막지 못한다).
+    for (const forged of [null, {}, { kind: 'PARAGRAPH' }, { kind: '무엇' }]) {
+      const result = apply(fx.ir, [
+        {
+          type: 'INSERT_BLOCKS',
+          order: 0,
+          anchor: { relation: 'AFTER', ref: OUTLINE1_ID },
+          source: { kind: 'INLINE', blocks: [{ restore: forged } as never] },
+        },
+      ]);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.violations.some((item) => item.detail.includes('restore'))).toBe(true);
+      }
+    }
+  });
+
+  it('구조는 맞지만 앵커가 위조된 SOURCE 노드는 편집 후 불변식(I2)이 잡는다', () => {
+    // 형태 검사(kind + 안정 ID)를 통과하는 값이라도 커밋 전 관문이 하나 더
+    // 있다. `rebuildIndexesAndReferences`는 I2를 보지 않으므로, 검사기를
+    // 배선하지 않으면 위조 앵커를 가진 노드가 ir_json에 그대로 영속된다.
+    const result = apply(fx.ir, [
+      {
+        type: 'INSERT_BLOCKS',
+        order: 0,
+        anchor: { relation: 'AFTER', ref: OUTLINE1_ID },
+        source: {
+          kind: 'INLINE',
+          blocks: [
+            {
+              restore: {
+                kind: 'PARAGRAPH',
+                origin: 'SOURCE',
+                paragraphId: 'P-위조',
+                rawXmlAnchor: '해시없는앵커',
+                runs: [],
+                styleRef: { paraPrId: null, charPrId: null, numberingId: null, styleId: null },
+                editState: { editedByUser: false, locked: false },
+              },
+            } as never,
+          ],
+        },
+      },
+    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.violations.some((item) => item.detail.includes('I2'))).toBe(true);
+    }
+  });
+
   it('잠금: 기준 블록이 잠겨 있으면 LOCKED_BLOCK', () => {
     const locked = lockParagraph(fx.ir, OUTLINE1_ID);
     const result = apply(locked, [

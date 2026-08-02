@@ -5,10 +5,16 @@ import type { ChangeOperation, DocumentIR, TemplateProfile } from '@une/domain';
 /**
  * 문서 편집 표면의 유일한 SQL 경계 (CC-150).
  *
- * 0018이 문서 계열 여덟 테이블에 RLS를 걸었으므로 격리는 정책이 보장한다.
- * 그럼에도 모든 질의가 부모 `document`를 명시적으로 경유하거나 `tenant_id`
- * 술어를 함께 남긴다 — ADR-21이 정한 보상통제이며, 정책이 완화되더라도
- * repository 경로가 새지 않게 한다(.claude/rules/security.md).
+ * 0018이 문서 계열 여덟 테이블에 RLS를 걸었으므로 **격리는 정책이 보장한다.**
+ * 이 파일이 더하는 보상통제는 그 위의 한 겹이다(ADR-21):
+ *
+ *   - `document` 자체를 읽는 질의는 `tenant_id` 술어를 직접 건다.
+ *   - 하위 테이블 질의는 전부 `document_id`(또는 `change_set_id` + 그 문서를
+ *     확인하는 EXISTS)를 술어로 갖는다. 즉 **문서를 특정하지 않은 하위 질의는
+ *     없다** — 부모는 이미 테넌트 범위에서 잠긴 뒤다.
+ *
+ * 편집 표면의 SQL은 여기 말고 어디에도 두지 않는다. 서비스가 직접 질의를 쓰면
+ * 이 규칙이 한 곳에서만 깨지고, 그 한 곳이 정책 변경 때 유일한 구멍이 된다.
  */
 
 export interface DocumentRow {
@@ -371,11 +377,78 @@ export class DocumentRepository {
     client: PoolClient,
     changeSetId: string,
     resultRevisionId: string,
+    documentId: string,
   ): Promise<void> {
-    await client.query(`UPDATE change_set SET result_revision_id = $2 WHERE change_set_id = $1`, [
-      changeSetId,
-      resultRevisionId,
-    ]);
+    await client.query(
+      `UPDATE change_set SET result_revision_id = $2
+       WHERE change_set_id = $1 AND document_id = $3`,
+      [changeSetId, resultRevisionId, documentId],
+    );
+  }
+
+  async findChangeSet(
+    client: PoolClient,
+    documentId: string,
+    changeSetId: string,
+  ): Promise<ChangeSetRow | null> {
+    const res = await client.query(
+      `SELECT change_set_id, document_id, base_revision_id, result_revision_id,
+              client_mutation_id, selection_json, status, origin,
+              undoes_change_set_id, created_by, created_at
+       FROM change_set WHERE document_id = $1 AND change_set_id = $2`,
+      [documentId, changeSetId],
+    );
+    const row = res.rows[0] as Record<string, unknown> | undefined;
+    return row ? toChangeSet(row) : null;
+  }
+
+  /**
+   * 적용된 ChangeSet의 `selection_json`을 시간순으로. alias 이력(§1.8-2)과
+   * UNDO_CONFLICT 판정(ADR-30 D7)이 같은 계보를 읽으므로 한 메서드로 둔다.
+   *
+   * `afterChangeSetId`를 주면 그 ChangeSet **이후**만 돌려준다. 동시각 삽입이
+   * 있을 수 있어 `(created_at, change_set_id)` 사전식 비교로 자르되, 기준값은
+   * **SQL 안에서** 읽는다: `timestamptz`는 마이크로초인데 JS `Date`는
+   * 밀리초여서, 애플리케이션을 왕복시키면 값이 잘려 **자기 자신이 "이후"로
+   * 잡힌다**(Undo가 항상 UNDO_CONFLICT가 된다).
+   */
+  async listAppliedChangeSets(
+    client: PoolClient,
+    documentId: string,
+    afterChangeSetId?: string,
+  ): Promise<
+    {
+      changeSetId: string;
+      undoesChangeSetId: string | null;
+      selectionJson: Record<string, unknown>;
+    }[]
+  > {
+    const params: unknown[] = [documentId];
+    let predicate = '';
+    if (afterChangeSetId) {
+      params.push(afterChangeSetId);
+      predicate = ` AND (created_at, change_set_id) >
+             (SELECT created_at, change_set_id FROM change_set
+               WHERE change_set_id = $2 AND document_id = $1)`;
+    }
+    const res = await client.query(
+      `SELECT change_set_id, undoes_change_set_id, selection_json
+       FROM change_set
+       WHERE document_id = $1 AND status = 'APPLIED'${predicate}
+       ORDER BY created_at, change_set_id`,
+      params,
+    );
+    return (
+      res.rows as {
+        change_set_id: string;
+        undoes_change_set_id: string | null;
+        selection_json: Record<string, unknown>;
+      }[]
+    ).map((row) => ({
+      changeSetId: row.change_set_id,
+      undoesChangeSetId: row.undoes_change_set_id,
+      selectionJson: row.selection_json,
+    }));
   }
 
   async findChangeSetByMutationId(
@@ -429,11 +502,18 @@ export class DocumentRepository {
   }
 
   /** Undo가 데이터 조회로 끝나도록 저장한 역연산을 되읽는다(ADR-30 D6). */
-  async findInverseOperations(client: PoolClient, changeSetId: string): Promise<ChangeOperation[]> {
+  async findInverseOperations(
+    client: PoolClient,
+    changeSetId: string,
+    documentId: string,
+  ): Promise<ChangeOperation[]> {
     const res = await client.query(
-      `SELECT after_json FROM change_operation
-       WHERE change_set_id = $1 ORDER BY operation_order`,
-      [changeSetId],
+      `SELECT o.after_json FROM change_operation o
+        WHERE o.change_set_id = $1
+          AND EXISTS (SELECT 1 FROM change_set s
+                       WHERE s.change_set_id = o.change_set_id AND s.document_id = $2)
+        ORDER BY o.operation_order`,
+      [changeSetId, documentId],
     );
     return (res.rows as { after_json: { inverse?: ChangeOperation[] } | null }[])
       .flatMap((row) => row.after_json?.inverse ?? [])

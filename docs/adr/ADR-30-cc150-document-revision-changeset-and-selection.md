@@ -241,13 +241,86 @@ SPLIT은 alias를 남기지 않는다(왼쪽이 원래 ID를 유지하므로 기
   집합이 아니라 예시 한 개다 → 설계 07 §1.9의 **8종**. 0018 테스트 픽스처 4곳이
   `insertText`를 쓰고 있어 함께 정정했다.
 
+## D16. 이중 리뷰 반영 개정 (2026-08-02, 같은 날 적용)
+
+architecture-guardian·qa-gate-reviewer가 **독립적으로 같은 결함 세 건**을 지목했다.
+전건을 코드로 반영했고, 그 과정에서 D6/D8/D14가 서술한 결정이 구현과 어긋난다는
+사실이 드러나 아래와 같이 개정한다.
+
+### D16-1. Undo는 "역연산 재제출"이 아니라 **ChangeSet 지목**이다 (D6 개정)
+
+원안: 서버가 `inverseOperations`를 돌려주고 클라이언트가 그대로 다시 제출한다.
+**실행 불가였다** — 역연산의 `SelectionEnvelope.baseRevisionId`는 아직 존재하지
+않는 개정을 뜻하는 센티널 문자열이라 UUID를 요구하는 검증기·계약(`format: uuid`)
+에 걸려 400이 된다. 즉 **응답이 자기 응답 스키마를 위반**하고 있었다.
+
+더 중요한 것은 그 형태를 요청에서 받아 주면 안 된다는 사실이다. 역연산은 삭제된
+블록의 IR을 통째로 나르므로, 요청 표면에 열어 두면 클라이언트가 `origin:'SOURCE'`
+노드·위조 `rawXmlAnchor`·`locked:true`·`PRESERVED`를 문서에 **직접 심을 수 있다.**
+판별 유니온(D3)은 컴파일 시점 보장이라 이 캐스트 경로를 막지 못한다.
+
+**개정**: `POST /documents/{id}/changesets`에 `undoesChangeSetId`를 실으면
+`operations`를 싣지 않는다(실으면 400). 서버가 `change_operation.after_json.inverse`
+에서 역연산을 읽어 적용한다. D6의 의도("Undo에 특수 실행 규칙을 만들지 않는다")는
+그대로다 — 역연산은 여전히 평범한 ChangeSet이며, **누가 그것을 조립하는가**만
+클라이언트에서 서버로 옮겼다. 요청 검증기는 `restore`/`restoreRuns`/
+`rightParagraph`/`leftRunCount`를 어느 위치에서든 거부하고, INLINE 블록은
+`text`/`styleRole`/`outlineLevel`만 받는다(계약 스키마와 같은 제약).
+
+### D16-2. UNDO_CONFLICT를 실제로 구현한다 (D7 이행)
+
+`undoesChangeSetId`는 저장만 되고 계보 질의가 없어 US-PLAN-017 E-03이 미구현
+이었다(`UNDO_CONFLICT` 사유코드는 낙관 잠금 실패에 쓰이고 있었다). 적용 시점
+Diff의 노드 ID를 `change_set.selection_json.touchedNodeIds`에 적고, Undo 요청 때
+**대상 이후 적용된 ChangeSet들과 교집합**을 본다. 겹치면 422 + 영향 노드 ID.
+
+계보 비교 기준은 **SQL 안에서** 읽는다: `timestamptz`는 마이크로초인데 JS `Date`는
+밀리초라, 애플리케이션을 왕복시키면 값이 잘려 대상이 자기 자신보다 "이후"로
+잡힌다(모든 Undo가 UNDO_CONFLICT가 된다 — 실측으로 발견).
+
+### D16-3. alias는 **살아 있는 노드에 대해 밟지 않는다** (D14 보정)
+
+복원(UNE-DOC-008)은 alias 이력을 무효화하지 않았다. 그래서 MERGE → 복원 뒤
+되살아난 오른쪽 문단을 선택하면 `resolveAlias`가 왼쪽으로 재사상하고 offset까지
+밀어, **오류 없이 다른 문단이 편집**됐다.
+
+`change_set_id`별 유효/무효 판정을 append-only 목록 위에 얹는 대신, 규칙 자체를
+바꿨다: **노드가 현재 IR에 존재하면 alias를 밟지 않는다.** alias는 "이 노드는
+없다"는 진술이므로 노드가 있으면 적용 대상이 아니다. 이력 길이와 무관하게 현재
+문서 상태만으로 결론이 나고, merge→undo→merge 반복에도 성립한다. D14가 CC-170으로
+미룬 저장 구조 문제는 이로써 **판정 문제로서는 닫혔다**(감사 열람용 이력 표현은
+여전히 열린 항목).
+
+### D16-4. 나머지 반영
+
+| 지적 | 반영 |
+|---|---|
+| materialize 3중 방어가 두 번째 GENERATED_BLOCKS 소스부터 우회됨 | 한 ChangeSet에 소스 **1개로 제한**(fail-closed) + provider를 인자 의존으로 |
+| `checkEditInvariants`가 어느 쓰기 경로에도 배선되지 않음 | `applyChangeSet`이 커밋 전 호출. I2/I8/I9는 `rebuildIndexesAndReferences`에 없다 |
+| `ir_hash` 중복 제거(D8) 미구현 | 자동저장에서 `outcome.irHash === head.irHash`면 새 리비전 없이 head를 receipt로. 저널 행은 남긴다 |
+| REJECTED ChangeSet 재전송이 200 | 원 거절 사유로 **다시 422**. 200+applied:false는 오프라인 큐가 성공으로 처리해 편집이 조용히 사라진다 |
+| `document.status` 미검사 | `EDITING`이 아니면 적용·자동저장·복원 모두 422 |
+| 서비스가 repository를 우회한 직접 SQL(alias 이력) | `listAppliedChangeSets`로 이동 |
+| 자동저장 CONFLICT 행이 head를 base로 적음 | 요청이 기준으로 삼은 Revision을 적는다(0019 §1 COMMENT·US-PLAN-020 AC-03) |
+| 자동저장 자기모순이 409 | 적용과 같은 규칙으로 **422** |
+| 0건 삽입이 조용한 성공 | 엔진이 위반으로 끝낸다(API의 fail-closed 판정에만 의존하지 않는다) |
+| prototype 원본 문단 소실이 무경고 | `warnings[]`에 싣는다 |
+| 엔진이 `Prototype`을 재정의하고 API가 이중 캐스트 | 도메인 `TemplateProfilePrototype`의 읽기 전용 별칭으로 통일 |
+| 복원 충돌이 트랜잭션 안에서 throw → 감사 롤백 | 판정을 값으로 반환하고 `REVISION_RESTORE_CONFLICTED`를 남긴다 |
+| `document-ir.schema.json`의 `irVersion: ["1","2"]` | 와이어 표현은 항상 v2 → `const: "2"`. v1 인스턴스는 `origin` 부재로 어차피 무효였다 |
+| `Idempotency-Key` 헤더가 무효과 | UNE-DOC-006/008/009에서 선언 제거(앵커는 `clientMutationId`) |
+| `stable-id.ts`의 리터럴 NUL로 git이 바이너리 취급 | `\u0000` 이스케이프로 교체(같은 문자이므로 해시 값 불변) — D2의 핵심 변경이 diff로 리뷰 가능해진다 |
+| 수용 한계의 `before_json` 서술 부정확 | 아래 수용 한계에서 정정 |
+
 ## 수용 한계
 
 - 편집 **UI 없음**, rhwp 렌더/편집 검증 전무(OB-12) — 서버 계약만 존재한다.
 - 성능 임계 게이트 미도입(§1.12 편집 P95 300ms는 측정만, G15-5는 CC-160 선례).
-- `change_operation.before_json`이 항상 `null`이다 — 엔진이 per-op before-image를
-  공개 표면으로 내지 않는다. Undo는 저장된 역연산으로 충분하지만 감사 열람 UI가
-  before를 요구하면 엔진 표면 확장이 필요하다.
+- `change_operation.before_json`이 항상 `null`이다 — 엔진이 **per-op** before-image
+  를 공개 표면으로 내지 않기 때문이다. 다만 before 정보 자체가 없는 것은 아니다:
+  ChangeSet 단위 역연산이 최저 order 행의 `after_json.inverse`에 실려 있고 그
+  안에 원본 run·삭제 블록이 들어 있다. 감사 열람 UI가 **연산별** before를
+  요구하면 필요한 것은 데이터 수집이 아니라 **위치 재배치와 엔진 표면 확장**이다.
 - `template_profile.analysis_status`의 어휘가 여전히 미확정(도메인 판정 4종 vs
   설계 09 상태표 9종). CC-150은 판정값을 변환 없이 넣고 CHECK를 걸지 않았다 —
   **CC-160에서 종결**.
@@ -262,6 +335,19 @@ SPLIT은 alias를 남기지 않는다(왼쪽이 원래 ID를 유지하므로 기
   구현으로 "ACCEPTED만 result를 채운다"가 확정됐으므로 CC-160에서 CHECK 가능.
 - 문자 범위 편집이 **여러 문단에 걸치면 거부**한다(복합 의미를 한 연산에 숨기지
   않기 위해). §1.9가 SPLIT/MERGE·블록 연산 어휘를 이미 제공한다.
+- 자동저장 `seq`는 전적으로 클라이언트 값이고 단조성을 요구하지 않는다. 같은
+  seq를 재사용하는 클라이언트는 이후 저장이 전부 `SUPERSEDED`로 200과 함께
+  폐기된다. 서버가 단조성을 강제하면 오프라인 큐의 정상 동작(도착 순서 역전)을
+  거짓 오류로 만들므로, 지금은 **클라이언트 계약으로 둔다** — 실 편집기가 붙는
+  시점(CC-170)에 재평가한다.
+- mock 서버는 자동저장 저널의 `SUPERSEDED`/`CONFLICT`와 ChangeSet `REJECTED`
+  상태를 재현하지 않는다(요청 형태·자기모순 422·Undo 형태까지만 일치시켰다).
+  mock 응답을 계약으로 검증하는 시험은 없다 — mock은 화면 개발용이며 판정 정본이
+  아니다.
+- `pnpm test`는 워크스페이스 시험만 돌린다. `lint`/`typecheck`/`validate:*`/
+  계약 타입 드리프트는 별도 명령이며 CI가 함께 건다. **`DATABASE_URL`이 없으면
+  db-integration·문서 e2e가 조용히 skip되고 exit 0이 된다** — 게이트 수치를
+  인용할 때 분모(`Test Files N passed (N)`)를 함께 확인해야 하는 이유다.
 
 ## 재검토 Trigger
 

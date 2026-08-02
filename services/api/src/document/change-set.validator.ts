@@ -112,6 +112,64 @@ export function validateSelectionEnvelope(
   }
 }
 
+/**
+ * 서버가 만든 역연산에만 존재하는 필드. 요청 표면에서는 **금지**다.
+ *
+ * 이 값들은 IR 조각(원본 블록·run 목록·셀 상태)을 통째로 실어 나른다. 요청에서
+ * 받아 주면 클라이언트가 `origin:'SOURCE'`·위조 `rawXmlAnchor`·`locked:true`
+ * 노드를 문서에 직접 심을 수 있고, 판별 유니온(ADR-30 D3)은 컴파일 시점 보장이라
+ * 그 캐스트 경로를 막지 못한다. Undo는 `undoesChangeSetId`로 **서버가 가진 역연산
+ * 을 지목**하는 방식이므로 클라이언트가 이 형태를 보낼 이유도 없다.
+ */
+const SERVER_ONLY_KEYS = ['restore', 'restoreRuns', 'rightParagraph', 'leftRunCount'] as const;
+
+function rejectServerOnlyKeys(
+  value: Record<string, unknown>,
+  path: string,
+  violations: ErrorViolation[],
+): void {
+  for (const key of SERVER_ONLY_KEYS) {
+    if (key in value) {
+      violations.push({
+        field: `${path}.${key}`,
+        reason: '서버가 생성하는 역연산 전용 필드는 요청에 실을 수 없습니다.',
+      });
+    }
+  }
+}
+
+/** INLINE 블록 1건. `change-set.schema.json`의 `required:["text"] +
+ * additionalProperties:false`와 **같은 제약**을 런타임에 건다. */
+function validateInlineBlock(value: unknown, path: string, violations: ErrorViolation[]): void {
+  if (!isRecord(value)) {
+    violations.push({ field: path, reason: '객체가 필요합니다.' });
+    return;
+  }
+  rejectServerOnlyKeys(value, path, violations);
+  if (typeof value.text !== 'string') {
+    violations.push({ field: `${path}.text`, reason: '문자열이어야 합니다.' });
+  }
+  if (value.styleRole !== undefined && typeof value.styleRole !== 'string') {
+    violations.push({ field: `${path}.styleRole`, reason: '문자열이어야 합니다.' });
+  }
+  if (
+    value.outlineLevel !== undefined &&
+    (typeof value.outlineLevel !== 'number' ||
+      !Number.isInteger(value.outlineLevel) ||
+      value.outlineLevel < 0)
+  ) {
+    violations.push({ field: `${path}.outlineLevel`, reason: '0 이상의 정수여야 합니다.' });
+  }
+  for (const key of Object.keys(value)) {
+    if (
+      !['text', 'styleRole', 'outlineLevel'].includes(key) &&
+      !(SERVER_ONLY_KEYS as readonly string[]).includes(key)
+    ) {
+      violations.push({ field: `${path}.${key}`, reason: '허용되지 않는 속성입니다.' });
+    }
+  }
+}
+
 function validateSource(value: unknown, path: string, violations: ErrorViolation[]): void {
   if (!isRecord(value)) {
     violations.push({ field: path, reason: '객체가 필요합니다.' });
@@ -121,7 +179,11 @@ function validateSource(value: unknown, path: string, violations: ErrorViolation
     case 'INLINE':
       if (!Array.isArray(value.blocks) || value.blocks.length === 0) {
         violations.push({ field: `${path}.blocks`, reason: '1개 이상의 배열이어야 합니다.' });
+        break;
       }
+      value.blocks.forEach((block, index) => {
+        validateInlineBlock(block, `${path}.blocks[${index}]`, violations);
+      });
       break;
     case 'PROTOTYPE':
       if (typeof value.prototypeId !== 'string' || value.prototypeId.length === 0) {
@@ -205,8 +267,22 @@ export function validateOperations(
       }
     }
     if (raw.source !== undefined) validateSource(raw.source, `${path}.source`, violations);
-    if (raw.payload !== undefined && !isRecord(raw.payload)) {
-      violations.push({ field: `${path}.payload`, reason: '객체가 필요합니다.' });
+    if (raw.payload !== undefined) {
+      if (!isRecord(raw.payload)) {
+        violations.push({ field: `${path}.payload`, reason: '객체가 필요합니다.' });
+      } else {
+        rejectServerOnlyKeys(raw.payload, `${path}.payload`, violations);
+        // TABLE_PATCH의 셀 연산도 같은 규칙을 받는다: `kind:'RESTORE'`는 역연산
+        // 전용 형태이고 셀 블록 전문을 싣는다.
+        const cellOps = raw.payload.cellOps;
+        if (Array.isArray(cellOps)) {
+          cellOps.forEach((cellOp, cellIndex) => {
+            if (isRecord(cellOp)) {
+              rejectServerOnlyKeys(cellOp, `${path}.payload.cellOps[${cellIndex}]`, violations);
+            }
+          });
+        }
+      }
     }
   });
   return violations.length === 0 ? (value as ChangeOperation[]) : [];
