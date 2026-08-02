@@ -1,17 +1,17 @@
 # Session Handoff
 
-- Date/time: 2026-08-02 (집 PC — CC-150 **완료**, PR #12 열림·머지 대기)
-- Branch: **feature/CC-150** (main e2a6954 기반) — `be80737`까지 push 완료
-- Current Work Item: **CC-150 DONE**. 증거문서·이중리뷰·지적 전건 반영·상태문서
-  갱신까지 끝냈다. 다음은 **PR #12 머지 → CC-160**.
+- Date/time: 2026-08-02 (집 PC — CC-150 **완료**, PR #12 **머지됨**)
+- Branch: **main** @ `4e25b8c` (= PR #12 머지 커밋). feature/CC-150은 머지 후 남아 있다
+- Current Work Item: **CC-150 DONE**(머지 완료). 증거문서·이중리뷰·지적 전건
+  반영·상태문서 갱신까지 끝냈다. 다음은 **CC-160**.
 
 ## ⚠️ 회사 PC에서 먼저 할 것
 
-이 브랜치는 **의존성과 마이그레이션이 둘 다 늘었다.** 순서대로 하지 않으면
+CC-150이 **의존성과 마이그레이션을 둘 다 늘렸다.** 순서대로 하지 않으면
 테스트가 엉뚱한 이유로 실패한다.
 
 ```bash
-git fetch origin && git checkout feature/CC-150 && git pull
+git fetch origin && git checkout main && git pull
 pnpm install      # ① 락파일 변경(tests/contract·services/api에 @une/hwpx-engine 추가)
 pnpm db:migrate   # ② 0018·0019 신규 — 회사 PC DB에 아직 없다
 pnpm -r build     # ③ domain/hwpx-engine dist 필요(다른 워크스페이스가 import)
@@ -32,10 +32,8 @@ pnpm -r build     # ③ domain/hwpx-engine dist 필요(다른 워크스페이스
 
 ## 바로 이어서 할 일
 
-1. **PR #12 확인 → 머지.** https://github.com/jazzsalle/une_report2/pull/12
-   push 시점에 `verify`·`db-verify` 두 체크가 pending이었다 — **결과를 보고
-   머지할 것.** 집 PC에서는 로컬 전 게이트가 exit 0이었다(아래 수치).
-2. 머지 후 **CC-160**(HWPX 보존 export + Track A). 선행 사실:
+1. **CC-160**(HWPX 보존 export + Track A)로 바로 착수. PR #12는 CI
+   `verify`/`db-verify` 통과 후 머지됐다(각 1m37s / 1m11s). 선행 사실:
    - `serialize()`는 CC-160 소유로 아직 거부 상태다(ADR-29 D11).
    - CC-150이 `anchorHint`를 데이터로 남겨 두었으므로 XML Delta Writer가 IR
      순서에서 역추론할 필요가 없다(ADR-30 D3).
