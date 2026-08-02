@@ -1,11 +1,11 @@
 # Session Handoff
 
-- Date/time: 2026-08-02 (집 PC, CC-150 세션 — **미완, 내일 회사 PC에서 계속**)
-- Branch: **feature/CC-150** @ main e2a6954 기반 (CC-140은 PR #11 머지 완료)
-- Current Work Item: **CC-150 진행 중(WIP)** — 구현·마이그레이션·계약은 완료,
-  **증거문서·이중리뷰·상태문서 갱신이 남음**. 완료 선언하지 않았다.
+- Date/time: 2026-08-02 (집 PC — CC-150 **완료**, PR #12 열림·머지 대기)
+- Branch: **feature/CC-150** (main e2a6954 기반) — `be80737`까지 push 완료
+- Current Work Item: **CC-150 DONE**. 증거문서·이중리뷰·지적 전건 반영·상태문서
+  갱신까지 끝냈다. 다음은 **PR #12 머지 → CC-160**.
 
-## ⚠️ 회사 PC로 옮길 때 먼저 할 것
+## ⚠️ 회사 PC에서 먼저 할 것
 
 이 브랜치는 **의존성과 마이그레이션이 둘 다 늘었다.** 순서대로 하지 않으면
 테스트가 엉뚱한 이유로 실패한다.
@@ -21,17 +21,32 @@ pnpm -r build     # ③ domain/hwpx-engine dist 필요(다른 워크스페이스
   **회사 PC·저장소 기본값은 5432**. `infrastructure/.env`는 gitignored라 회사 PC
   값이 그대로 있을 것 — 건드리지 말 것.
 - 통합 테스트는 `DATABASE_URL`(superuser)이 필요하다. 없으면 db-integration
-  107건과 worker e2e가 **조용히 skip**되고 exit 0이 된다.
+  107건과 문서 e2e·worker e2e가 **조용히 skip**되고 exit 0이 된다.
+  집 PC에서는 `infrastructure/.env`를 읽어 다음과 같이 만들어 썼다:
+  `postgres://$UNE_DB_USER:$UNE_DB_PASSWORD@127.0.0.1:$UNE_DB_PORT/$UNE_DB_NAME`
 - `pnpm test`는 첫 실패에서 중단된다 — 한 워크스페이스가 깨지면 뒤는 아예 실행되지
-  않는다. 수치 인용 전 **분모(`Test Files N passed (N)`)** 까지 확인할 것
-  (CC-140에서 이 함정에 빠졌다).
-- gh CLI는 집 PC에만 설치·인증돼 있다. 회사 PC는 `gh auth status`로 확인하고
-  없으면 `winget install --id GitHub.cli` → `gh auth login --web`.
+  않는다. 수치 인용 전 **분모(`Test Files N passed (N)`)** 까지 확인할 것.
+- gh CLI는 집 PC에 설치·인증돼 있고 **PATH에 없다**: `export PATH="$PATH:/c/Program Files/GitHub CLI"`.
+  회사 PC는 `gh auth status`로 확인하고 없으면
+  `winget install --id GitHub.cli` → `gh auth login --web`.
 
-## Completed this session (CC-150, WIP)
+## 바로 이어서 할 일
+
+1. **PR #12 확인 → 머지.** https://github.com/jazzsalle/une_report2/pull/12
+   push 시점에 `verify`·`db-verify` 두 체크가 pending이었다 — **결과를 보고
+   머지할 것.** 집 PC에서는 로컬 전 게이트가 exit 0이었다(아래 수치).
+2. 머지 후 **CC-160**(HWPX 보존 export + Track A). 선행 사실:
+   - `serialize()`는 CC-160 소유로 아직 거부 상태다(ADR-29 D11).
+   - CC-150이 `anchorHint`를 데이터로 남겨 두었으므로 XML Delta Writer가 IR
+     순서에서 역추론할 필요가 없다(ADR-30 D3).
+   - `template_profile.analysis_status` 어휘 확정과
+     `document_autosave.status × result_revision_id` CHECK가 CC-160 몫이다.
+
+## Completed this session (CC-150 DONE)
 
 **서버측 편집 코어.** 편집 UI(rhwp 결선)와 HWPX 저장/Export는 범위 밖(각각
-미반입·CC-160). 결정 정본: **ADR-30**(D1~D15 + 수용 한계).
+미반입·CC-160). 결정 정본: **ADR-30**(D1~D16 + 수용 한계).
+증거: `docs/evidence/CC-150-document-edit-verification.md`.
 
 - **DB**: `0018_document_child_table_rls.sql`(문서 하위 8테이블 RLS — ADR-29 D9가
   등재한 차단성 선행조건 해소), `0019_document_edit_surface.sql`(**61번째 테이블
@@ -42,51 +57,61 @@ pnpm -r build     # ③ domain/hwpx-engine dist 필요(다른 워크스페이스
   NodeAlias·거부사유 10종), `document-ir.ts` **v2**(NodeProvenance 판별 유니온).
 - **엔진**(`services/hwpx-engine/src/edit/`): SelectionResolver §1.8 전건,
   ChangeSetExecutor §1.9 파이프라인, 역연산 도출, 프로토타입 해석, authored-id,
-  ir-lift. **원자성은 롤백이 아니라 자료구조로** — 실패 결과 타입에 `ir` 필드가
-  없어 부분 변형을 저장할 수 없다.
+  ir-lift, **커밋 전 `checkEditInvariants`**. 원자성은 롤백이 아니라 자료구조로 —
+  실패 결과 타입에 `ir` 필드가 없어 부분 변형을 저장할 수 없다.
 - **API**(`services/api/src/document/`): UNE-DOC-005~009, ETag+baseRevisionId 이중
-  가드, 409에 ETag 헤더+`meta.conflict`, 멱등, 감사 6종, materialize(ADR-27 D4
-  3중 방어 이식), `DocumentImportService`(HTTP 표면 없음 — 업로드 API는 CC-160).
-- **계약**: `une-platform-api-v1.yaml` 005~009 전면 재작성 + 신규 컴포넌트 20종,
-  `change-set.schema.json` 신규, `document-ir.schema.json` v2(조건부 provenance),
-  `prototype_registry`→`style_prototype` 이름 드리프트 종결, mock 24라우트.
-- **실측으로 잡은 것 3건**: ① CC-140의 안정 ID가 앵커 파생이라 편집 후 붕괴
-  (→ ID 동결 + authored ID 별도 파생), ② §1.9 표대로 만든 역연산이 틀림(문자
-  삭제·SPLIT — 6종 전부 해시 불일치 실측 후 정정), ③ RLS 하 자식 전수 스캔
-  30배(→ 0019 인덱스로 173ms→1.2ms).
+  가드, 409에 ETag 헤더+`meta.conflict`, 멱등, 감사, materialize(ADR-27 D4 3중
+  방어 이식), `DocumentImportService`(HTTP 표면 없음 — 업로드 API는 CC-160).
+- **계약**: `une-platform-api-v1.yaml` 005~009 재작성, `change-set.schema.json`,
+  `document-ir.schema.json` v2, mock 24라우트.
 
-### 게이트 (이 브랜치 현재 상태)
-domain 62 / hwpx-engine 348 / contract-tests 186 / api 233 / db-integration 107 /
-provider-adapters 108 / worker 33 / baseline 10. contracts·intake·handoff PASS.
-build·typecheck·lint·format PASS. 설계 원문·전사본·rhwp upstream 무변경.
+### 실측으로 잡은 것 4건
 
-## 내일 회사 PC에서 할 일 (CC-150 마무리)
+1. CC-140의 안정 ID가 앵커 파생이라 편집 후 붕괴 → ID 동결 + authored ID 별도 파생.
+2. §1.9 표대로 만든 역연산이 틀림(문자 삭제·SPLIT — 6종 전부 해시 불일치 실측 후 정정).
+3. RLS 하 자식 전수 스캔 30배 → 0019 인덱스로 173ms→1.2ms.
+4. **UNDO_CONFLICT 계보 비교를 애플리케이션에서 왕복시키면 모든 Undo가 자기
+   자신과 충돌한다** — `timestamptz`(마이크로초) vs JS `Date`(밀리초) 절삭.
+   비교를 SQL 안으로 옮겨 해소(`listAppliedChangeSets`).
 
-1. **증거문서** `docs/evidence/CC-150-document-edit-verification.md` — 수용기준
-   4종(ETag/version conflict, selection anchors, undo/restore, audit) 대응표 +
-   게이트 수치 + 핵심 검증 포인트. CC-140 증거문서를 형식 참고.
-2. **이중 리뷰**: `architecture-guardian` + `qa-gate-reviewer` **병렬(둘 다 opus)**.
-   중점: ADR-30 D2(ID 동결)의 실효, D3 판별 유니온이 계약 층까지 무는지,
-   D4 이중 가드·409 페이로드, D13 트랜잭션 경계, materialize 3중 방어, 본문이
-   로그·감사에 없는지, alias 저장 형태(D14)의 한계.
-3. 지적 전건 반영 → **단일 `pnpm test`로 전 게이트 재현** → 그 수치로만 문서 기재.
-4. `work-items/{IMPLEMENTATION_STATUS.md, MASTER_WORK_ITEMS.yaml, CHANGELOG.md}`
-   갱신 + `docs/adr/README.md`에 **ADR-30 행 추가**(아직 미등재).
-5. 커밋·PR·머지 → 다음 **CC-160**(HWPX 보존 export + Track A).
+### 이중 리뷰 (병렬, opus — 전건 당일 반영)
 
-## 알려진 미결 (내일 판단할 것)
+초기 판정 **arch 2 BLOCKER / 6 MAJOR / 7 MINOR, QA FAIL**. 두 리뷰가 **독립적으로
+같은 결함 세 건**을 지목했다. 상세는 ADR-30 **D16**과 증거문서에 있고, 요약:
 
-- **ADR-30이 `docs/adr/README.md`에 미등재** — 4번에서 반드시 처리.
-- `change_operation.before_json`이 항상 `null`(엔진이 per-op before-image를 공개
-  표면으로 내지 않음). Undo는 저장된 역연산으로 충분하나 감사 열람 UI가 before를
-  요구하면 엔진 표면 확장 필요.
+1. 요청이 `{restore: …}`로 **임의 IR 조각을 문서에 심을 수 있었다**(위조 앵커·
+   `locked:true`·500). 판별 유니온은 컴파일 시점 보장이라 캐스트 경로를 못 막는다.
+2. **Undo가 실행 불가**였다 — 역연산의 센티널 `baseRevisionId`가 UUID 검증에 걸려
+   400. 200 응답이 자기 응답 스키마를 위반하고 있었다.
+3. materialize가 `sources[0]`만 검사 → 두 번째 소스부터 3중 방어 우회.
+
+**개정(ADR-30 D16)**: Undo는 `undoesChangeSetId`로 **되돌릴 ChangeSet만 지목**하고
+서버가 저장된 역연산을 적용한다(요청에 연산을 실으면 400). UNDO_CONFLICT 구현.
+alias는 **노드가 현재 IR에 살아 있으면 밟지 않는다**(복원 후 오편집 차단 —
+D14의 저장구조 문제를 판정 규칙으로 닫았다). `ir_hash` 중복 제거 구현,
+REJECTED 재전송은 다시 422, `document.status` 강제.
+
+### 게이트 (단일 `pnpm test`, exit 0 · `DATABASE_URL` 설정 — skip 0)
+
+domain 62 / hwpx-engine 353 / contract-tests 188 / api 242 / db-integration 107 /
+provider-adapters 108 / worker 33 / baseline 10.
+contracts·intake·handoff PASS. build·typecheck·lint·format PASS.
+계약 타입 재생성 diff 0. 설계 원문·전사본·rhwp upstream 무변경.
+
+## 알려진 미결 (CC-160 이후 판단)
+
+- `change_operation.before_json`이 **연산별로는** 여전히 `null`. 다만 ChangeSet
+  단위 역연산이 최저 order 행의 `after_json.inverse`에 있어 before 정보 자체는
+  있다 — 감사 UI가 연산별 before를 요구하면 필요한 것은 수집이 아니라 재배치다.
 - `template_profile.analysis_status` 어휘 미확정(도메인 판정 4종 vs 설계 09
   상태표 9종) — CC-160에서 종결.
 - `document_block`에 쓰지 않는다(IR이 단일 정본). 투영은 CC-170.
-- alias 저장 형태: merge→undo→merge 반복 시 append-only 목록으로는 부족
-  (ADR-30 D14) — 편집 이력이 길어지는 CC-170에서 재평가.
-- `document_autosave.status × result_revision_id` 상관 제약 미도입 — 이번 구현으로
-  "ACCEPTED만 result를 채운다"가 확정됐으므로 CC-160에서 CHECK 가능.
+- `document_autosave.status × result_revision_id` 상관 제약 미도입 — CC-160에서 CHECK.
+- 자동저장 `seq`는 클라이언트 값이고 단조성을 강제하지 않는다(강제하면 오프라인
+  큐의 정상 동작을 거짓 오류로 만든다). 실 편집기 결선 시점(CC-170)에 재평가.
+- mock은 자동저장 저널의 SUPERSEDED/CONFLICT와 ChangeSet REJECTED를 재현하지
+  않는다(요청 형태·자기모순 422·Undo 형태까지만 맞췄다). mock은 판정 정본이 아니다.
+- 성능 임계 게이트 미도입(§1.12 편집 P95 300ms는 측정만).
 
 ## 보류 항목 — 막히면 여기서 답을 찾고 먼저 의견을 낼 것
 
@@ -113,14 +138,15 @@ process-gpt-office-mcp = **없음 → 코드 복사 불가**(참고·재구현�
 
 - **편집 UI 없음** — 설계 07 §1.2/§6.4가 rhwp Editor를 편집 Surface로 배정했고
   `apps/web`은 셸뿐이다. CC-150 서버 계약은 §1.8-4("시각 좌표는 계약에 들어오지
-  않는다") 덕분에 편집기와 독립이라 진행 가능했다.
-- 성능 임계 게이트 미도입(§1.12 편집 P95 300ms는 측정만).
-- 기존 이월분(OB-01/07/08/10/11 OPEN) 유지.
+  않는다") 덕분에 편집기와 독립이라 진행 가능했다. **rhwp가 붙는 순간 offset
+  계약이 실검증된다** — 계약 테스트가 그 지점을 이미 고정해 두었다.
+- 기존 이월분(OB-01/07/08/10/11/12 OPEN) 유지.
 
 ## Notes
 
 - prettier를 **docs/·contracts/에 실행하지 말 것**(사고 2회) — 커밋 전
-  `git status -- docs/design-markdown` 무변경 확인.
+  `git status -- docs/design-markdown` 무변경 확인. 이번 세션은 파일 두 개만
+  지정해 실행했다(`npx prettier --write <파일>`).
 - **설계 원문(docs/design-markdown)은 수정 금지.** 보완은 ADR + work-items로만.
 - 골든 스냅샷·증거 문서에 본문 텍스트·Preview/PrvText·BinData를 넣지 말 것
   (`templete/` 6종은 실제 업무 양식 — security.md).
@@ -128,6 +154,8 @@ process-gpt-office-mcp = **없음 → 코드 복사 불가**(참고·재구현�
   브랜치가 sibling의 property를 못 봐 전 인스턴스가 무효가 된다. ADR-24 D4에
   기록됐는데 이 저장소에서 **두 번 재발**했다. 인라인 또는 `unevaluatedProperties`를
   쓰고, 제약이 vacuous하지 않은지 **정상 케이스 수용 테스트**로 함께 고정할 것.
-- 게이트를 깨뜨린 뒤 재실행 없이 완료 선언하지 말 것(CC-140에서 실제로 발생 —
-  QA가 타임스탬프로 적발). 파일을 고쳤으면 단일 `pnpm test`로 전량 재현한 수치만
-  기재한다.
+  이번 CC-150에서는 재발하지 않았고, 구조 순회 테스트가 그것을 지킨다.
+- 게이트를 깨뜨린 뒤 재실행 없이 완료 선언하지 말 것. 파일을 고쳤으면 단일
+  `pnpm test`로 전량 재현한 수치만 기재한다.
+- **소스 파일에 리터럴 NUL을 넣지 말 것** — git이 바이너리로 취급해 diff 리뷰가
+  불가능해진다. 해시 구분자는 `\u0000` 이스케이프로 쓴다(값은 같다).
