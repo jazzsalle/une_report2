@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.une.local/document-ir.schema.json",
+  "title": "Canonical Document IR",
+  "description": "Preservation-oriented intermediate representation of an HWPX document (CC-140, ADR-29 D4/D5; design 07 Spec §1.3). Persisted as document_revision.ir_json; its canonical hash is document_revision.ir_hash. The IR never flattens the package: every part it does not model is accounted for in unknownParts (invariant I4).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "irVersion",
+    "documentId",
+    "revision",
+    "sourceHash",
+    "sections",
+    "styleIndex",
+    "unknownParts",
+    "findings"
+  ],
+  "properties": {
+    "irVersion": {
+      "const": "1",
+      "description": "IR shape version — bumped when the shape changes so rows written by earlier code stay interpretable."
+    },
+    "documentId": { "type": "string", "minLength": 1 },
+    "revision": {
+      "type": ["string", "null"],
+      "description": "Null until CC-150 creates revisions."
+    },
+    "sourceHash": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 of the source HWPX package bytes."
+    },
+    "sections": { "type": "array", "items": { "$ref": "#/$defs/sectionIr" } },
+    "styleIndex": { "$ref": "#/$defs/styleIndex" },
+    "unknownParts": { "type": "array", "items": { "$ref": "#/$defs/unknownPart" } },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "rawXmlAnchor": {
+      "type": "string",
+      "pattern": "^[^#]+#.+$",
+      "description": "partPath + '#' + element path with 1-based ordinals, e.g. 'Contents/section0.xml#p[17]' (ADR-29 D6). Structural position only — character offsets belong to the selection layer."
+    },
+    "styleRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paraPrId", "charPrId", "numberingId", "styleId"],
+      "properties": {
+        "paraPrId": { "type": ["integer", "null"] },
+        "charPrId": { "type": ["integer", "null"] },
+        "numberingId": { "type": ["integer", "null"] },
+        "styleId": { "type": ["integer", "null"] }
+      }
+    },
+    "editState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["editedByUser", "locked"],
+      "properties": {
+        "editedByUser": { "type": "boolean" },
+        "locked": { "type": "boolean" }
+      }
+    },
+    "runIr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "text", "charPrId", "controls"],
+      "properties": {
+        "runId": { "type": "string", "minLength": 1 },
+        "text": { "type": "string" },
+        "charPrId": { "type": ["integer", "null"] },
+        "controls": { "type": "array", "items": { "$ref": "#/$defs/rawXmlAnchor" } }
+      }
+    },
+    "paragraphIr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "paragraphId", "runs", "styleRef", "editState", "rawXmlAnchor"],
+      "properties": {
+        "kind": { "const": "PARAGRAPH" },
+        "paragraphId": { "type": "string", "minLength": 1 },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/runIr" } },
+        "styleRef": { "$ref": "#/$defs/styleRef" },
+        "editState": { "$ref": "#/$defs/editState" },
+        "rawXmlAnchor": { "$ref": "#/$defs/rawXmlAnchor" },
+        "styleRole": { "type": "string" },
+        "outlineLevel": { "type": "integer", "minimum": 1 },
+        "prototypeId": { "type": "string" }
+      }
+    },
+    "tableCellIr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cellId", "rowSpan", "colSpan", "blocks"],
+      "properties": {
+        "cellId": { "type": "string", "minLength": 1 },
+        "rowSpan": { "type": "integer", "minimum": 1 },
+        "colSpan": { "type": "integer", "minimum": 1 },
+        "blocks": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/blockIr" },
+          "description": "Invariant I6: a cell carries at least one block."
+        }
+      }
+    },
+    "tableRowIr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rowId", "cells"],
+      "properties": {
+        "rowId": { "type": "string", "minLength": 1 },
+        "cells": { "type": "array", "items": { "$ref": "#/$defs/tableCellIr" } }
+      }
+    },
+    "tableIr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "tableId", "rows", "rawXmlAnchor"],
+      "properties": {
+        "kind": { "const": "TABLE" },
+        "tableId": { "type": "string", "minLength": 1 },
+        "rows": { "type": "array", "items": { "$ref": "#/$defs/tableRowIr" } },
+        "rawXmlAnchor": { "$ref": "#/$defs/rawXmlAnchor" },
+        "prototypeId": { "type": "string" }
+      }
+    },
+    "preservedBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "preservedId", "rawXmlAnchor", "classification"],
+      "description": "A construct modelled only as preserved XML. It keeps its place in block order so surrounding edits cannot reorder or drop it.",
+      "properties": {
+        "kind": { "const": "PRESERVED" },
+        "preservedId": { "type": "string", "minLength": 1 },
+        "rawXmlAnchor": { "$ref": "#/$defs/rawXmlAnchor" },
+        "classification": { "$ref": "#/$defs/objectClassification" }
+      }
+    },
+    "blockIr": {
+      "oneOf": [
+        { "$ref": "#/$defs/paragraphIr" },
+        { "$ref": "#/$defs/tableIr" },
+        { "$ref": "#/$defs/preservedBlock" }
+      ]
+    },
+    "sectionIr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sectionId", "partPath", "blocks", "pageSettings"],
+      "properties": {
+        "sectionId": { "type": "string", "minLength": 1 },
+        "partPath": { "type": "string", "minLength": 1 },
+        "blocks": { "type": "array", "items": { "$ref": "#/$defs/blockIr" } },
+        "pageSettings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rawXmlAnchor"],
+          "properties": { "rawXmlAnchor": { "$ref": "#/$defs/rawXmlAnchor" } }
+        }
+      }
+    },
+    "styleIndexEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "attributes"],
+      "properties": {
+        "id": { "type": "integer" },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Verbatim header.xml attributes — kept uninterpreted so unknown attributes survive."
+        }
+      }
+    },
+    "styleIndex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paraPr", "charPr", "style", "numbering", "bullet", "binData"],
+      "properties": {
+        "paraPr": { "type": "array", "items": { "$ref": "#/$defs/styleIndexEntry" } },
+        "charPr": { "type": "array", "items": { "$ref": "#/$defs/styleIndexEntry" } },
+        "style": { "type": "array", "items": { "$ref": "#/$defs/styleIndexEntry" } },
+        "numbering": { "type": "array", "items": { "$ref": "#/$defs/styleIndexEntry" } },
+        "bullet": { "type": "array", "items": { "$ref": "#/$defs/styleIndexEntry" } },
+        "binData": { "type": "array", "items": { "$ref": "#/$defs/styleIndexEntry" } }
+      }
+    },
+    "unknownPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["partPath", "contentType", "hash"],
+      "description": "A package part the IR does not model. Its presence here is what makes invariant I4 (known ∪ unknown == every ZIP entry) checkable.",
+      "properties": {
+        "partPath": { "type": "string", "minLength": 1 },
+        "contentType": { "type": ["string", "null"] },
+        "hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "objectClassification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objectClass", "scope", "reasonCode", "locator", "evidence", "capsVerdict"],
+      "description": "Object grade WITH the reproducible reason G15-1 requires — a grade without evidence is not acceptable.",
+      "properties": {
+        "objectClass": {
+          "enum": ["NATIVE_EDIT", "PRESERVE_ONLY", "FLATTEN_EXPORT_ONLY", "REJECT"]
+        },
+        "scope": {
+          "enum": ["PART", "ELEMENT"],
+          "description": "Which layer the grade is about. PART-scope preservation never degrades the document verdict — every HWPX carries preserved package parts, so capping on them would make AUTO unreachable (ADR-29 D2 amendment). ELEMENT scope is what §8.4's edit-permission and user-display columns describe."
+        },
+        "reasonCode": { "type": "string", "minLength": 1 },
+        "locator": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "string", "minLength": 1 },
+        "capsVerdict": {
+          "type": "boolean",
+          "description": "Does this object cap the document verdict at LIMITED (roll-up rule 3)? The grade axis and the cap axis are separate (review M-3): section layout properties and whitespace constructs keep the honest PRESERVE_ONLY grade but do not cap, because §8.4 marks them normal for the user."
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "locator", "detail"],
+      "properties": {
+        "code": { "enum": ["HWPX-1001", "HWPX-1002", "HWPX-1003", "HWPX-1004", "HWPX-1005"] },
+        "severity": { "enum": ["FATAL", "DEGRADING", "INFO"] },
+        "locator": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

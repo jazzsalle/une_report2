@@ -21,6 +21,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm validate:contracts
+      # CC-140: third_party/rhwp intake gate (ADR-29 D1). Green today because
+      # nothing is imported; bites the moment source lands without provenance.
+      - run: pnpm validate:intake
       # Compose stays structurally valid incl. interpolation; dummy secrets
       # satisfy the ${VAR:?} guards (no services are started in CI).
       - run: >

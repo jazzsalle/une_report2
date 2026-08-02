@@ -23,6 +23,7 @@
     "db:seed:dev": "node scripts/run-sql.mjs database/seeds/dev-iam.sql",
     "validate:handoff": "python scripts/validate_handoff.py",
     "validate:contracts": "node scripts/validate-contracts.mjs",
+    "validate:intake": "node scripts/validate-source-intake.mjs",
     "generate:contract-types": "node scripts/generate-contract-types.mjs"
   },
   "devDependencies": {
