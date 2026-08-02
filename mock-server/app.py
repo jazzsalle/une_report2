@@ -10,13 +10,16 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="UNE Platform Mock", version="1.0.0")
-DB: dict[str, dict[str, Any]] = {"plans": {}, "planSnapshots": {}, "tocVersions": {}, "jobs": {}, "situations": {}, "snapshots": {}, "sops": {}, "runs": {}, "tasks": {}, "journals": {}}
+DB: dict[str, dict[str, Any]] = {"plans": {}, "planSnapshots": {}, "tocVersions": {}, "jobs": {}, "blocks": {}, "situations": {}, "snapshots": {}, "sops": {}, "runs": {}, "tasks": {}, "journals": {}}
 # Snapshot version counter per plan (UNE-PLAN-007 version_no = max+1).
 PLAN_SNAPSHOT_SEQ: dict[str, int] = {}
 # TOC version counter per plan (UNE-PLAN-014 version_no = max+1).
 PLAN_TOC_SEQ: dict[str, int] = {}
 # Poll counter per job: the mock completes a job from the second status read on.
 JOB_READS: dict[str, int] = {}
+# CONTENT job request payload (tocVersionId/targetNodeKeys/protectedBlockIds).
+# Kept out of the job resource so the mock response stays contract shaped.
+JOB_INPUT: dict[str, dict[str, Any]] = {}
 # Fixed non-secret demo identifiers so tenantId/ownerId stay stable across calls.
 MOCK_TENANT_ID = "00000000-0000-4000-8000-000000000001"
 MOCK_USER_ID = "00000000-0000-4000-8000-000000000002"
@@ -40,6 +43,12 @@ def content_hash(payload: Any) -> str:
 # CC-120 contract vocabulary (JobStatus / GenerationJobResource / TocVersionResource).
 JOB_OPEN_STATUSES = ("QUEUED", "RUNNING")
 JOB_TERMINAL_STATUSES = ("COMPLETED", "FAILED", "CANCELLED")
+# PLAN-409-002 is job-type agnostic (UNE-PLAN-009/016): any active generation job
+# on the plan blocks a new one. Mirrors ACTIVE_JOB_STATUSES in the API repository.
+JOB_ACTIVE_STATUSES = JOB_OPEN_STATUSES + ("CANCEL_REQUESTED",)
+# CC-130 (ADR-27): a CONTENT job starts from a confirmed outline; EDITING allows
+# regeneration rounds. Success lands back in EDITING.
+CONTENT_JOB_STARTABLE = ("OUTLINE_CONFIRMED", "EDITING")
 
 def get_plan_or_404(plan_id: str) -> dict[str, Any]:
     if plan_id not in DB["plans"]: raise HTTPException(404,"PLAN-4003: Plan not found")
@@ -48,6 +57,28 @@ def get_plan_or_404(plan_id: str) -> dict[str, Any]:
 def get_job_or_404(job_id: str) -> dict[str, Any]:
     if job_id not in DB["jobs"]: raise HTTPException(404,"JOB-404-001: Job not found")
     return DB["jobs"][job_id]
+
+def assert_no_active_generation_job(plan_id: str) -> None:
+    if any(j["aggregateId"]==plan_id and j["status"] in JOB_ACTIVE_STATUSES for j in DB["jobs"].values()):
+        raise HTTPException(409,"PLAN-409-002: a generation job is already active for this plan")
+
+def flatten_nodes(nodes: list[dict[str, Any]], level: int = 1) -> list[tuple[dict[str, Any], int]]:
+    """TocNodeResource tree -> [(node, level)] in document order."""
+    flat: list[tuple[dict[str, Any], int]] = []
+    for node in nodes:
+        flat.append((node, level))
+        flat.extend(flatten_nodes(node.get("children") or [], level + 1))
+    return flat
+
+def current_blocks(plan_id: str) -> dict[str, dict[str, Any]]:
+    """nodeKey -> current (not superseded) generated_block of the plan."""
+    return {b["nodeKey"]: b for b in DB["blocks"].values() if b["planId"]==plan_id and b["supersededAt"] is None}
+
+def assert_no_current_blocks(plan_id: str, action: str) -> None:
+    """UNE-PLAN-009 / 014 (ADR-27 D9): 본문 블록은 목차 nodeKey에 앵커되어 있으므로,
+    목차 변경 영향 Diff 흐름(CC-170)이 생기기 전까지 목차 재생성·변경을 막는다."""
+    if current_blocks(plan_id):
+        raise HTTPException(412,f"PLAN-412-002: cannot {action} while generated content blocks exist (CC-170)")
 
 def build_nodes(tree: list[dict[str, Any]], level: int = 1, path: tuple[int, ...] = (), ai: bool = False) -> list[dict[str, Any]]:
     """TocTreeNodeInput[] -> TocNodeResource[].
@@ -155,8 +186,10 @@ def toc_job(plan_id: str, body: dict[str,Any], idempotency_key: str | None = Hea
     option=body.get("generationOption") or {}
     if not isinstance(option,dict) or set(option) - {"additionalInstruction","notes"}:
         raise HTTPException(400,"PLAN-4001: generationOption allows additionalInstruction and notes only")
-    if any(j["aggregateId"]==plan_id and j["jobType"]=="TOC" and j["status"] in JOB_OPEN_STATUSES for j in DB["jobs"].values()):
-        raise HTTPException(409,"PLAN-409-002: a TOC job is already running for this plan")
+    assert_no_active_generation_job(plan_id)
+    # ADR-27 D9: 본문 블록이 있으면 목차 재생성이 nodeKey 앵커를 끊는다.
+    # 목차 변경 영향 Diff 흐름(CC-170)이 생길 때까지 막는다.
+    assert_no_current_blocks(plan_id,"regenerate the outline")
     jid=str(uuid4()); ts=now()
     job={"jobId":jid,"jobType":"TOC","aggregateType":"PLAN","aggregateId":plan_id,"providerCode":"T3Q",
          "status":"QUEUED","progressPct":0,"attemptNo":0,"correlationId":f"corr_{uuid4().hex[:12]}",
@@ -164,6 +197,83 @@ def toc_job(plan_id: str, body: dict[str,Any], idempotency_key: str | None = Hea
     DB["jobs"][jid]=job; JOB_READS[jid]=0
     plan["status"]="OUTLINE_GENERATING"; plan["updatedAt"]=ts
     return JSONResponse(envelope(job),status_code=202)
+
+@app.post("/api/v1/plans/{plan_id}/content-jobs")
+def content_job(plan_id: str, body: dict[str,Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    """UNE-PLAN-016 T3Q RPT-002 본문 생성 Job (계약 상세화 CC-130)."""
+    require_idempotency(idempotency_key)
+    plan=get_plan_or_404(plan_id)
+    if plan["deletedAt"] is not None: raise HTTPException(412,"PLAN-412-002: plan is in trash")
+    if not plan["currentContextSnapshotId"]: raise HTTPException(412,"PLAN-412-001: confirm a PlanContextSnapshot first")
+    if body.get("contextSnapshotId") != plan["currentContextSnapshotId"]:
+        raise HTTPException(400,"PLAN-4001: contextSnapshotId must be the current snapshot of the plan")
+    version=DB["tocVersions"].get(body.get("tocVersionId"))
+    if not version or version["planId"]!=plan_id: raise HTTPException(404,"TOC-404-001: TOC version not found for this plan")
+    if version["status"]!="CONFIRMED": raise HTTPException(412,"PLAN-412-002: confirm the TOC version before generating content")
+    targets=body.get("targetNodeKeys")
+    # 전체 생성은 필드 생략으로 표현한다. 빈 배열/중복은 400 PLAN-4001.
+    if targets is not None and (not isinstance(targets,list) or not targets or len(targets)>100
+                                or any(not isinstance(k,str) for k in targets) or len(set(targets))!=len(targets)):
+        raise HTTPException(400,"PLAN-4001: targetNodeKeys must be 1..100 unique node keys (omit it for the full outline)")
+    targets=targets or []
+    known={node["nodeKey"] for node,_ in flatten_nodes(version["nodes"])}
+    if [k for k in targets if k not in known]: raise HTTPException(422,"PLAN-422-002: targetNodeKeys contains keys outside the TOC version")
+    protected_ids=body.get("protectedBlockIds") or []
+    if not isinstance(protected_ids,list) or any(not isinstance(b,str) for b in protected_ids):
+        raise HTTPException(400,"PLAN-4001: protectedBlockIds must be an array of block ids")
+    live={b["blockId"] for b in current_blocks(plan_id).values()}
+    if [b for b in protected_ids if b not in live]: raise HTTPException(422,"PLAN-422-002: protectedBlockIds contains unknown or superseded block ids")
+    # 409를 상태 전제조건보다 먼저 본다: CONTENT_GENERATING은 활성 job이 있다는 뜻이라
+    # 412가 아니라 409 PLAN-409-002로 답해야 한다 (ADR-27 D9 주석과 동일 규칙).
+    assert_no_active_generation_job(plan_id)
+    if plan["status"] not in CONTENT_JOB_STARTABLE:
+        raise HTTPException(412,f"PLAN-412-002: content generation starts from {CONTENT_JOB_STARTABLE}")
+    jid=str(uuid4()); ts=now()
+    job={"jobId":jid,"jobType":"CONTENT","aggregateType":"PLAN","aggregateId":plan_id,"providerCode":"T3Q",
+         "status":"QUEUED","progressPct":0,"attemptNo":0,"correlationId":f"corr_{uuid4().hex[:12]}",
+         "startedAt":None,"finishedAt":None,"error":None,"result":None,"createdAt":ts}
+    DB["jobs"][jid]=job; JOB_READS[jid]=0
+    JOB_INPUT[jid]={"tocVersionId":version["tocVersionId"],"targetNodeKeys":targets,"protectedBlockIds":protected_ids}
+    plan["status"]="CONTENT_GENERATING"; plan["updatedAt"]=ts
+    return JSONResponse(envelope(job),status_code=202)
+
+def complete_content_job(job: dict[str, Any]) -> None:
+    """워커 대역: 대상 노드만 재생성하고 보호 블록은 유지한다.
+
+    범위 밖 노드는 이번 job의 대상이 아니므로 손대지 않고, content.block 프레임도
+    contentSummary 집계도 발생하지 않는다 (계약 UNE-PLAN-011/016). preserved는
+    보호(USER_LOCKED/SYSTEM_LOCKED)로 유지된 블록만 센다.
+    """
+    plan=DB["plans"][job["aggregateId"]]; job_input=JOB_INPUT.get(job["jobId"],{})
+    version=DB["tocVersions"][job_input["tocVersionId"]]
+    existing=current_blocks(plan["planId"])
+    # protectedBlockIds는 USER_LOCKED로 영속 기록되어 이후 재생성에서도 보호된다.
+    for block_id in job_input.get("protectedBlockIds") or []:
+        DB["blocks"][block_id]["protectionState"]="USER_LOCKED"
+    targets=job_input.get("targetNodeKeys") or []
+    # 범위 지정은 subtree 단위다. AI nodeKey가 경로 기반(n-1, n-1-2)이라 접두어 비교로 충분하다.
+    in_scope=lambda key: not targets or any(key==t or key.startswith(t+"-") for t in targets)
+    summary={"generated":0,"preserved":0,"failed":0,"blocksWithoutEvidence":0,"tocVersionId":version["tocVersionId"]}
+    for order,(node,level) in enumerate(flatten_nodes(version["nodes"]),start=1):
+        key=node["nodeKey"]; prior=existing.get(key)
+        # 범위 밖 노드는 대상이 아니다: 집계도 이벤트 발행도 하지 않는다.
+        if not in_scope(key): continue
+        if prior and prior["protectionState"] in ("USER_LOCKED","SYSTEM_LOCKED"):
+            summary["preserved"]+=1; continue
+        if prior: prior["supersededAt"]=now()
+        text=f"{node['title']} 본문(mock)"
+        # 첫 노드만 근거를 붙여 blocksWithoutEvidence 지표가 0이 아닌 상태를 재현한다.
+        citation_count=2 if order==1 else 0
+        block={"blockId":str(uuid4()),"planId":plan["planId"],"tocVersionId":version["tocVersionId"],
+               "nodeKey":key,"outlineLevel":level,"sortOrder":order,"status":"GENERATED",
+               "protectionState":"NONE","contentHash":content_hash(text),"citationCount":citation_count,
+               "supersededAt":None,"createdAt":now()}
+        DB["blocks"][block["blockId"]]=block
+        summary["generated"]+=1
+        if citation_count==0: summary["blocksWithoutEvidence"]+=1
+    job.update(status="COMPLETED",progressPct=100,finishedAt=now(),
+               result={"tocVersionId":version["tocVersionId"],"contentSummary":summary})
+    plan["status"]="EDITING"; plan["updatedAt"]=job["finishedAt"]
 
 @app.get("/api/v1/plan-jobs/{job_id}")
 def get_job(job_id: str):
@@ -174,6 +284,8 @@ def get_job(job_id: str):
             # ADR-25 D9: attempt_no counts worker preemptions; the first read stands in
             # for the worker picking the job up.
             job["status"]="RUNNING"; job["progressPct"]=50; job["attemptNo"]+=1; job["startedAt"]=job["startedAt"] or now()
+        elif job["jobType"]=="CONTENT":
+            complete_content_job(job)
         else:
             plan=DB["plans"].get(job["aggregateId"])
             version=save_toc_version(plan,build_nodes([
@@ -190,9 +302,24 @@ def job_events(job_id: str, last_event_id: str | None = Header(default=None, ali
     job=get_job_or_404(job_id)
     # Contract event vocabulary (UNE-PLAN-011). Frames carry id = job_event.sequence_no;
     # the stream ends after the terminal event.
-    frames=[("job.queued",{"progressPct":0}),("job.started",{"progressPct":10}),
-            ("job.progress",{"progressPct":50}),("toc.section",{"nodeKey":"n-1","title":"1. 추진 배경"}),
-            ("job.completed",{"progressPct":100})]
+    if job["jobType"]=="CONTENT":
+        # CC-130: content.block은 노드 1건당 1프레임(GENERATED/PRESERVED/FAILED)이고
+        # job.progress는 {completed,total,pct} 스로틀 프레임이다 (블록 10개/10%p).
+        frames=[("job.queued",{"progressPct":0}),("job.started",{"progressPct":10}),
+                ("content.block",{"nodeKey":"n-1","blockId":"00000000-0000-4000-8000-0000000000b1","outcome":"GENERATED",
+                                  "sortOrder":1,"outlineLevel":1,"contentHash":"a"*64,"citationCount":2}),
+                ("content.block",{"nodeKey":"n-1-1","blockId":"00000000-0000-4000-8000-0000000000b2","outcome":"GENERATED",
+                                  "sortOrder":2,"outlineLevel":2,"contentHash":"b"*64,"citationCount":0}),
+                ("job.progress",{"completed":2,"total":3,"pct":67}),
+                # 보호 블록은 새 행을 만들지 않고 기존 블록 id/해시를 그대로 싣는다.
+                ("content.block",{"nodeKey":"n-2","blockId":"00000000-0000-4000-8000-0000000000b3","outcome":"PRESERVED",
+                                  "sortOrder":3,"outlineLevel":1,"contentHash":"c"*64,"citationCount":1,"reason":"USER_LOCKED"}),
+                ("job.progress",{"completed":3,"total":3,"pct":100}),
+                ("job.completed",{"progressPct":100})]
+    else:
+        frames=[("job.queued",{"progressPct":0}),("job.started",{"progressPct":10}),
+                ("job.progress",{"progressPct":50}),("toc.section",{"nodeKey":"n-1","title":"1. 추진 배경"}),
+                ("job.completed",{"progressPct":100})]
     start=int(last_event_id) if last_event_id and last_event_id.isdigit() else 0
     def gen():
         for seq,(event,payload) in enumerate(frames,start=1):
@@ -215,7 +342,9 @@ def cancel_job(job_id: str, body: dict[str,Any] | None = None, idempotency_key: 
 def retry_job(job_id: str, body: dict[str,Any] | None = None, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
     require_idempotency(idempotency_key)
     job=get_job_or_404(job_id)
-    if (body or {}).get("blockIds"): raise HTTPException(400,"PLAN-4001: TOC jobs retry as a whole; blockIds is for CC-130 content jobs")
+    # TOC/CONTENT 모두 전체 단위 재시도다. 블록 단위 provider 재시도는 target-v2
+    # partialRetry(CC-135), 범위 지정 재생성은 UNE-PLAN-016 targetNodeKeys 소관.
+    if (body or {}).get("blockIds"): raise HTTPException(400,"PLAN-4001: blockIds is not supported; use UNE-PLAN-016 targetNodeKeys")
     if job["status"]!="FAILED": raise HTTPException(409,"JOB-409-002: only failed jobs can be retried")
     # ADR-25 D9: a user retry restarts the attempt budget.
     job.update(status="QUEUED",progressPct=0,attemptNo=0,startedAt=None,finishedAt=None,error=None,result=None)
@@ -230,6 +359,8 @@ def save_toc(plan_id: str, body: dict[str,Any], idempotency_key: str | None = He
     tree=body.get("tocTree")
     if not body.get("baseVersionId") or not isinstance(tree,list) or not tree:
         raise HTTPException(422,"PLAN-422-002: baseVersionId and a non-empty tocTree are required")
+    # ADR-27 D9: 저장/확정 모두 본문 블록이 있으면 412 (목차 변경 차단, CC-170).
+    assert_no_current_blocks(plan_id,"change the outline")
     if body["baseVersionId"]!=plan["currentTocVersionId"]:
         raise HTTPException(409,"TOC-409-001: baseVersionId is not the current TOC version")
     version=save_toc_version(plan,build_nodes(tree),"USER","CONFIRMED" if body.get("confirm") else "DRAFT")

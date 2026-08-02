@@ -12,6 +12,7 @@ import {
 import { AuditRepository } from '../common/audit.repository';
 import type { AuthContext } from '../common/request-context';
 import { DatabaseService } from '../db/database.service';
+import { GeneratedBlockRepository } from './generated-block.repository';
 import { GenerationJobRepository } from './generation-job.repository';
 import { PlanRepository } from './plan.repository';
 import { planErrors, type RequestMeta } from './plan.service';
@@ -131,6 +132,7 @@ export class TocVersionService {
     @Inject(PlanRepository) private readonly plans: PlanRepository,
     @Inject(TocVersionRepository) private readonly versions: TocVersionRepository,
     @Inject(GenerationJobRepository) private readonly jobs: GenerationJobRepository,
+    @Inject(GeneratedBlockRepository) private readonly blocks: GeneratedBlockRepository,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
   ) {}
 
@@ -164,8 +166,17 @@ export class TocVersionService {
       // worker will repoint current_toc_version_id on completion — accepting
       // a user save now would let the AI result silently replace it
       // (CLAUDE.md: user-edited content is protected from regeneration).
-      const active = await this.jobs.findActiveTocJob(c, auth.tenantId, planId);
+      const active = await this.jobs.findActivePlanJob(c, auth.tenantId, planId);
       if (active) throw tocErrors.activeJobExists(active.jobId);
+      // Once body blocks exist, ANY outline change (manual save included)
+      // would orphan their node-key anchors — the same hazard the TOC-job
+      // guard blocks. Blocked until the impact-diff flow (CC-170) exists
+      // (review M-2; ADR-27 D9).
+      if (await this.blocks.hasCurrentBlocks(c, planId)) {
+        throw planErrors.preconditionFailed(
+          '본문 블록이 있는 계획서는 목차를 변경할 수 없습니다(목차 변경 영향 검토 흐름은 CC-170).',
+        );
+      }
       // Optimistic concurrency for the outline: the client must have based its
       // edit on the plan's current version.
       if (plan.currentTocVersionId !== body.baseVersionId) {

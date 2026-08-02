@@ -65,3 +65,21 @@ export function buildMockOutline(planContext: Record<string, unknown>): {
 export function buildMockSectionText(name: string, disasterType: string): string {
   return `□ ${name.replace(/^[0-9]+\.\s*/, '')} 관련 ${disasterType} 대응 사항을 점검하고 필요한 조치를 시행한다.`;
 }
+
+/** Deterministic legacy Reference for a leaf section (CC-130: evidence
+ * mapping needs the mock to produce citations — same input, same refs). */
+export function buildMockReference(
+  name: string,
+  disasterType: string,
+): { id: string; fileId: string; fileName: string; page: string } {
+  // Cheap deterministic digest without crypto: char-code sum.
+  let sum = 0;
+  for (let i = 0; i < name.length; i += 1) sum = (sum + name.charCodeAt(i) * (i + 1)) % 99_991;
+  const key = sum.toString(16).padStart(4, '0');
+  return {
+    id: `ref-${key}`,
+    fileId: `file-${key}`,
+    fileName: `${disasterType}_대응지침_2026.pdf`,
+    page: String((sum % 40) + 1),
+  };
+}

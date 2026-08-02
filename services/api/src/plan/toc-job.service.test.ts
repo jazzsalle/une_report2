@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../common/request-context';
 import type { AuditRepository } from '../common/audit.repository';
 import type { DatabaseService } from '../db/database.service';
+import type { GeneratedBlockRepository } from './generated-block.repository';
 import type { GenerationJobRepository, JobRow } from './generation-job.repository';
 import type { JobEventRepository } from './job-event.repository';
 import type { PlanRepository, PlanRow } from './plan.repository';
@@ -71,7 +72,7 @@ interface Harness {
     updatePlanStatus: ReturnType<typeof vi.fn>;
   };
   jobs: {
-    findActiveTocJob: ReturnType<typeof vi.fn>;
+    findActivePlanJob: ReturnType<typeof vi.fn>;
     insertJob: ReturnType<typeof vi.fn>;
     findJobByIdempotencyKey: ReturnType<typeof vi.fn>;
     findJob: ReturnType<typeof vi.fn>;
@@ -81,6 +82,7 @@ interface Harness {
     append: ReturnType<typeof vi.fn>;
     findCompletedResult: ReturnType<typeof vi.fn>;
   };
+  blocks: { hasCurrentBlocks: ReturnType<typeof vi.fn> };
   audit: { insertAudit: ReturnType<typeof vi.fn> };
   query: ReturnType<typeof vi.fn>;
 }
@@ -90,6 +92,7 @@ function harness(
     plan?: PlanRow | null;
     activeJob?: JobRow | null;
     job?: JobRow | null;
+    hasBlocks?: boolean;
   } = {},
 ): Harness {
   const query = vi.fn(async () => ({ rows: [] }));
@@ -113,7 +116,7 @@ function harness(
     updatePlanStatus: vi.fn(async () => planRow()),
   };
   const jobs = {
-    findActiveTocJob: vi.fn(async () => overrides.activeJob ?? null),
+    findActivePlanJob: vi.fn(async () => overrides.activeJob ?? null),
     insertJob: vi.fn(async () => jobRow()),
     findJobByIdempotencyKey: vi.fn(async () => null),
     findJob: vi.fn(async () => ('job' in overrides ? overrides.job : jobRow())),
@@ -123,15 +126,20 @@ function harness(
     ),
   };
   const events = { append: vi.fn(async () => 1), findCompletedResult: vi.fn(async () => null) };
+  const blocks = {
+    // No current body blocks by default; ADR-27 D9 guard tests override.
+    hasCurrentBlocks: vi.fn(async () => overrides.hasBlocks ?? false),
+  };
   const audit = { insertAudit: vi.fn(async () => undefined) };
   const service = new TocJobService(
     db as unknown as DatabaseService,
     plans as unknown as PlanRepository,
     jobs as unknown as GenerationJobRepository,
     events as unknown as JobEventRepository,
+    blocks as unknown as GeneratedBlockRepository,
     audit as unknown as AuditRepository,
   );
-  return { service, plans, jobs, events, audit, query };
+  return { service, plans, jobs, events, blocks, audit, query };
 }
 
 describe('TocJobService.requestTocJob', () => {
@@ -307,6 +315,22 @@ describe('TocJobService.cancelJob', () => {
     expect(h.plans.updatePlanStatus.mock.calls[0][3]).toBe('OUTLINE_REVIEW');
   });
 
+  it('cancels a QUEUED CONTENT job with the CONTENT revert and audit action (review G3)', async () => {
+    const h = harness({ job: jobRow({ status: 'QUEUED', jobType: 'CONTENT' }) });
+    // No current blocks → plan returns to OUTLINE_CONFIRMED (ADR-27 D3).
+    const result = await h.service.cancelJob(auth, JOB_ID, undefined, meta);
+    expect(result.status).toBe('CANCELLED');
+    expect(h.plans.updatePlanStatus.mock.calls[0][3]).toBe('OUTLINE_CONFIRMED');
+    expect(h.audit.insertAudit.mock.calls[0][1]).toMatchObject({
+      action: 'CONTENT_JOB_CANCELLED',
+    });
+
+    // Earlier rounds survive: with current blocks the plan lands in EDITING.
+    const h2 = harness({ job: jobRow({ status: 'QUEUED', jobType: 'CONTENT' }), hasBlocks: true });
+    await h2.service.cancelJob(auth, JOB_ID, undefined, meta);
+    expect(h2.plans.updatePlanStatus.mock.calls[0][3]).toBe('EDITING');
+  });
+
   it('only requests cancellation for a RUNNING job (the worker settles it)', async () => {
     const h = harness({ job: jobRow({ status: 'RUNNING' }) });
     const result = await h.service.cancelJob(auth, JOB_ID, undefined, meta);
@@ -398,6 +422,24 @@ describe('TocJobService.retryJob', () => {
       status: 409,
       code: 'PLAN-409-002',
     });
+  });
+
+  it('refuses a TOC retry while body blocks exist — 412 (review G2, ADR-27 D9)', async () => {
+    const h = harness({ job: jobRow({ status: 'FAILED' }), hasBlocks: true });
+    await expect(h.service.retryJob(auth, JOB_ID, {}, meta)).rejects.toMatchObject({
+      status: 412,
+      code: 'PLAN-412-002',
+    });
+    expect(h.jobs.updateJobStatus).not.toHaveBeenCalled();
+  });
+
+  it('retries a FAILED CONTENT job back into CONTENT_GENERATING with the CONTENT audit action (review G3)', async () => {
+    const h = harness({ job: jobRow({ status: 'FAILED', jobType: 'CONTENT' }), hasBlocks: true });
+    const result = await h.service.retryJob(auth, JOB_ID, {}, meta);
+    expect(result.status).toBe('QUEUED');
+    // CONTENT retry never trips the TOC blocks-exist guard.
+    expect(h.plans.updatePlanStatus.mock.calls[0][3]).toBe('CONTENT_GENERATING');
+    expect(h.audit.insertAudit.mock.calls[0][1]).toMatchObject({ action: 'CONTENT_JOB_RETRIED' });
   });
 
   it.each(['QUEUED', 'RUNNING', 'CANCEL_REQUESTED', 'COMPLETED', 'CANCELLED'])(

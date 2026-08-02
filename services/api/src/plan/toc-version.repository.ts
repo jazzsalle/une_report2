@@ -176,9 +176,15 @@ export class TocVersionRepository {
     client: PoolClient,
     tenantId: string,
     tocVersionId: string,
-  ): Promise<{ tocVersionId: string; planId: string; baseSnapshotId: string } | null> {
+  ): Promise<{
+    tocVersionId: string;
+    planId: string;
+    baseSnapshotId: string;
+    contentHash: string;
+    status: string;
+  } | null> {
     const result = await client.query(
-      `SELECT v.toc_version_id, v.plan_id, v.base_snapshot_id
+      `SELECT v.toc_version_id, v.plan_id, v.base_snapshot_id, v.content_hash, v.status
        FROM toc_version v
        JOIN plan p ON p.plan_id = v.plan_id AND p.tenant_id = $2
        WHERE v.toc_version_id = $1`,
@@ -190,6 +196,8 @@ export class TocVersionRepository {
           tocVersionId: row.toc_version_id as string,
           planId: row.plan_id as string,
           baseSnapshotId: row.base_snapshot_id as string,
+          contentHash: row.content_hash as string,
+          status: row.status as string,
         }
       : null;
   }

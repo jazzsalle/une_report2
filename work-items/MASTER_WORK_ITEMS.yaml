@@ -251,7 +251,7 @@ work_items:
   gate: G2
   dependencies:
   - CC-125
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - partial content events
   - cancel/retry
@@ -261,7 +261,9 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/evidence/CC-130-t3q-content-job-verification.md
+  - docs/adr/ADR-27-cc130-content-job-and-protected-blocks.md
 - id: CC-135
   title: Implement target-v2 plan job, semantic edit, evidence, and validation mocks
   gate: G2

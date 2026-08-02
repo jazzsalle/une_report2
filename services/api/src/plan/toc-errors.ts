@@ -20,10 +20,11 @@ export const jobErrors = {
 
 export const tocErrors = {
   /** PLAN-409-002. Recoverable: the caller can wait for or cancel the running
-   * job. The common-error envelope has no free-form `detail`, so the existing
-   * job id is carried in userAction (violations is for request fields only). */
+   * job. Job-type agnostic since CC-130 (ADR-27 D9). The common-error
+   * envelope has no free-form `detail`, so the existing job id is carried in
+   * userAction (violations is for request fields only). */
   activeJobExists: (jobId: string): ApiError =>
-    new ApiError(409, 'PLAN-409-002', '이미 진행 중인 목차 생성 Job이 있습니다.', {
+    new ApiError(409, 'PLAN-409-002', '이미 진행 중인 생성 Job이 있습니다.', {
       recoverable: true,
       userAction: `진행 중인 Job(${jobId})이 끝나기를 기다리거나 해당 Job을 취소한 뒤 다시 시도하십시오.`,
     }),
@@ -56,5 +57,24 @@ export const tocErrors = {
   idempotencyScopeMismatch: (): ApiError =>
     new ApiError(409, 'COM-0409', '멱등키가 다른 대상의 작업과 충돌했습니다.', {
       userAction: '새 Idempotency-Key로 다시 요청하십시오.',
+    }),
+  /** PLAN-422-002 (CC-130): protectedBlockIds referenced blocks that are not
+   * current blocks of this plan — protection must never silently no-op. */
+  protectedBlockUnknown: (unknownIds: readonly string[]): ApiError =>
+    new ApiError(422, 'PLAN-422-002', '보호 대상 블록을 찾을 수 없습니다.', {
+      violations: unknownIds.map((id) => ({
+        field: 'protectedBlockIds',
+        reason: `현재 블록이 아닙니다: ${id}`,
+      })),
+    }),
+  /** PLAN-422-002 (CC-130, review M-3/F1): targetNodeKeys that are missing
+   * from the confirmed TOC version. 422 (semantic) — format errors stay a
+   * controller-level 400, matching the contract split. */
+  targetNodeUnknown: (missing: readonly string[]): ApiError =>
+    new ApiError(422, 'PLAN-422-002', '대상 노드를 목차에서 찾을 수 없습니다.', {
+      violations: missing.map((key) => ({
+        field: 'targetNodeKeys',
+        reason: `목차에 없는 노드입니다: ${key}`,
+      })),
     }),
 };

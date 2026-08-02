@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AuditEntry, AuditRepository } from '../common/audit.repository';
 import type { AuthContext } from '../common/request-context';
 import type { DatabaseService } from '../db/database.service';
+import type { GeneratedBlockRepository } from './generated-block.repository';
 import type { GenerationJobRepository } from './generation-job.repository';
 import type { PlanRepository, PlanRow } from './plan.repository';
 import type { RequestMeta } from './plan.service';
@@ -96,16 +97,21 @@ function harness(overrides: { plan?: PlanRow | null; version?: TocVersionRow | n
   };
   const jobs = {
     // No active TOC job by default; the user-edit protection test overrides.
-    findActiveTocJob: vi.fn(async () => null as { jobId: string } | null),
+    findActivePlanJob: vi.fn(async () => null as { jobId: string } | null),
+  };
+  const blocks = {
+    // No body blocks by default; the ADR-27 D9 guard test overrides.
+    hasCurrentBlocks: vi.fn(async () => false),
   };
   const service = new TocVersionService(
     db as unknown as DatabaseService,
     plans as unknown as PlanRepository,
     versions as unknown as TocVersionRepository,
     jobs as unknown as GenerationJobRepository,
+    blocks as unknown as GeneratedBlockRepository,
     audit as unknown as AuditRepository,
   );
-  return { service, plans, versions, jobs, audit };
+  return { service, plans, versions, jobs, blocks, audit };
 }
 
 const TREE = [{ title: '1. 총칙', children: [{ title: '1.1 목적' }] }, { title: '2. 대응' }];
@@ -221,6 +227,20 @@ describe('TocVersionService.saveVersion', () => {
       code: 'PLAN-422-002',
       violations: [expect.objectContaining({ reason: 'DEPTH_EXCEEDED' })],
     });
+  });
+
+  it('blocks any outline save while body blocks exist — 412 (review M-2, ADR-27 D9)', async () => {
+    const h = harness();
+    h.blocks.hasCurrentBlocks.mockResolvedValueOnce(true);
+    await expect(
+      h.service.saveVersion(
+        auth,
+        PLAN_ID,
+        { baseVersionId: BASE_VERSION_ID, tocTree: TREE, confirm: false },
+        meta,
+      ),
+    ).rejects.toMatchObject({ status: 412, code: 'PLAN-412-002' });
+    expect(h.versions.insertVersion).not.toHaveBeenCalled();
   });
 
   it('rejects a stale baseVersionId with 409 TOC-409-001 naming the current version', async () => {

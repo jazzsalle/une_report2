@@ -16,6 +16,7 @@ import type { ApiConfig } from '../config/api-config';
 import { loadWorkerConfig } from '../../../worker/src/config/worker-config';
 import { WorkerDatabase } from '../../../worker/src/db/worker-database.service';
 import { TocJobRunner } from '../../../worker/src/plan-toc/toc-job.runner';
+import { ContentJobRunner } from '../../../worker/src/plan-content/content-job.runner';
 
 const ADMIN_URL = process.env.DATABASE_URL;
 const SECRET = 'e2e-signing-secret-e2e-signing-secret!!';
@@ -103,6 +104,7 @@ describe.skipIf(!ADMIN_URL)('CC-120 TOC job e2e (API + in-process worker)', () =
   let workerDb: WorkerDatabase;
   let workerRunner: TocJobRunner;
   let failRunner: TocJobRunner;
+  let contentRunner: ContentJobRunner;
 
   const login = async (tenantId: string, loginId: string): Promise<string> => {
     const res = await fetch(`${base}/api/v1/auth/sso/exchange`, {
@@ -219,6 +221,7 @@ describe.skipIf(!ADMIN_URL)('CC-120 TOC job e2e (API + in-process worker)', () =
       new MockLegacyT3qPlanAdapter({ scenariosEnabled: true }),
       workerConfig,
     );
+    contentRunner = new ContentJobRunner(workerDb, new MockLegacyT3qPlanAdapter(), workerConfig);
   }, 240_000);
 
   afterAll(async () => {
@@ -676,5 +679,223 @@ describe.skipIf(!ADMIN_URL)('CC-120 TOC job e2e (API + in-process worker)', () =
     expect(((await crossVersion.json()) as { error: { code: string } }).error.code).toBe(
       'TOC-404-001',
     );
+  });
+
+  // ── CC-130: CONTENT job journey (UNE-PLAN-016, ADR-27) ──
+
+  it('content journey: confirm → 016 → worker → contentSummary → SSE content.block → EDITING; TOC regen blocked', async () => {
+    const { planId, snapshotId } = await readyPlan(tokenA);
+    const { jobId: tocJobId } = await startJob(tokenA, planId, snapshotId);
+    await workerRunner.runOnce();
+    const tocJob = (
+      (await (await call('GET', `/api/v1/plan-jobs/${tocJobId}`, tokenA)).json()) as {
+        data: { result: { tocVersionId: string } };
+      }
+    ).data;
+
+    // Confirm a small user outline (current toc version becomes this one).
+    const confirmed = await call('POST', `/api/v1/plans/${planId}/toc-versions`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: {
+        baseVersionId: tocJob.result.tocVersionId,
+        tocTree: [
+          { nodeKey: 'n-1', title: 'Ⅰ. 개요', children: [] },
+          { nodeKey: 'n-2', title: 'Ⅱ. 대비 대책', children: [] },
+        ],
+        confirm: true,
+      },
+    });
+    expect(confirmed.status).toBe(201);
+    const confirmedVersionId = ((await confirmed.json()) as { data: { tocVersionId: string } }).data
+      .tocVersionId;
+
+    // UNE-PLAN-016.
+    const started = await call('POST', `/api/v1/plans/${planId}/content-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: { contextSnapshotId: snapshotId, tocVersionId: confirmedVersionId },
+    });
+    expect(started.status).toBe(202);
+    const contentJob = (
+      (await started.json()) as { data: { jobId: string; jobType: string; status: string } }
+    ).data;
+    expect(contentJob.jobType).toBe('CONTENT');
+    expect(contentJob.status).toBe('QUEUED');
+
+    // Active-job invariant is job-type agnostic: neither a second content
+    // job nor a TOC job may start while this one is active (ADR-27 D9).
+    const second = await call('POST', `/api/v1/plans/${planId}/content-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: { contextSnapshotId: snapshotId, tocVersionId: confirmedVersionId },
+    });
+    expect(second.status).toBe(409);
+    const tocDuring = await call('POST', `/api/v1/plans/${planId}/toc-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: { contextSnapshotId: snapshotId },
+    });
+    expect(tocDuring.status).toBe(409);
+
+    const summary = await contentRunner.runOnce();
+    expect(summary.completed).toBe(1);
+
+    const jobRes = (
+      (await (await call('GET', `/api/v1/plan-jobs/${contentJob.jobId}`, tokenA)).json()) as {
+        data: {
+          status: string;
+          result: { contentSummary: Record<string, unknown> };
+        };
+      }
+    ).data;
+    expect(jobRes.status).toBe('COMPLETED');
+    expect(jobRes.result.contentSummary).toMatchObject({
+      generated: 2,
+      preserved: 0,
+      failed: 0,
+      tocVersionId: confirmedVersionId,
+    });
+
+    // SSE: content.block frames are public; provider.* stays hidden.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let sseText: string;
+    try {
+      const res = await fetch(`${base}/api/v1/plan-jobs/${contentJob.jobId}/events`, {
+        headers: { authorization: `Bearer ${tokenA}` },
+        signal: controller.signal,
+      });
+      expect(res.status).toBe(200);
+      sseText = await res.text();
+    } finally {
+      clearTimeout(timeout);
+    }
+    const types = sseText
+      .split('\n\n')
+      .filter((frame) => frame.includes('data:'))
+      .map((frame) => {
+        const dataLine = frame.split('\n').find((line) => line.startsWith('data:')) as string;
+        return (JSON.parse(dataLine.slice(5).trim()) as { type: string }).type;
+      });
+    expect(types.filter((t) => t === 'content.block')).toHaveLength(2);
+    expect(types.at(-1)).toBe('job.completed');
+    expect(types.some((t) => t.startsWith('provider.'))).toBe(false);
+
+    const planAfter = await call('GET', `/api/v1/plans/${planId}`, tokenA);
+    expect(((await planAfter.json()) as { data: { status: string } }).data.status).toBe('EDITING');
+
+    // With body blocks present, TOC regeneration is blocked (ADR-27 D9)…
+    const tocAfter = await call('POST', `/api/v1/plans/${planId}/toc-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: { contextSnapshotId: snapshotId },
+    });
+    expect(tocAfter.status).toBe(412);
+    expect(((await tocAfter.json()) as { error: { code: string } }).error.code).toBe(
+      'PLAN-412-002',
+    );
+    // …and so is a MANUAL outline save (review M-2 — same anchor hazard).
+    const manualSave = await call('POST', `/api/v1/plans/${planId}/toc-versions`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: { baseVersionId: confirmedVersionId, tocTree: [{ nodeKey: 'n-1', title: 'X' }] },
+    });
+    expect(manualSave.status).toBe(412);
+
+    // Protection persistence (review G6): declare a real block protected on
+    // a second content round and verify the DB row and PRESERVED outcome.
+    const blockRow = await withClient(dbUrl, (c) =>
+      c.query(
+        `SELECT block_id, node_key FROM generated_block
+         WHERE plan_id=$1 AND superseded_at IS NULL ORDER BY sort_order LIMIT 1`,
+        [planId],
+      ),
+    );
+    const protectedId = blockRow.rows[0].block_id as string;
+    const secondJob = await call('POST', `/api/v1/plans/${planId}/content-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: {
+        contextSnapshotId: snapshotId,
+        tocVersionId: confirmedVersionId,
+        protectedBlockIds: [protectedId],
+      },
+    });
+    expect(secondJob.status).toBe(202);
+    const protectionRow = await withClient(dbUrl, (c) =>
+      c.query(`SELECT protection_state FROM generated_block WHERE block_id=$1`, [protectedId]),
+    );
+    expect(protectionRow.rows[0].protection_state).toBe('USER_LOCKED');
+
+    expect((await contentRunner.runOnce()).completed).toBe(1);
+    const secondJobId = ((await secondJob.json()) as { data: { jobId: string } }).data.jobId;
+    const secondResult = (
+      (await (await call('GET', `/api/v1/plan-jobs/${secondJobId}`, tokenA)).json()) as {
+        data: { result: { contentSummary: { generated: number; preserved: number } } };
+      }
+    ).data;
+    expect(secondResult.result.contentSummary).toMatchObject({ generated: 1, preserved: 1 });
+  });
+
+  it('016 negatives: stale toc version 412, unknown protected ids 422, bad targetNodeKeys 400', async () => {
+    const { planId, snapshotId } = await readyPlan(tokenA);
+    const { jobId: tocJobId } = await startJob(tokenA, planId, snapshotId);
+    await workerRunner.runOnce();
+    const aiVersionId = (
+      (await (await call('GET', `/api/v1/plan-jobs/${tocJobId}`, tokenA)).json()) as {
+        data: { result: { tocVersionId: string } };
+      }
+    ).data.result.tocVersionId;
+    const confirmed = await call('POST', `/api/v1/plans/${planId}/toc-versions`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: {
+        baseVersionId: aiVersionId,
+        tocTree: [{ nodeKey: 'n-1', title: 'Ⅰ. 개요', children: [] }],
+        confirm: true,
+      },
+    });
+    const confirmedVersionId = ((await confirmed.json()) as { data: { tocVersionId: string } }).data
+      .tocVersionId;
+
+    // Stale (non-current) toc version → 412.
+    const stale = await call('POST', `/api/v1/plans/${planId}/content-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: { contextSnapshotId: snapshotId, tocVersionId: aiVersionId },
+    });
+    expect(stale.status).toBe(412);
+
+    // Unknown protected block ids → 422 PLAN-422-002.
+    const badProtect = await call('POST', `/api/v1/plans/${planId}/content-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: {
+        contextSnapshotId: snapshotId,
+        tocVersionId: confirmedVersionId,
+        protectedBlockIds: [randomUUID()],
+      },
+    });
+    expect(badProtect.status).toBe(422);
+    expect(((await badProtect.json()) as { error: { code: string } }).error.code).toBe(
+      'PLAN-422-002',
+    );
+
+    // Node keys outside the outline → 422 PLAN-422-002 (semantic; format
+    // errors stay a controller 400 — review M-3/F1).
+    const badTarget = await call('POST', `/api/v1/plans/${planId}/content-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: {
+        contextSnapshotId: snapshotId,
+        tocVersionId: confirmedVersionId,
+        targetNodeKeys: ['n-9'],
+      },
+    });
+    expect(badTarget.status).toBe(422);
+    expect(((await badTarget.json()) as { error: { code: string } }).error.code).toBe(
+      'PLAN-422-002',
+    );
+
+    // Malformed node key → controller-level 400.
+    const malformed = await call('POST', `/api/v1/plans/${planId}/content-jobs`, tokenA, {
+      idempotencyKey: `key_${randomUUID()}`,
+      body: {
+        contextSnapshotId: snapshotId,
+        tocVersionId: confirmedVersionId,
+        targetNodeKeys: ['한글키'],
+      },
+    });
+    expect(malformed.status).toBe(400);
   });
 });

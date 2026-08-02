@@ -5,8 +5,8 @@
 적용된 마이그레이션에서 자동 생성된 데이터 사전이다 (G-DB 게이트 증거).
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
-- 테이블 수: 59
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls
+- 테이블 수: 60
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block
 
 ## api_idempotency
 
@@ -420,6 +420,50 @@
 | scan_status | character varying(20) | NN |  | PENDING/CLEAN/INFECTED |
 | created_by | uuid | NN |  | 등록자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+
+## generated_block
+
+본문 생성 블록(UNE-PLAN-016 산출물, 세대별 불변 + supersede)
+- 격리: RLS enforced (FORCE)
+- ck_generated_block_citations_array: CHECK ((jsonb_typeof(citations_json) = 'array'::text))
+- ck_generated_block_content_hash: CHECK ((content_hash ~ '^[0-9a-f]{64}$'::text))
+- ck_generated_block_generation_no: CHECK ((generation_no > 0))
+- ck_generated_block_outline_level: CHECK (((outline_level >= 1) AND (outline_level <= 6)))
+- ck_generated_block_protection_state: CHECK (((protection_state)::text = ANY ((ARRAY['NONE'::character varying, 'USER_LOCKED'::character varying, 'SYSTEM_LOCKED'::character varying])::text[])))
+- ck_generated_block_status: CHECK (((status)::text = ANY ((ARRAY['GENERATED'::character varying, 'FAILED'::character varying])::text[])))
+- ck_generated_block_supersede: CHECK (((superseded_by_block_id IS NULL) OR (superseded_at IS NOT NULL)))
+- fk_generated_block_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
+- fk_generated_block_plan_id: FOREIGN KEY (plan_id) REFERENCES plan(plan_id) DEFERRABLE INITIALLY DEFERRED
+- fk_generated_block_source_job_id: FOREIGN KEY (source_job_id) REFERENCES generation_job(job_id) DEFERRABLE INITIALLY DEFERRED
+- fk_generated_block_superseded_by_block_id: FOREIGN KEY (superseded_by_block_id) REFERENCES generated_block(block_id) DEFERRABLE INITIALLY DEFERRED
+- fk_generated_block_toc_version_id: FOREIGN KEY (toc_version_id) REFERENCES toc_version(toc_version_id) DEFERRABLE INITIALLY DEFERRED
+- generated_block_pkey: PRIMARY KEY (block_id)
+- 인덱스: generated_block_pkey, ix_generated_block_job, ix_generated_block_no_evidence, uk_generated_block_current, uk_generated_block_generation
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| block_id | uuid | NN | gen_random_uuid() | 생성 블록 |
+| plan_id | uuid | NN |  | 계획서 |
+| toc_version_id | uuid | NN |  | 생성 기준 목차 버전 |
+| node_key | character varying(80) | NN |  | 목차 노드 안정 ID |
+| generation_no | integer | NN |  | 세대 번호 |
+| source_job_id | uuid | - |  | 생성 Job |
+| block_type | character varying(30) | NN | 'PARAGRAPH'::character varying | PARAGRAPH/TABLE/... (IR 어휘 확정 전) |
+| outline_level | smallint | NN |  | 개요 수준 1~6 |
+| sort_order | integer | NN | 0 | 순서 |
+| title | character varying(500) | NN |  | 제목 |
+| text_content | text | NN | ''::text | 본문 텍스트 |
+| content_hash | character(64) | NN |  | SHA-256 |
+| citations_json | jsonb | NN | '[]'::jsonb | 인용/근거 배열 |
+| citation_count | integer | - | jsonb_array_length(citations_json) | 인용 수(생성 컬럼) |
+| status | character varying(20) | NN |  | GENERATED/FAILED |
+| protection_state | character varying(20) | NN | 'NONE'::character varying | NONE/USER_LOCKED/SYSTEM_LOCKED |
+| failure_json | jsonb | - |  | 실패 상세 |
+| superseded_at | timestamp with time zone | - |  | 대체 시각 |
+| superseded_by_block_id | uuid | - |  | 대체 블록 |
+| created_by | uuid | NN |  | 작성자 |
+| created_at | timestamp with time zone | NN | now() | 생성 |
+| updated_at | timestamp with time zone | NN | now() | 수정 |
 
 ## generation_job
 

@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- CC-130 (2026-08-02): T3Q RPT-002 CONTENT job + protected blocks.
+  UNE-PLAN-016 detailed to 009 parity (GenerationJobResponse 202, required
+  idempotency, targetNodeKeys scoped regeneration, protectedBlockIds
+  persisted as USER_LOCKED at request time, contentSummary on job result,
+  content.block/job.progress public SSE vocabulary; mock-server 19 routes,
+  baseline 10). Migration 0017 generated_block — 60th table justified as a
+  §3.3/x-db-tables vs §6.2 baseline gap (ADR-27 D2): immutable rows with
+  generation supersede (partial-unique current per plan+node_key, write
+  order supersede→insert→link), protection_state reusing the 0003
+  document_block vocabulary, citations_json + STORED citation_count +
+  no-evidence partial index, EXISTS-plan FORCE RLS, and a BEFORE UPDATE
+  trigger that blocks une_worker from touching protected rows or any
+  column outside the supersede set (STORED columns excluded from the
+  trigger diff — found by the DB agent: they are NULL in BEFORE triggers).
+  Worker: shared plan-jobs dispatch primitives extracted from plan-toc
+  (ADR-25 D12 settled — the duplication it targeted was worker-internal;
+  api↔worker package deferred with explicit closure criteria),
+  PlanJobPoller over both runners, ContentJobRunner with the same 3-tx
+  shape: B0 fail-closed on snapshot/toc hash drift + outline moved, provider
+  call outside transactions (sync JSON — assumed SSE framing stays off the
+  operational path behind UNE_T3Q_CONTENT_STREAM), B1 anchors by
+  position+normalized-title double match with WHOLE-response quarantine
+  (US-PLAN-012 E-02), re-checks protection at write time, discards
+  everything if the outline moved (supersededByOutlineChange), synthesizes
+  content.block events per block and throttled job.progress (US-PLAN-012
+  A-02 — timing honestly not real-time, ADR-27 D5). API: ContentJobService
+  (preconditions incl. current-toc-version pin, unknown protected ids 422,
+  2-layer idempotency), job-type-aware cancel/retry (plan revert +
+  audit action per type), active-job invariant made job-type agnostic and
+  TOC regeneration blocked while body blocks exist — new or retried
+  (ADR-27 D9); partial retry stays a NEW job (blockIds 400). Capability:
+  legacyContent → UNE_ADAPTER_READY (ADR-26 D7: 구현∧결선∧live spec).
+  Self-found defects fixed in-flight: toc_node tree rebuild needed ORDER BY
+  level (sort_order is sibling-scoped); supersede must precede insert
+  (transient double-current forbidden by the partial unique). Dual review
+  fixed same day (arch: BLOCKER scoped-regen coordinate corruption →
+  full-outline coordinate injection, discard-path plan stuck, manual
+  outline-save guard, 422 unification, PRESERVED hash payload, contract
+  sync, 11 minors; QA: PASS WITH CONDITIONS, all numbers independently
+  reproduced, F1~F5 + G1~G9 applied incl. CI pytest baseline). Suites:
+  domain 52, provider-adapters 67, contract-tests 38, db-integration 65,
+  worker 31, api 193, baseline 10. ADR-27;
+  docs/evidence/CC-130-t3q-content-job-verification.md.
+
 - CC-125 (2026-08-02): Dual Legacy/Target-v2 T3Q plan adapters behind one
   port. Unified T3qPlanProvider (t3q-plan-port.ts): complete operation
   vocabulary, TocCapable/ContentCapable mixins (semantic-edit family waits

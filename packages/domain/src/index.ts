@@ -5,3 +5,5 @@ export * from './plan/generation-job';
 export * from './plan/toc-tree';
 export * from './plan/toc-job-request';
 export * from './plan/content-draft';
+export * from './plan/generated-block';
+export * from './plan/content-job-request';

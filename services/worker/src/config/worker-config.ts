@@ -36,6 +36,10 @@ export interface WorkerConfig {
   planAdapter: T3qPlanAdapterKind;
   /** Present only when planAdapter === 'legacy-http'. */
   t3qHttp?: T3qHttpWorkerConfig;
+  /** RPT-002 transport mode. Default FALSE on purpose (ADR-27 D5): the SSE
+   * framing is a UNE assumption (OB-01) and stays off the operational path;
+   * this seam exists for the CC-400 real-contract verification. */
+  t3qContentStream: boolean;
 }
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -114,6 +118,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     mockScenariosEnabled: env.UNE_WORKER_MOCK_SCENARIOS === 'true',
     planAdapter,
     ...(t3qHttp ? { t3qHttp } : {}),
+    t3qContentStream: env.UNE_T3Q_CONTENT_STREAM === 'true',
   };
 }
 
