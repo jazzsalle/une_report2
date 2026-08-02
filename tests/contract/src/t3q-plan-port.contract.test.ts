@@ -8,11 +8,18 @@ import {
   TargetV2T3qPlanAdapter,
   describeRuntimeCapability,
   notSupported,
+  toContentGenerationRequest,
+  toEvidenceSearchRequest,
   toPlanContentData,
   toPlanTocData,
+  toSemanticEditRequest,
   toTocGenerationRequest,
+  toValidationRequest,
+  type T3qEvidenceSearchRequest,
   type T3qPlanProvider,
   type T3qPlanTocAdapter,
+  type T3qSemanticEditRequest,
+  type T3qValidationRequest,
 } from '@une/provider-adapters';
 import { ajvErrors, contractValidators } from './contract-loader';
 
@@ -48,6 +55,88 @@ const v2Context = {
 };
 
 const ctx = { correlationId: v2Context.correlationId };
+
+/** 확정(키 보유) 목차 — v2 content/validation 요청 매퍼 입력. */
+const outline = [
+  {
+    nodeKey: 'n-1',
+    title: 'Ⅰ. 추진 배경',
+    generationPolicy: { semanticRole: 'BACKGROUND', generationPolicy: 'GENERATE', required: true },
+    children: [
+      {
+        nodeKey: 'n-1-1',
+        title: '1. 폭염 피해 현황',
+        generationPolicy: { instruction: '최근 3년 온열질환자 통계를 요약' },
+      },
+    ],
+  },
+  { nodeKey: 'n-2', title: 'Ⅱ. 세부 추진계획' },
+];
+
+/** v2 provenance가 채워진 인용 — ADR-26 D4 슬롯(legacy 인용은 v2 요청에 태울 수 없음). */
+const v2Citation = {
+  sourceRef: 'cit-1f2e3d4c5b6a',
+  fileName: '2025_폭염종합대책.pdf',
+  page: '12',
+  excerpt: '무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.',
+  sourceId: 'src-9a8b7c6d5e4f',
+  documentId: 'f52b8d07-3a94-4c16-b0e8-6d7a91c25f43',
+  chunkId: 'chunk-0012-03',
+  score: 0.87,
+  retrievedAt: '2026-08-02T09:00:04+09:00',
+};
+
+const semanticEditRequests: Record<'range' | 'block' | 'section', T3qSemanticEditRequest> = {
+  range: {
+    planContext,
+    target: {
+      targetType: 'RANGE',
+      nodeKey: 'n-2',
+      blockKey: 'blk-1',
+      range: { start: 0, end: 15 },
+    },
+    instruction: '선택 구간을 개조식으로 다듬을 것',
+    selectedText: '무더위쉼터를 확대 운영한다.',
+    surroundingContext: { before: 'Ⅱ. 세부 추진계획', after: '부서별 역할은 아래와 같다.' },
+    preserveCitationIds: [v2Citation.sourceRef],
+    protectedBlockKeys: ['blk-protected'],
+  },
+  block: {
+    planContext,
+    target: { targetType: 'BLOCK', nodeKey: 'n-2', blockKey: 'blk-1' },
+    instruction: '블록 본문 전체를 문단부호 □로 정리할 것',
+  },
+  section: {
+    planContext,
+    target: { targetType: 'SECTION', nodeKey: 'n-2' },
+    instruction: '섹션 전체를 재구성하되 근거 인용은 유지할 것',
+    protectedBlockKeys: ['blk-protected'],
+  },
+};
+
+const evidenceRequest: T3qEvidenceSearchRequest = {
+  planContext,
+  query: '무더위쉼터 운영 기준과 최근 3년 온열질환자 통계',
+  topK: 5,
+  filters: { documentType: '지침', year: 2025 },
+  supportsBlockKeys: ['blk-1'],
+  referenceDocumentIds: [v2Citation.documentId],
+};
+
+const validationRequest: T3qValidationRequest = {
+  planContext,
+  validationTypes: ['SCHEMA', 'CITATION_COVERAGE', 'EXPRESSION_RULE'],
+  outline,
+  blocks: [
+    {
+      blockKey: 'blk-1',
+      nodeKey: 'n-2',
+      order: 0,
+      text: '무더위쉼터 1,240개소를 지정·운영하고 취약계층 방문 확인을 주 2회 시행',
+      citations: [v2Citation],
+    },
+  ],
+};
 
 const mockLegacy = new MockLegacyT3qPlanAdapter();
 const legacyHttp = new LegacyT3qPlanAdapter({ baseUrl: 'http://127.0.0.1:9', authMode: 'none' });
@@ -181,5 +270,73 @@ describe('mapper output ↔ contract schema (machine validation)', () => {
       contexthash_typo: 'x',
     };
     expect(validate(withTypo)).toBe(false);
+  });
+
+  // ── CC-135: 나머지 v2 요청 매퍼 4종도 같은 기계검증을 받는다. 목 전송기만
+  //    보는 매퍼라도 계약이 판정자다(대상 계약 미수락 — OB-10/OB-11). ──
+
+  it('toContentGenerationRequest output satisfies ContentGenerationRequest (ALL/SECTIONS)', () => {
+    const validate = v2.compile('ContentGenerationRequest');
+
+    const all = toContentGenerationRequest(planContext, outline, v2Context);
+    expect(validate(all), ajvErrors(validate)).toBe(true);
+    expect(all.generationScope).toBe('ALL');
+    expect(all.targetSectionIds).toBeUndefined();
+    // 목차 3노드가 전위순회 좌표(order 0..2)로 평탄화된다.
+    expect(all.outline.map((section) => section.sectionId)).toEqual(['n-1', 'n-1-1', 'n-2']);
+
+    const scoped = toContentGenerationRequest(planContext, outline, v2Context, {
+      targetNodeKeys: ['n-1-1'],
+      protectedBlockKeys: ['blk-user-edited-1'],
+    });
+    expect(validate(scoped), ajvErrors(validate)).toBe(true);
+    expect(scoped.generationScope).toBe('SECTIONS');
+    expect(scoped.targetSectionIds).toEqual(['n-1-1']);
+    expect(scoped.protectedBlockIds).toEqual(['blk-user-edited-1']);
+  });
+
+  it('toSemanticEditRequest output satisfies SemanticEditRequest (RANGE/BLOCK/SECTION)', () => {
+    const validate = v2.compile('SemanticEditRequest');
+    for (const [label, request] of Object.entries(semanticEditRequests)) {
+      const mapped = toSemanticEditRequest(request, v2Context);
+      expect(validate(mapped), `${label}: ${ajvErrors(validate)}`).toBe(true);
+      expect(mapped.target.targetType, label).toBe(request.target.targetType);
+      // RANGE만 range를 싣고, 나머지는 명시적 null(추측 금지).
+      expect(mapped.target.range === null, label).toBe(request.target.targetType !== 'RANGE');
+    }
+  });
+
+  it('toEvidenceSearchRequest output satisfies EvidenceSearchRequest', () => {
+    const validate = v2.compile('EvidenceSearchRequest');
+    const mapped = toEvidenceSearchRequest(evidenceRequest, v2Context);
+    expect(validate(mapped), ajvErrors(validate)).toBe(true);
+    expect(mapped.topK).toBe(5);
+    expect(mapped.supportsBlockIds).toEqual(['blk-1']);
+  });
+
+  it('toValidationRequest output satisfies ValidationRequest (v2 provenance 인용 포함)', () => {
+    const validate = v2.compile('ValidationRequest');
+    const mapped = toValidationRequest(validationRequest, v2Context);
+    expect(validate(mapped), ajvErrors(validate)).toBe(true);
+    expect(mapped.validationTypes).toEqual(['SCHEMA', 'CITATION_COVERAGE', 'EXPRESSION_RULE']);
+    // 인용 provenance가 실제로 실렸다(빈 배열로 통과하는 공허한 검증이 아님).
+    const citation = mapped.blocks[0].citations[0];
+    expect(citation.sourceId).toBe(v2Citation.sourceId);
+    expect(citation.page).toBe(12);
+    expect(citation.supportsBlockIds).toEqual(['blk-1']);
+  });
+
+  it('a typo field fails on EVERY v2 request mapper output (unevaluatedProperties 실효)', () => {
+    const outputs: [string, Record<string, unknown>][] = [
+      ['ContentGenerationRequest', toContentGenerationRequest(planContext, outline, v2Context)],
+      ['SemanticEditRequest', toSemanticEditRequest(semanticEditRequests.block, v2Context)],
+      ['EvidenceSearchRequest', toEvidenceSearchRequest(evidenceRequest, v2Context)],
+      ['ValidationRequest', toValidationRequest(validationRequest, v2Context)],
+    ];
+    for (const [schemaName, mapped] of outputs) {
+      const validate = v2.compile(schemaName);
+      expect(validate(mapped), `${schemaName} 정상: ${ajvErrors(validate)}`).toBe(true);
+      expect(validate({ ...mapped, contextHash_typo: 'x' }), `${schemaName} 오탈자`).toBe(false);
+    }
   });
 });

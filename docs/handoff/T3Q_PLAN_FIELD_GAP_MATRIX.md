@@ -90,6 +90,25 @@ PlanRequestBase까지 — 사유: 나머지는 기능 단위로 아래에 대응
   UNE 가정(픽스처 `.assumed.` 표기) — OB-01에서 확정.
 - v2 수락 여부: CR-001/002/003/004/009 = **OB-10**, CR-005/006 = **OB-11**,
   CR-007 = CONDITIONAL.
+- SSE 프레이밍(v2): 계약 응답 스키마가 `type: string`이라 프레임 구조를
+  고정하지 않는다. id==data.sequence·JSON data·주석형 heartbeat·
+  Last-Event-ID 재개(id>k 재생)는 **UNE 가정**(`target-v2-sse.assumed.ts`,
+  ADR-28 D5) — **OB-10**에서 확정. 취소 스트림 종결 이벤트(job.cancelled
+  부재 → job.failed(status CANCELLED) 가정)도 동일.
+- PARTIAL 종결성(v2): 계약 서술("일부 성공·일부 실패 또는 생성 중
+  부분결과")은 종결 여부가 모호 — UNE는 **비종결 fail-closed**로 판독
+  (폴링 계속, 예산 소진 시 TIMEOUT; ADR-28 D4). provider 진실은 **OB-10**.
+- v2 오류 코드 체계: 계약의 ErrorResponse.code는 개방 문자열이고 코드
+  카탈로그가 없다. UNE mock이 발행하는 `PLAN-V2-*` 코드 전량(404-001,
+  409-001~005, 422-002/003, 500-001)과 계약 예제의 422-001/500-002는
+  **전부 UNE 발명**이며 T3Q 정의 코드가 아니다(QA G-4). 어댑터의
+  T3Q_CONFLICT 매핑은 코드가 아닌 HTTP 409 기반이라 코드 확정과 무관.
+  protectedBlockIds의 id 공간(provider blockId ↔ UNE block UUID 바인딩)도
+  미확정 — **OB-10**/CC-150.
+- INSERT_BLOCK의 `targetId` 의미(신규 블록 id인지 null+payload.afterBlockId
+  인지)는 계약이 고정하지 않음 — 계약 예제와 UNE mock이 서로 다른(둘 다
+  스키마 유효한) 규약을 쓰며, 보호블록 재검사는 두 규약 모두에서 안전
+  (CC-135 계약 테스트 발견). 확정은 **OB-10**.
 
 ## 4. capability 상태 갱신 절차 (ADR-24)
 

@@ -11,7 +11,11 @@ import {
   tocTreeContentHash,
   type TocNodeDraft,
 } from '@une/domain';
-import { MockLegacyT3qPlanAdapter } from '@une/provider-adapters';
+import {
+  MockLegacyT3qPlanAdapter,
+  MockTargetV2Transport,
+  TargetV2T3qPlanAdapter,
+} from '@une/provider-adapters';
 import { loadWorkerConfig, type WorkerConfig } from '../config/worker-config';
 import { WorkerDatabase } from '../db/worker-database.service';
 import { TocJobRunner } from '../plan-toc/toc-job.runner';
@@ -70,8 +74,9 @@ describe.skipIf(!ADMIN_URL)('CC-130 CONTENT job runner e2e', () => {
   let config: WorkerConfig;
   let db: WorkerDatabase;
 
-  const newRunner = (adapter = new MockLegacyT3qPlanAdapter()): ContentJobRunner =>
-    new ContentJobRunner(db, adapter, config);
+  const newRunner = (
+    adapter: ConstructorParameters<typeof ContentJobRunner>[1] = new MockLegacyT3qPlanAdapter(),
+  ): ContentJobRunner => new ContentJobRunner(db, adapter, config);
 
   const insertFixture = async (c: Client, code: string): Promise<Fixture> => {
     const tenantId = (
@@ -502,6 +507,147 @@ describe.skipIf(!ADMIN_URL)('CC-130 CONTENT job runner e2e', () => {
       expect(job.status).toBe('CANCELLED');
       const plan = (await c.query(`SELECT status FROM plan WHERE plan_id=$1`, [fx.planId])).rows[0];
       expect(plan.status).toBe('OUTLINE_CONFIRMED'); // no blocks yet → back to confirmed
+    });
+  });
+
+  it('mock-target-v2 partial failure (review M-1): failed node writes NO row, previous generation stays current, audit counts failed', async () => {
+    const fx = await withClient(dbUrl, (c) => insertFixture(c, 'v2fail'));
+    // An earlier-generation UNPROTECTED block on n-2 — the failed round must
+    // neither supersede nor replace it.
+    const priorBlockId = await withClient(dbUrl, (c) =>
+      c
+        .query(
+          `INSERT INTO generated_block
+             (plan_id, toc_version_id, node_key, generation_no, outline_level, sort_order,
+              title, text_content, content_hash, status, protection_state, created_by)
+           VALUES ($1, $2, 'n-2', 1, 1, 3, 'Ⅱ. 대비 대책', '이전 세대 본문', $3,
+                   'GENERATED', 'NONE', $4)
+           RETURNING block_id`,
+          [fx.planId, fx.tocVersionId, 'b'.repeat(64), fx.userId],
+        )
+        .then((r) => r.rows[0].block_id as string),
+    );
+    const jobId = await withClient(dbUrl, (c) => enqueueJob(c, fx));
+
+    const adapter = new TargetV2T3qPlanAdapter({
+      transport: new MockTargetV2Transport({ failSectionIds: ['n-2'] }),
+      sleep: async () => {},
+    });
+    const summary = await newRunner(adapter).runOnce();
+    expect(summary).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+
+    await withClient(dbUrl, async (c) => {
+      const prior = (
+        await c.query(`SELECT superseded_at, text_content FROM generated_block WHERE block_id=$1`, [
+          priorBlockId,
+        ])
+      ).rows[0];
+      expect(prior.superseded_at).toBeNull(); // previous generation untouched
+      expect(prior.text_content).toBe('이전 세대 본문');
+      const n2Rows = (
+        await c.query(
+          `SELECT count(*)::int AS n FROM generated_block WHERE plan_id=$1 AND node_key='n-2'`,
+          [fx.planId],
+        )
+      ).rows[0];
+      expect(n2Rows.n).toBe(1); // NO new row for the failed node
+
+      const events = (
+        await c.query(
+          `SELECT event_type, payload_json FROM job_event WHERE job_id=$1 ORDER BY sequence_no`,
+          [jobId],
+        )
+      ).rows;
+      const failedEvent = events.find(
+        (e) => e.event_type === 'content.block' && e.payload_json.outcome === 'FAILED',
+      );
+      expect(failedEvent.payload_json).toMatchObject({
+        nodeKey: 'n-2',
+        reason: 'PROVIDER_TARGET_FAILED',
+      });
+      const completed = events.find((e) => e.event_type === 'job.completed');
+      expect(completed.payload_json).toMatchObject({ generated: 2, preserved: 0, failed: 1 });
+      const plan = (await c.query(`SELECT status FROM plan WHERE plan_id=$1`, [fx.planId])).rows[0];
+      expect(plan.status).toBe('EDITING');
+    });
+  });
+
+  it('mock-target-v2 CONTENT journey (CC-135): v2 trace bindings recorded, provenance persisted to citations_json, plan → EDITING', async () => {
+    const fx = await withClient(dbUrl, (c) => insertFixture(c, 'v2'));
+    const jobId = await withClient(dbUrl, (c) => enqueueJob(c, fx));
+
+    const adapter = new TargetV2T3qPlanAdapter({ sleep: async () => {} });
+    const summary = await newRunner(adapter).runOnce();
+    expect(summary).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+
+    await withClient(dbUrl, async (c) => {
+      const job = (
+        await c.query(`SELECT status, progress_pct FROM generation_job WHERE job_id=$1`, [jobId])
+      ).rows[0];
+      expect(job.status).toBe('COMPLETED');
+      expect(Number(job.progress_pct)).toBe(100);
+
+      // v2 trace bindings survive in provider.responded.rawRequest — the
+      // CC-130 review m-10 seam, now closed (ADR-28). Mock placeholders are
+      // visibly mock-only values, never real aggregates.
+      const events = (
+        await c.query(
+          `SELECT event_type, payload_json FROM job_event WHERE job_id=$1 ORDER BY sequence_no`,
+          [jobId],
+        )
+      ).rows;
+      const responded = events.find((e) => e.event_type === 'provider.responded');
+      expect(responded.payload_json).toMatchObject({
+        adapterId: 'mock-target-v2-1.0.1',
+        operation: 'content',
+      });
+      expect(responded.payload_json.rawRequest).toMatchObject({
+        schemaVersion: '2.0',
+        planId: fx.planId,
+        planContextSnapshotId: fx.snapshotId,
+        requestId: `${jobId}#1`,
+        documentId: 'une-mock:document:pending-cc150',
+        baseRevisionId: 'une-mock:revision:pending-cc150',
+        generationScope: 'ALL',
+      });
+      const requested = events.find((e) => e.event_type === 'provider.requested');
+      expect(requested.payload_json).toMatchObject({
+        variant: 'target-v2',
+        runtimeMode: 'mock', // AC "mock-only status visible" on the job trace
+      });
+      expect(events.filter((e) => e.event_type === 'content.block')).toHaveLength(3);
+
+      // v2 Citation provenance lands in citations_json (ADR-26 D4 slots;
+      // 0017 needs no migration — db-integration pins the catalog).
+      const blocks = (
+        await c.query(
+          `SELECT node_key, citation_count, citations_json, text_content
+           FROM generated_block WHERE plan_id=$1 AND superseded_at IS NULL ORDER BY sort_order`,
+          [fx.planId],
+        )
+      ).rows;
+      expect(blocks.map((b) => b.node_key)).toEqual(['n-1', 'n-1-1', 'n-2']);
+      // level-1 sections join two v2 blocks into one canonical text (ADR-28 D7)
+      expect(blocks[0].text_content).toContain('\n');
+      expect(blocks[0].citation_count).toBe(1);
+      expect(blocks[1].citation_count).toBe(1);
+      expect(blocks[2].citation_count).toBe(0); // deterministic no-evidence tail
+      const citation = blocks[0].citations_json[0];
+      expect(citation.sourceId).toMatch(/^src-/);
+      expect(citation.documentId).toBeTruthy();
+      expect(citation.chunkId).toMatch(/^chunk-\d{4}-\d{2}$/);
+      expect(typeof citation.score).toBe('number');
+      expect(citation.retrievedAt).toBeTruthy();
+
+      const completed = events.find((e) => e.event_type === 'job.completed');
+      expect(completed.payload_json).toMatchObject({
+        generated: 3,
+        preserved: 0,
+        failed: 0,
+        blocksWithoutEvidence: 1,
+      });
+      const plan = (await c.query(`SELECT status FROM plan WHERE plan_id=$1`, [fx.planId])).rows[0];
+      expect(plan.status).toBe('EDITING');
     });
   });
 });

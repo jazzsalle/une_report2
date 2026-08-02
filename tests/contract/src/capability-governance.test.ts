@@ -1,6 +1,11 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { T3Q_PLAN_FEATURE_CAPABILITIES } from '@une/provider-adapters';
+import {
+  T3Q_PLAN_FEATURE_CAPABILITIES,
+  TargetV2T3qPlanAdapter,
+  describeRuntimeFeature,
+  getPlanFeatureCapability,
+} from '@une/provider-adapters';
 import { loadYaml, readRepoFile, repoPath } from './contract-loader';
 
 /**
@@ -112,6 +117,65 @@ describe('T3Q capability governance', () => {
     expect(nonLocal).toEqual(contractKeys);
     for (const localId of Object.keys(UNE_LOCAL_IDS)) {
       expect(registryIds, `UNE-local id ${localId} still registered`).toContain(localId);
+    }
+  });
+
+  it('CC-135 mock 구현 완료가 CR-T3Q-* 상태를 승격시키지 못한다', () => {
+    // CC-135로 target-v2 전 기능의 어댑터·mock이 갖춰졌다. 구현 완성도는
+    // 승격 근거가 아니다(ADR-26 D7: 구현 ∧ 런타임 결선 ∧ live spec) — 대상
+    // 계약이 미수락인 한 상태는 MOCK_ONLY로 고정된다.
+    const implemented = T3Q_PLAN_FEATURE_CAPABILITIES.filter(
+      (entry) => entry.requestId.startsWith('CR-T3Q-') && entry.adapterImplemented,
+    );
+    expect(implemented.length, 'CC-135 이후 구현된 CR-T3Q-* 기능 수').toBeGreaterThanOrEqual(10);
+    for (const entry of implemented) {
+      expect(entry.mockAvailable, `${entry.featureId} mockAvailable`).toBe(true);
+      expect(entry.state, `${entry.featureId} (구현 완료 ≠ 승격)`).toBe('MOCK_ONLY');
+      expect(entry.providerEvidence, `${entry.featureId} provider 증거 없음`).toBeNull();
+      // 승격 차단 근거(열린 바인딩)가 실재해야 한다 — 근거 없는 고정은 governance가 아니다.
+      expect(entry.openBinding, `${entry.featureId} 바인딩`).not.toBeNull();
+      expect(open.has(entry.openBinding as string), `${entry.openBinding} 여전히 OPEN`).toBe(true);
+    }
+  });
+
+  it('provider가 보고한 capabilities는 레지스트리를 승격시키지 못한다 (ADR-28 D11)', async () => {
+    // 런타임 협상 결과가 정본을 바꿀 수 있다면 mock이 스스로를 T3Q 지원으로
+    // 승격시킬 수 있다. 실제 어댑터를 호출해 그 경로가 없음을 실측한다.
+    const adapter = new TargetV2T3qPlanAdapter();
+    const result = await adapter.discoverCapabilities({ correlationId: 'corr-capability-gov' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.providerBuild.startsWith('une-mock-'), result.data.providerBuild).toBe(true);
+    const advertised = Object.entries(result.data.features).filter(([, flag]) => flag);
+    expect(advertised.length, 'true로 보고된 기능이 실제로 존재').toBeGreaterThanOrEqual(7);
+    for (const [featureId] of advertised) {
+      const entry = getPlanFeatureCapability(featureId);
+      expect(entry, `${featureId} 레지스트리 등록`).toBeDefined();
+      expect(entry?.state, `${featureId}: provider 보고 true여도 등록 상태 불변`).toBe('MOCK_ONLY');
+    }
+  });
+
+  it('mock 어댑터의 세부 기능 상태가 사람이 읽는 줄에서 MOCK으로 드러난다 (CC-135 AC5)', () => {
+    const adapter = new TargetV2T3qPlanAdapter();
+    expect(adapter.runtimeMode).toBe('mock');
+    const featureIds = [
+      'semanticEdit',
+      'evidenceSearch',
+      'validation',
+      'jobStatus',
+      'jobSse',
+      'jobCancel',
+      'partialRetry',
+      'capabilityDiscovery',
+    ];
+    for (const featureId of featureIds) {
+      const line = describeRuntimeFeature(adapter, featureId);
+      expect(line, featureId).toContain(featureId);
+      expect(line, featureId).toContain('MOCK_ONLY');
+      expect(line, featureId).toContain('MOCK RUNTIME');
+      expect(line, featureId).toContain('실제 T3Q 지원 아님');
+      expect(line, featureId).not.toContain('live transport');
     }
   });
 

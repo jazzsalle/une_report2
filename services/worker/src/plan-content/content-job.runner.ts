@@ -48,6 +48,12 @@ const RAW_PAYLOAD_CAP = 200_000;
 /** job.progress throttle: every N blocks or 10 percentage points. */
 const PROGRESS_EVERY_BLOCKS = 10;
 
+/** Mock-only v2 aggregate placeholders (same values as toc-job.runner.ts —
+ * documentId/baseRevisionId do not exist in the UNE plan flow until CC-150;
+ * the une-mock: prefix is governance-blocked from any live transport). */
+const MOCK_V2_DOCUMENT_ID = 'une-mock:document:pending-cc150';
+const MOCK_V2_BASE_REVISION_ID = 'une-mock:revision:pending-cc150';
+
 /**
  * CONTENT job execution (CC-130, ADR-27; design 10 §4.2 RPT-002 row).
  * Same 3-tx shape as the TOC runner — dispatch / preconditions / provider
@@ -254,12 +260,36 @@ export class ContentJobRunner {
         {
           planContext: prepared.planContext,
           outline: prepared.providerOutline,
-          // NOTE(CC-135): when a target-v2 content adapter exists, the v2
-          // trace block (PlanRequestBase bindings) must be attached here —
-          // mirror toc-job.runner.ts (review m-10).
           // Assumed SSE framing (OB-01) stays off the operational path; the
           // sync-JSON response is the transcript-backed shape (ADR-27 D5).
           stream: this.config.t3qContentStream,
+          // v2 PlanRequestBase bindings from job context (CC-135, closes the
+          // CC-130 review m-10 seam) — adapters never invent them; legacy
+          // adapters ignore the block entirely. Same rules as
+          // toc-job.runner.ts: placeholders ONLY for a mock runtime, and
+          // requestId varies per attempt (v2 idempotency anchor — a retry is
+          // a NEW generation). protectedBlockKeys are NOT forwarded here:
+          // UNE block UUIDs have no provider blockId binding until CC-150
+          // (ADR-28) — protection is enforced UNE-side (B0/B1 + 0017 trigger).
+          ...(this.adapter.variant === 'target-v2'
+            ? {
+                trace: {
+                  planId: job.aggregateId,
+                  planContextSnapshotId: prepared.request.snapshotId,
+                  contextHash: prepared.request.contextHash,
+                  requestId: `${job.jobId}#${job.attemptNo}`,
+                  tenantId: job.tenantId,
+                  userId: prepared.request.requestedBy,
+                  ...(this.adapter.runtimeMode === 'mock'
+                    ? {
+                        documentId: MOCK_V2_DOCUMENT_ID,
+                        baseRevisionId: MOCK_V2_BASE_REVISION_ID,
+                      }
+                    : {}),
+                  requestedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
         },
         { correlationId: job.correlationId },
       );
@@ -374,13 +404,32 @@ export class ContentJobRunner {
 
       let generated = 0;
       let preserved = 0;
+      let failed = 0;
       let blocksWithoutEvidence = 0;
       let lastProgressPct = 10;
       const total = anchored.length;
+      // Provider-declared/observed target failures (v2 partial failure —
+      // review M-1): a failed node writes NO row and supersedes NOTHING,
+      // so the previous generation stays current; the failure is visible
+      // as a content.block outcome and in the job.completed counts
+      // (the vocabulary ADR-27 declared for exactly this).
+      const failedNodeKeys = new Set(result.data.failedNodeKeys ?? []);
 
       for (const [index, block] of anchored.entries()) {
         const existing = byNodeKey.get(block.nodeKey);
-        if (existing && existing.protectionState !== 'NONE') {
+        if (failedNodeKeys.has(block.nodeKey)) {
+          failed += 1;
+          await appendJobEvent(client, job.jobId, 'content.block', {
+            nodeKey: block.nodeKey,
+            blockId: existing?.blockId ?? null,
+            outcome: 'FAILED',
+            sortOrder: block.sortOrder,
+            outlineLevel: block.outlineLevel,
+            contentHash: null,
+            citationCount: null,
+            reason: 'PROVIDER_TARGET_FAILED',
+          });
+        } else if (existing && existing.protectionState !== 'NONE') {
           preserved += 1;
           // PRESERVED carries the EXISTING block's identity — a null hash
           // would be indistinguishable from FAILED (contract; review M-4/F3).
@@ -452,7 +501,7 @@ export class ContentJobRunner {
         tocVersionId: request.tocVersionId,
         generated,
         preserved,
-        failed: 0,
+        failed,
         blocksWithoutEvidence,
       });
       await updatePlanAfterJob(client, job.tenantId, job.aggregateId, {
@@ -470,6 +519,7 @@ export class ContentJobRunner {
           tocVersionId: request.tocVersionId,
           generated,
           preserved,
+          failed,
           blocksWithoutEvidence,
         },
       });

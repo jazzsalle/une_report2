@@ -1,4 +1,12 @@
-import type { ContentDraft, TocJobGenerationOption, TocNodeDraft } from '@une/domain';
+import type {
+  ContentCitationDraft,
+  ContentDraft,
+  EditProposalDraft,
+  EvidenceItemDraft,
+  TocJobGenerationOption,
+  TocNodeDraft,
+  ValidationReportDraft,
+} from '@une/domain';
 import {
   getPlanFeatureCapability,
   type PlanFeatureCapability,
@@ -45,6 +53,7 @@ export const T3Q_PLAN_ERROR_CODES = [
   'T3Q_MALFORMED_RESPONSE', // non-JSON, wrong content type, broken SSE framing
   'T3Q_RESPONSE_CONTRACT_VIOLATION', // response guard rejected the payload (raw preserved)
   'T3Q_CIRCUIT_OPEN', // process-local circuit breaker is open
+  'T3Q_CONFLICT', // 409 — cancel/retry on a terminal job, stale baseRevision (CC-135)
   'T3Q_NOT_SUPPORTED', // operation not implemented by this adapter/variant
   'MOCK_PROVIDER_ERROR', // mock scenario failure (test/demo only)
 ] as const;
@@ -129,14 +138,156 @@ export interface T3qContentRequest {
   outline: TocNodeDraft[];
   /** Legacy PlanContentData.stream flag; v2 always runs async jobs. */
   stream?: boolean;
+  /** Scoped regeneration targets (v2 generationScope=SECTIONS). Legacy
+   * adapters ignore this — UNE prunes the outline instead (ADR-27 D7). */
+  targetNodeKeys?: string[];
+  /** Protected block ids forwarded on the wire where the contract has the
+   * field (v2 ContentGenerationRequest.protectedBlockIds). MOCK-RUNTIME
+   * SEMANTICS ONLY (ADR-28): UNE block UUIDs ride as opaque strings — the
+   * provider-side id space binding is open (OB-10/CC-150). UNE-side triple
+   * enforcement (B0/B1 re-check + 0017 trigger) never depends on this. */
+  protectedBlockKeys?: string[];
   trace?: T3qPlanTrace;
 }
 
 export interface ContentGenerationPayload {
   sections: ContentDraft[];
+  /** v2 GenerationStatus.failedTargetIds surfaced to the caller (empty for
+   * legacy). Partiality lives HERE, never in a UNE job status (ADR-28 D4). */
+  failedNodeKeys?: string[];
 }
 
 export type T3qContentResult = T3qPlanResult<ContentGenerationPayload>;
+
+// ── CC-135 operation payloads (target-v2 mock; canonical-lite types are
+//    provisional per ADR-28 D3) ──
+
+export interface T3qSemanticEditTarget {
+  targetType: 'RANGE' | 'BLOCK' | 'SECTION';
+  /** v2 sectionId. Required for SECTION targets. */
+  nodeKey?: string;
+  /** v2 blockId. Required for RANGE/BLOCK targets. */
+  blockKey?: string;
+  /** Character range within the block text. Required for RANGE targets. */
+  range?: { start: number; end: number };
+}
+
+export interface T3qSemanticEditRequest {
+  planContext: Record<string, unknown>;
+  target: T3qSemanticEditTarget;
+  instruction: string;
+  selectedText?: string;
+  surroundingContext?: { before?: string; after?: string };
+  preserveCitationIds?: string[];
+  protectedBlockKeys?: string[];
+  trace?: T3qPlanTrace;
+}
+
+export type T3qSemanticEditResult = T3qPlanResult<EditProposalDraft>;
+
+export interface T3qEvidenceSearchRequest {
+  planContext: Record<string, unknown>;
+  query: string;
+  topK: number;
+  filters?: Record<string, unknown>;
+  supportsBlockKeys?: string[];
+  referenceDocumentIds?: string[];
+  trace?: T3qPlanTrace;
+}
+
+export interface EvidenceSearchPayload {
+  items: EvidenceItemDraft[];
+}
+
+export type T3qEvidenceSearchResult = T3qPlanResult<EvidenceSearchPayload>;
+
+/** The six validation kinds of CR-T3Q-006. The contract keeps issue.type an
+ * open string, so responses may carry kinds outside this list — canonical
+ * mapping preserves them verbatim. */
+export const T3Q_VALIDATION_TYPES = [
+  'SCHEMA',
+  'CITATION_COVERAGE',
+  'UNSUPPORTED_CLAIM',
+  'DUPLICATE_CONTENT',
+  'EXPRESSION_RULE',
+  'MISSING_REQUIRED_SECTION',
+] as const;
+
+export type T3qValidationType = (typeof T3Q_VALIDATION_TYPES)[number];
+
+/** UNE-side block snapshot handed to validation (maps onto v2 ContentBlock;
+ * blockType defaults to PARAGRAPH when the caller does not know it). */
+export interface T3qValidationBlockInput {
+  blockKey: string;
+  nodeKey: string;
+  order: number;
+  text: string;
+  citations: ContentCitationDraft[];
+  blockType?: 'PARAGRAPH' | 'BULLET' | 'TABLE' | 'NOTE' | 'CAPTION' | 'PLACEHOLDER';
+}
+
+export interface T3qValidationRequest {
+  planContext: Record<string, unknown>;
+  validationTypes: T3qValidationType[];
+  outline: TocNodeDraft[];
+  blocks: T3qValidationBlockInput[];
+  trace?: T3qPlanTrace;
+}
+
+export type T3qValidationResult = T3qPlanResult<ValidationReportDraft>;
+
+// ── Job lifecycle payloads (CR-T3Q-003; reported under the 'jobStatus'
+//    operation — the op vocabulary does not grow, ADR-28 D2) ──
+
+export const T3Q_JOB_STATUSES = [
+  'QUEUED',
+  'RUNNING',
+  'PARTIAL',
+  'COMPLETED',
+  'CANCELLED',
+  'FAILED',
+] as const;
+
+export type T3qJobStatus = (typeof T3Q_JOB_STATUSES)[number];
+
+export interface T3qJobStatusPayload {
+  /** Provider generationId — opaque to UNE, never a UNE job id. */
+  jobRef: string;
+  status: T3qJobStatus;
+  progress: number;
+  completedTargetIds: string[];
+  failedTargetIds: string[];
+}
+
+export interface T3qJobAcceptedPayload {
+  jobRef: string;
+  acceptedAt: string;
+}
+
+export interface T3qJobRetryRequest {
+  targetType: 'SECTION' | 'BLOCK';
+  targetIds: string[];
+  instructionOverride?: string;
+}
+
+/** One parsed SSE frame (v2 framing is a UNE ASSUMPTION — OB-10). */
+export interface T3qJobEventFrame {
+  /** SSE id == data.sequence; resume anchor for Last-Event-ID. */
+  id: number;
+  event: string;
+  data: Record<string, unknown>;
+}
+
+export interface T3qJobEventsPayload {
+  frames: T3qJobEventFrame[];
+}
+
+export interface ProviderCapabilitiesPayload {
+  providerBuild: string;
+  contractVersions: string[];
+  features: Record<string, boolean>;
+  limits: Record<string, unknown>;
+}
 
 // ── Port ──
 
@@ -186,6 +337,19 @@ export function describeRuntimeCapability(
     : `${base} — live transport (${provider.adapterId}; provider 미검증은 OPEN_BINDINGS 참조)`;
 }
 
+/** Same folding as describeRuntimeCapability, addressed by featureId — for
+ * the registry entries finer than the op vocabulary (jobSse/jobCancel/
+ * partialRetry/capabilityDiscovery, CC-135 AC "mock-only status visible"). */
+export function describeRuntimeFeature(provider: T3qPlanProvider, featureId: string): string {
+  const capability = getPlanFeatureCapability(featureId);
+  const base = capability
+    ? `${capability.featureId}: ${capability.state} (등록 상태)`
+    : `${featureId}: 레지스트리 미등록`;
+  return provider.runtimeMode === 'mock'
+    ? `${base} — 이 인스턴스는 MOCK RUNTIME (${provider.adapterId}; 실제 T3Q 지원 아님)`
+    : `${base} — live transport (${provider.adapterId}; provider 미검증은 OPEN_BINDINGS 참조)`;
+}
+
 export interface TocCapable {
   generateToc(request: T3qTocRequest, context: ProviderCallContext): Promise<T3qTocResult>;
 }
@@ -195,6 +359,56 @@ export interface ContentCapable {
     request: T3qContentRequest,
     context: ProviderCallContext,
   ): Promise<T3qContentResult>;
+}
+
+export interface SemanticEditCapable {
+  requestSemanticEdit(
+    request: T3qSemanticEditRequest,
+    context: ProviderCallContext,
+  ): Promise<T3qSemanticEditResult>;
+}
+
+export interface EvidenceSearchCapable {
+  searchEvidence(
+    request: T3qEvidenceSearchRequest,
+    context: ProviderCallContext,
+  ): Promise<T3qEvidenceSearchResult>;
+}
+
+export interface ValidationCapable {
+  validateContent(
+    request: T3qValidationRequest,
+    context: ProviderCallContext,
+  ): Promise<T3qValidationResult>;
+}
+
+/** CR-T3Q-003/009 job lifecycle + discovery. Every method reports under the
+ * 'jobStatus' operation (the op vocabulary stays closed — ADR-28 D2); the
+ * finer-grained featureIds (jobSse/jobCancel/partialRetry/
+ * capabilityDiscovery) are display concerns via describeRuntimeFeature. */
+export interface JobLifecycleCapable {
+  getJobStatus(
+    jobRef: string,
+    context: ProviderCallContext,
+  ): Promise<T3qPlanResult<T3qJobStatusPayload>>;
+  cancelJob(
+    jobRef: string,
+    reason: string | undefined,
+    context: ProviderCallContext,
+  ): Promise<T3qPlanResult<T3qJobStatusPayload>>;
+  retryJobTargets(
+    jobRef: string,
+    request: T3qJobRetryRequest,
+    context: ProviderCallContext,
+  ): Promise<T3qPlanResult<T3qJobAcceptedPayload>>;
+  streamJobEvents(
+    jobRef: string,
+    options: { lastEventId?: number },
+    context: ProviderCallContext,
+  ): Promise<T3qPlanResult<T3qJobEventsPayload>>;
+  discoverCapabilities(
+    context: ProviderCallContext,
+  ): Promise<T3qPlanResult<ProviderCapabilitiesPayload>>;
 }
 
 /** Feature-registry ids per operation and variant (capabilityFor backing). */

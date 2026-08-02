@@ -44,6 +44,26 @@ const trace = {
 
 const ctx = { correlationId: requestContext.correlationId };
 
+/** Full TargetV2Transport whose every method throws — proves the adapter
+ * fail-closes BEFORE anything reaches a live wire. */
+function rejectingLiveTransport(message: string) {
+  const reject = async (): Promise<unknown> => {
+    throw new Error(message);
+  };
+  return {
+    submitToc: reject,
+    submitContent: reject,
+    getStatus: reject,
+    streamEvents: reject,
+    cancelJob: reject,
+    retryJobTargets: reject,
+    requestSemanticEdit: reject,
+    searchEvidence: reject,
+    validateContent: reject,
+    getCapabilities: reject,
+  };
+}
+
 describe('toTocGenerationRequest', () => {
   it('fills every PlanRequestBase binding with constants injected per the gap matrix', () => {
     const request = toTocGenerationRequest(planContext, requestContext);
@@ -200,27 +220,31 @@ describe('TargetV2T3qPlanAdapter (202 → poll → COMPLETED against the in-proc
     }
   });
 
-  it('supports toc only; capability stays MOCK_ONLY (OB-10 unaccepted contract)', () => {
+  it('supports all six operations; every capability stays MOCK_ONLY (OB-10/11 unaccepted contract)', () => {
     const adapter = makeAdapter();
-    expect(adapter.supports('toc')).toBe(true);
-    expect(adapter.supports('content')).toBe(false);
-    expect(adapter.supports('semanticEdit')).toBe(false);
-    expect(adapter.capabilityFor('toc')?.state).toBe('MOCK_ONLY');
+    for (const operation of [
+      'toc',
+      'content',
+      'semanticEdit',
+      'evidenceSearch',
+      'validate',
+      'jobStatus',
+    ] as const) {
+      expect(adapter.supports(operation)).toBe(true);
+      expect(adapter.capabilityFor(operation)?.state).toBe('MOCK_ONLY');
+    }
     expect(adapter.runtimeMode).toBe('mock');
   });
 
   it('a LIVE transport rejects une-mock: placeholders fail-closed (review M2)', async () => {
     // Not the mock transport → runtimeMode 'live'. The placeholder must be
     // stopped by a MECHANISM, not by the absence of a real transport.
-    const liveTransport = {
-      submitToc: async (): Promise<unknown> => {
-        throw new Error('must never be called with placeholders');
-      },
-      getStatus: async (): Promise<unknown> => {
-        throw new Error('unreachable');
-      },
-    };
-    const adapter = new TargetV2T3qPlanAdapter({ transport: liveTransport, sleep: async () => {} });
+    const liveTransport = rejectingLiveTransport('must never be called with placeholders');
+    const adapter = new TargetV2T3qPlanAdapter({
+      transport: liveTransport,
+      allowLiveTransport: true,
+      sleep: async () => {},
+    });
     expect(adapter.runtimeMode).toBe('live');
     const result = await adapter.generateToc({ planContext, trace }, ctx);
     expect(result.ok).toBe(false);
@@ -231,15 +255,12 @@ describe('TargetV2T3qPlanAdapter (202 → poll → COMPLETED against the in-proc
   });
 
   it('a LIVE transport without placeholders still fail-closes on the missing bindings', async () => {
-    const liveTransport = {
-      submitToc: async (): Promise<unknown> => {
-        throw new Error('must not reach the wire without real bindings');
-      },
-      getStatus: async (): Promise<unknown> => {
-        throw new Error('unreachable');
-      },
-    };
-    const adapter = new TargetV2T3qPlanAdapter({ transport: liveTransport, sleep: async () => {} });
+    const liveTransport = rejectingLiveTransport('must not reach the wire without real bindings');
+    const adapter = new TargetV2T3qPlanAdapter({
+      transport: liveTransport,
+      allowLiveTransport: true,
+      sleep: async () => {},
+    });
     const { documentId: _d, baseRevisionId: _b, ...withoutPlaceholders } = trace;
     const result = await adapter.generateToc({ planContext, trace: withoutPlaceholders }, ctx);
     expect(result.ok).toBe(false);

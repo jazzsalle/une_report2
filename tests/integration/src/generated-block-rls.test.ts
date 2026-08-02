@@ -19,7 +19,16 @@ import {
  *   1) 테넌트 격리가 0016과 같은 EXISTS(plan) 정책으로 DB에서 닫힌다,
  *   2) 보호 블록(USER_LOCKED/SYSTEM_LOCKED)과 생성 이력이 워커 롤에 대해
  *      기제(트리거 + 권한)로 지켜진다 — 애플리케이션 약속이 아니라,
- *   3) 현재 블록 조회가 부분 유니크 인덱스 경로를 유지한다. */
+ *   3) 현재 블록 조회가 부분 유니크 인덱스 경로를 유지한다.
+ *
+ * CC-135(target-v2 mock) 회귀. v2 CONTENT 응답의 유일한 영속 산출물은
+ * `generated_block.citations_json`이다(ChangeProposal은 CC-150 ai_edit_proposal,
+ * ValidationIssue/Evidence는 CC-230 EvidenceSet 소유 — CC-135는 영속하지 않는다).
+ * v2 Citation은 legacy Reference에 없던 provenance 키
+ * (citationId/sourceId/documentId/chunkId/score/retrievedAt/supportsBlockIds)를
+ * 갖지만, 0017은 배열 여부만 닫고 원소 스키마는 열어 두었으므로 마이그레이션이
+ * 필요 없다. 아래 세 케이스가 그 판정을 실행 가능한 형태로 고정한다 — 원소 수준
+ * 제약이 나중에 추가되면 CC-135 매핑이 조용히 깨지는 것이 아니라 여기서 깨진다. */
 
 const TABLE = 'generated_block';
 /** EXPLAIN 케이스의 부피: 20 계획서 x 200 노드 x 2 세대(구/현재) = 8,000행.
@@ -85,6 +94,42 @@ async function inWorkerTx<T>(
     }
   });
 }
+
+/** une_app 트랜잭션(항상 ROLLBACK). CC-135 케이스는 픽스처 A의 "현재 블록 집합"
+ * 위에서 삽입을 확인하는데, 그 집합은 기존 citation_count/EXPLAIN 케이스의
+ * 단언 대상이기도 하다. 삽입을 트랜잭션에 가둬 기존 14케이스의 전제를 바꾸지
+ * 않는다(테스트 간 순서 의존을 만들지 않는다). */
+async function inAppTx<T>(
+  url: string,
+  tenantId: string,
+  fn: (c: Client) => Promise<T>,
+): Promise<T> {
+  return asRole(url, 'une_app', tenantId, async (c) => {
+    await c.query('BEGIN');
+    try {
+      return await fn(c);
+    } finally {
+      await c.query('ROLLBACK');
+    }
+  });
+}
+
+/** target-v2 계약(contracts/openapi/t3q-plan-api-change-request-v1.yaml,
+ * #/components/schemas/Citation)의 전체 키. required는 citationId/sourceId/
+ * documentId/fileName/excerpt/score/retrievedAt이고 page/chunkId는 nullable,
+ * supportsBlockIds는 문자열 배열이다. */
+const V2_CITATION_KEYS = [
+  'citationId',
+  'sourceId',
+  'documentId',
+  'fileName',
+  'page',
+  'chunkId',
+  'excerpt',
+  'score',
+  'supportsBlockIds',
+  'retrievedAt',
+];
 
 async function insertBlock(
   c: Client,
@@ -549,6 +594,168 @@ describe.skipIf(!ADMIN_URL)(
         /(Bitmap )?Index (Only )?Scan[^\n]*uk_generated_block_current/,
       );
       expect(explain, explain).not.toMatch(/Seq Scan on generated_block/);
+    });
+
+    it('stores a full target-v2 provenance citation array unchanged (CC-135)', async () => {
+      // CC-135 마이그레이션 불요 판정의 실행 증거 ①. v2 Citation 전체 키 + v2가
+      // 허용하는 null 조합(page/chunkId) + legacy 형태(page가 문자열)를 한 배열에
+      // 섞어 넣는다. 0017은 배열 여부만 닫으므로 셋 다 같은 컬럼에 공존하고,
+      // citation_count는 원소의 모양이 아니라 개수만 따른다.
+      const supportsBlockId = randomUUID();
+      const citations: unknown[] = [
+        {
+          citationId: randomUUID(),
+          sourceId: randomUUID(),
+          documentId: randomUUID(),
+          fileName: '2025_폭염종합대책.pdf',
+          page: 12,
+          chunkId: 'chunk-0012-03',
+          excerpt: '무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.',
+          score: 0.87,
+          supportsBlockIds: [supportsBlockId],
+          retrievedAt: '2026-08-02T09:24:31+09:00',
+        },
+        {
+          citationId: randomUUID(),
+          sourceId: randomUUID(),
+          documentId: randomUUID(),
+          fileName: '무더위쉼터_현황.xlsx',
+          page: null,
+          chunkId: null,
+          excerpt: '지정 현황 표',
+          score: 0.41,
+          supportsBlockIds: [],
+          retrievedAt: '2026-08-02T09:24:32+09:00',
+        },
+        // legacy RPT-002 Reference를 정규화한 ContentCitationDraft 형태
+        // (sourceRef + page가 문자열). v2와 원소 스키마가 다르지만 같은 배열에
+        // 들어간다 — 원소 수준 제약이 없다는 사실 자체가 마이그레이션 불요의 근거다.
+        { sourceRef: 'ref-1', fileName: '재난대응_지침.pdf', page: '3', excerpt: '발췌' },
+      ];
+
+      const row = await inAppTx(db.url, fxA.tenantId, async (c) => {
+        const blockId = await insertBlock(c, fxA, {
+          nodeKey: 'v2-provenance',
+          citations,
+          hash: HASH_B,
+        });
+        const res = await c.query(
+          `SELECT citation_count,
+                  jsonb_typeof(citations_json) AS kind,
+                  (SELECT array_agg(k ORDER BY k)
+                     FROM jsonb_object_keys(citations_json->0) k) AS first_keys,
+                  jsonb_typeof(citations_json->0->'page') AS page_kind,
+                  jsonb_typeof(citations_json->1->'page') AS null_page_kind,
+                  jsonb_typeof(citations_json->1->'chunkId') AS null_chunk_kind,
+                  jsonb_typeof(citations_json->2->'page') AS legacy_page_kind,
+                  jsonb_typeof(citations_json->0->'supportsBlockIds') AS supports_kind,
+                  citations_json->0->>'score' AS score,
+                  citations_json->0->>'retrievedAt' AS retrieved_at,
+                  citations_json->0->'supportsBlockIds'->>0 AS supports_first
+             FROM generated_block WHERE block_id = $1`,
+          [blockId],
+        );
+        return res.rows[0];
+      });
+
+      expect(row.kind).toBe('array');
+      // 생성 컬럼은 원소 수만 센다(스키마 무관).
+      expect(row.citation_count).toBe(citations.length);
+      expect(row.first_keys).toEqual([...V2_CITATION_KEYS].sort());
+      // jsonb는 원소 타입을 보존한다: v2의 정수 page/배열 supportsBlockIds,
+      // null 슬롯, legacy의 문자열 page가 각각 그대로 왕복한다.
+      expect(row.page_kind).toBe('number');
+      expect(row.null_page_kind).toBe('null');
+      expect(row.null_chunk_kind).toBe('null');
+      expect(row.legacy_page_kind).toBe('string');
+      expect(row.supports_kind).toBe('array');
+      expect(row.supports_first).toBe(supportsBlockId);
+      expect(row.score).toBe('0.87');
+      expect(row.retrieved_at).toBe('2026-08-02T09:24:31+09:00');
+    });
+
+    it('keeps an empty v2 citation array on the no-evidence index path (CC-135)', async () => {
+      // 마이그레이션 불요 판정의 실행 증거 ②. v2 CONTENT 응답이 인용 0건으로
+      // 오는 경우(근거 미첨부 초안)는 기존 감사 경로와 완전히 같은 형상이어야
+      // 한다: citation_count=0이고, ix_generated_block_no_evidence 부분 인덱스가
+      // 그대로 잡는다. EXPLAIN 핀은 기존 케이스와 동일한 술어/동일한 기대값이다.
+      const pin = await inAppTx(db.url, fxA.tenantId, async (c) => {
+        const blockId = await insertBlock(c, fxA, {
+          nodeKey: 'v2-empty',
+          citations: [],
+          hash: HASH_B,
+        });
+        const counted = await c.query(
+          `SELECT citation_count, jsonb_typeof(citations_json) AS kind
+             FROM generated_block WHERE block_id = $1`,
+          [blockId],
+        );
+        const audit = await c.query(
+          `SELECT block_id FROM generated_block
+            WHERE plan_id = $1 AND superseded_at IS NULL AND citation_count = 0`,
+          [fxA.planId],
+        );
+        const explained = await c.query(
+          `EXPLAIN SELECT block_id FROM generated_block
+            WHERE plan_id = $1 AND superseded_at IS NULL AND citation_count = 0`,
+          [fxA.planId],
+        );
+        return {
+          blockId,
+          count: counted.rows[0].citation_count,
+          kind: counted.rows[0].kind,
+          found: audit.rows.map((r) => r.block_id as string),
+          plan: explained.rows.map((r) => r['QUERY PLAN'] as string).join('\n'),
+        };
+      });
+      expect(pin.kind).toBe('array');
+      expect(pin.count).toBe(0);
+      // 픽스처 A의 다른 두 현재 블록은 인용이 1건이므로, 감사 질의에 걸리는 것은
+      // 방금 넣은 빈 배열 블록뿐이다.
+      expect(pin.found).toEqual([pin.blockId]);
+      expect(pin.plan, pin.plan).toContain('ix_generated_block_no_evidence');
+      expect(pin.plan, pin.plan).not.toMatch(/Seq Scan on generated_block/);
+    });
+
+    it('leaves citation element provenance schemaless in the catalog (CC-135 migration-free evidence)', async () => {
+      // 마이그레이션 불요 판정의 실행 증거 ③(카탈로그). citations_json에 걸린
+      // 통제는 배열 여부 하나뿐이고, 생성 컬럼과 부분 인덱스는 길이/NULL 여부만
+      // 본다. 셋 중 하나라도 원소 키를 들여다보게 바뀌면 CC-135의 v2 provenance
+      // 적재가 스키마 변경을 요구하게 되므로, 그 순간 이 케이스가 실패한다.
+      const catalog = await withClient(db.url, async (c) => {
+        const constraints = await c.query(
+          `SELECT conname, pg_get_constraintdef(oid) AS def
+             FROM pg_constraint
+            WHERE conrelid = 'generated_block'::regclass
+              AND pg_get_constraintdef(oid) LIKE '%citations_json%'
+            ORDER BY conname`,
+        );
+        const generated = await c.query(
+          `SELECT a.attgenerated, pg_get_expr(d.adbin, d.adrelid) AS expr
+             FROM pg_attribute a
+             JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            WHERE a.attrelid = 'generated_block'::regclass AND a.attname = 'citation_count'`,
+        );
+        const index = await c.query(
+          `SELECT pg_get_expr(i.indpred, i.indrelid) AS pred
+             FROM pg_index i JOIN pg_class c2 ON c2.oid = i.indexrelid
+            WHERE c2.relname = 'ix_generated_block_no_evidence'`,
+        );
+        return {
+          constraints: constraints.rows,
+          generated: generated.rows[0],
+          pred: index.rows[0].pred as string,
+        };
+      });
+
+      expect(catalog.constraints.map((r) => r.conname)).toEqual([
+        'ck_generated_block_citations_array',
+      ]);
+      expect(catalog.constraints[0].def).toContain(`jsonb_typeof(citations_json) = 'array'`);
+      expect(catalog.generated.attgenerated).toBe('s'); // STORED
+      expect(catalog.generated.expr).toContain('jsonb_array_length(citations_json)');
+      expect(catalog.pred).toContain('superseded_at IS NULL');
+      expect(catalog.pred).toContain('citation_count = 0');
     });
   },
 );

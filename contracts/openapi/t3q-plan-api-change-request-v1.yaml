@@ -14,6 +14,10 @@ info:
 
     편집 로그: 2026-08-02 CC-125 — 예제 2건 추가(cancelGenerationJob 요청,
     getGenerationJob COMPLETED 응답), 스키마·필드 무변경, 버전 미상향 (ADR-26 D10).
+
+
+    2026-08-02 CC-135 — 응답측 예제 확충(semanticEdit/evidence/validate/cancel/getJob/SSE/multipart)
+    + 면제 2건 종결, capabilities 예제 mock 동기, 스키마·필드 무변경, 버전 미상향 (ADR-24 R2 / ADR-26 D10).
 servers:
   - url: https://plf.mois-disaster.t3q.ai
     description: Candidate host from current v0.8.5 specification; final binding is OPEN.
@@ -188,7 +192,184 @@ paths:
       responses:
         '200':
           description: Change proposal
-          content: { application/json: { schema: { $ref: '#/components/schemas/ChangeProposal' } } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangeProposal' }
+              # 세 예제 합산으로 operationType 어휘 4종(REPLACE_RANGE/REPLACE_BLOCK/
+              # INSERT_BLOCK/DELETE_BLOCK)이 전수 등장한다. baseRevisionId는 요청값을
+              # 그대로 에코하고, preserveCitationIds로 지정된 인용은 citations에 보존된다.
+              # 보호 블록(protectedBlockIds)은 어떤 예제에서도 targetId/proposedBlocks에
+              # 나타나지 않는다 — 재생성 금지 규칙의 계약 수준 증명.
+              examples:
+                range:
+                  summary: RANGE 편집 — 선택 구간만 교체
+                  value:
+                    proposalId: 2a7f60d3-8b14-4e95-a013-5c6d9f28e7b1
+                    baseRevisionId: 0a3e7c94-5b18-4d62-af07-93c1e6b2d580
+                    operations:
+                      - operationType: REPLACE_RANGE
+                        targetId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                        payload:
+                          range: { start: 0, end: 15 }
+                          text: 무더위쉼터 1,240개소 지정·운영
+                    proposedBlocks:
+                      - blockId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                        sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                        blockType: BULLET
+                        order: 0
+                        text: 무더위쉼터 1,240개소 지정·운영, 취약계층 방문 확인 주 2회 시행
+                        structuredData: null
+                        citations:
+                          - citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                            sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                            documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                            fileName: 2025_폭염종합대책.pdf
+                            page: 12
+                            chunkId: chunk-0012-03
+                            excerpt: 무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.
+                            score: 0.87
+                            supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                            retrievedAt: '2026-08-02T09:12:04+09:00'
+                        warnings: []
+                        status: GENERATED
+                        contentHash: 5c9b1e04a7d36f28b0e15a9c4d7f3021e6b8a54c9f0d2e71a3b6c8d05e4f9271
+                    citations:
+                      - citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                        sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                        documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                        fileName: 2025_폭염종합대책.pdf
+                        page: 12
+                        chunkId: chunk-0012-03
+                        excerpt: 무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.
+                        score: 0.87
+                        supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                        retrievedAt: '2026-08-02T09:12:04+09:00'
+                    warnings: []
+                block:
+                  summary: BLOCK 편집 — 블록 본문 전체 교체
+                  value:
+                    proposalId: 6d13c85f-90a2-4b47-8e60-3a1f7c25d9e8
+                    baseRevisionId: 0a3e7c94-5b18-4d62-af07-93c1e6b2d580
+                    operations:
+                      - operationType: REPLACE_BLOCK
+                        targetId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                        payload:
+                          text: □ 무더위쉼터 1,240개소 지정·운영(읍면동별 1개소 이상)
+                    proposedBlocks:
+                      - blockId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                        sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                        blockType: BULLET
+                        order: 0
+                        text: □ 무더위쉼터 1,240개소 지정·운영(읍면동별 1개소 이상)
+                        structuredData: null
+                        citations:
+                          - citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                            sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                            documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                            fileName: 2025_폭염종합대책.pdf
+                            page: 12
+                            chunkId: chunk-0012-03
+                            excerpt: 무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.
+                            score: 0.87
+                            supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                            retrievedAt: '2026-08-02T09:13:07+09:00'
+                        warnings: []
+                        status: GENERATED
+                        contentHash: 9f27c1b58e0a4d6329b7f05c8a1e3d94062b7c5a8f1d0e93b46c27a05d8f1e63
+                    citations:
+                      - citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                        sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                        documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                        fileName: 2025_폭염종합대책.pdf
+                        page: 12
+                        chunkId: chunk-0012-03
+                        excerpt: 무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.
+                        score: 0.87
+                        supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                        retrievedAt: '2026-08-02T09:13:07+09:00'
+                    warnings: [표현규칙 문단부호 '□'를 적용했습니다.]
+                section:
+                  summary: SECTION 편집 — 교체·삽입·삭제 혼합
+                  value:
+                    proposalId: 84b0e2a5-7c39-4d16-9f52-0e8a3b6c1d74
+                    baseRevisionId: 0a3e7c94-5b18-4d62-af07-93c1e6b2d580
+                    operations:
+                      - operationType: REPLACE_BLOCK
+                        targetId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                        payload:
+                          text: □ 무더위쉼터 1,240개소 지정·운영(읍면동별 1개소 이상)
+                      - operationType: INSERT_BLOCK
+                        targetId: 5f6a2b90-1c78-4d35-9e04-8b3c7a1f2069
+                        payload:
+                          afterBlockId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                          sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                      - operationType: DELETE_BLOCK
+                        targetId: d18c4f72-6e50-4a93-b127-3f9e05c8b4a6
+                        payload:
+                          reason: 상위 블록과 중복된 서술이라 삭제를 제안함
+                    proposedBlocks:
+                      - blockId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                        sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                        blockType: BULLET
+                        order: 0
+                        text: □ 무더위쉼터 1,240개소 지정·운영(읍면동별 1개소 이상)
+                        structuredData: null
+                        citations:
+                          - citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                            sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                            documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                            fileName: 2025_폭염종합대책.pdf
+                            page: 12
+                            chunkId: chunk-0012-03
+                            excerpt: 무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.
+                            score: 0.87
+                            supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                            retrievedAt: '2026-08-02T09:14:22+09:00'
+                        warnings: []
+                        status: GENERATED
+                        contentHash: 3e81a05c7b2f4d69018e5a3c9b7d04f2618a5c07d3b9e46f21c8a05d73b9e4c
+                      - blockId: 5f6a2b90-1c78-4d35-9e04-8b3c7a1f2069
+                        sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                        blockType: BULLET
+                        order: 1
+                        text: □ 폭염특보 발효 시 취약계층 안부 확인 주 2회 → 일 1회로 강화
+                        structuredData: null
+                        citations:
+                          - citationId: 47e1b8a2-6f30-4c95-8d71-2b0a5e9c3f68
+                            sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                            documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                            fileName: 2025_폭염종합대책.pdf
+                            page: 7
+                            chunkId: chunk-0007-01
+                            excerpt: 폭염특보 발효 시 안부 확인 주기를 일 1회로 강화한다.
+                            score: 0.91
+                            supportsBlockIds: [5f6a2b90-1c78-4d35-9e04-8b3c7a1f2069]
+                            retrievedAt: '2026-08-02T09:14:22+09:00'
+                        warnings: []
+                        status: GENERATED
+                        contentHash: c40d7b19e5a832f6084b1d7e59c30a6b2f84d17e05c396ab2d70f8e14c9b653a
+                    citations:
+                      - citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                        sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                        documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                        fileName: 2025_폭염종합대책.pdf
+                        page: 12
+                        chunkId: chunk-0012-03
+                        excerpt: 무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.
+                        score: 0.87
+                        supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                        retrievedAt: '2026-08-02T09:14:22+09:00'
+                      - citationId: 47e1b8a2-6f30-4c95-8d71-2b0a5e9c3f68
+                        sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                        documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                        fileName: 2025_폭염종합대책.pdf
+                        page: 7
+                        chunkId: chunk-0007-01
+                        excerpt: 폭염특보 발효 시 안부 확인 주기를 일 1회로 강화한다.
+                        score: 0.91
+                        supportsBlockIds: [5f6a2b90-1c78-4d35-9e04-8b3c7a1f2069]
+                        retrievedAt: '2026-08-02T09:14:22+09:00'
+                    warnings: [삭제 제안 블록은 사용자 승인 후에만 적용됩니다.]
         '409': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
   /model-api/{modelId}/v2/reports/plan/evidence/search:
@@ -245,6 +426,44 @@ paths:
                 properties:
                   requestId: { type: string }
                   items: { type: array, items: { $ref: '#/components/schemas/Citation' } }
+              # 근거 항목은 score 내림차순으로 반환하고, page/chunkId로 출처 위치를
+              # 특정한다(chunkId는 chunk-<page 4자리>-<chunk 2자리> 형식 가정).
+              # retrievedAt은 요청 requestedAt 직후 시각이며, requestId는 요청값 에코.
+              examples:
+                default:
+                  value:
+                    requestId: 9a06f3b1-7c28-4e50-8d97-4b1e6c3a0f25
+                    items:
+                      - citationId: 47e1b8a2-6f30-4c95-8d71-2b0a5e9c3f68
+                        sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                        documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                        fileName: 2025_폭염종합대책.pdf
+                        page: 7
+                        chunkId: chunk-0007-01
+                        excerpt: 폭염특보 발효 시 안부 확인 주기를 일 1회로 강화한다.
+                        score: 0.91
+                        supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                        retrievedAt: '2026-08-02T09:18:02+09:00'
+                      - citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                        sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                        documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                        fileName: 2025_폭염종합대책.pdf
+                        page: 12
+                        chunkId: chunk-0012-03
+                        excerpt: 무더위쉼터는 읍면동별 1개소 이상 지정하여 운영한다.
+                        score: 0.87
+                        supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                        retrievedAt: '2026-08-02T09:18:02+09:00'
+                      - citationId: 91c5d4f8-2a67-4e03-b58c-7d0e6a94b125
+                        sourceId: 8b3f0c72-4d91-4e26-a5d8-0f7c1b6e9243
+                        documentId: f52b8d07-3a94-4c16-b0e8-6d7a91c25f43
+                        fileName: 2025_폭염종합대책.pdf
+                        page: 23
+                        chunkId: chunk-0023-05
+                        excerpt: 최근 3년간 온열질환자는 연평균 1,830명으로 집계되었다.
+                        score: 0.74
+                        supportsBlockIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                        retrievedAt: '2026-08-02T09:18:03+09:00'
         '422': { $ref: '#/components/responses/Error' }
   /model-api/{modelId}/v2/reports/plan/validate:
     post:
@@ -326,6 +545,37 @@ paths:
                 properties:
                   valid: { type: boolean }
                   issues: { type: array, items: { $ref: '#/components/schemas/ValidationIssue' } }
+              # ERROR가 하나라도 있으면 valid=false. severity 3종을 한 예제에서
+              # 모두 보여 UNE 편집기의 이슈 표시 등급을 계약 수준에서 고정한다.
+              examples:
+                invalid:
+                  value:
+                    valid: false
+                    issues:
+                      - issueId: iss-0001
+                        type: MISSING_REQUIRED_SECTION
+                        severity: ERROR
+                        message: 필수 섹션 '1. 추진 배경'의 본문 블록이 없습니다.
+                        sectionId: 3c9a1f45-7b02-4e68-9d13-5a8c2e0b7f36
+                        blockId: null
+                        citationId: null
+                        suggestedAction: 해당 섹션에 대해 content 생성을 SECTIONS 범위로 재요청하십시오.
+                      - issueId: iss-0002
+                        type: CITATION_COVERAGE
+                        severity: WARNING
+                        message: 통계 수치를 포함한 블록에 인용 근거가 연결되지 않았습니다.
+                        sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                        blockId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                        citationId: null
+                        suggestedAction: evidence/search로 근거를 검색해 citations에 연결하십시오.
+                      - issueId: iss-0003
+                        type: EXPRESSION_RULE
+                        severity: INFO
+                        message: 문단부호 '□'가 적용되지 않은 개조식 문장이 있습니다.
+                        sectionId: e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                        blockId: 7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79
+                        citationId: c0a6b3d9-5e17-4f42-8b90-2d6c1a8e7350
+                        suggestedAction: expressionRule.paragraphSymbol을 적용해 본문을 정리하십시오.
   /model-api/{modelId}/v2/generation-jobs/{generationId}:
     get:
       tags: [GenerationJob]
@@ -339,7 +589,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/GenerationStatus' }
+              # status 어휘 중 폴링으로 관측되는 4종(RUNNING/PARTIAL/COMPLETED/FAILED)을
+              # 예제로 고정한다. QUEUED는 202 GenerationAccepted, CANCELLED는 cancel 응답 참조.
               examples:
+                running:
+                  value:
+                    generationId: c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248
+                    status: RUNNING
+                    progress: 45
+                    completedTargetIds: [3c9a1f45-7b02-4e68-9d13-5a8c2e0b7f36]
+                    failedTargetIds: []
+                    warnings: []
+                    error: null
+                    updatedAt: '2026-08-02T09:06:18+09:00'
                 partial:
                   value:
                     generationId: c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248
@@ -389,6 +651,24 @@ paths:
                     warnings: []
                     error: null
                     updatedAt: '2026-08-02T09:09:15+09:00'
+                failed:
+                  value:
+                    generationId: c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248
+                    status: FAILED
+                    progress: 30
+                    completedTargetIds: []
+                    failedTargetIds:
+                      - 3c9a1f45-7b02-4e68-9d13-5a8c2e0b7f36
+                      - e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304
+                    warnings: []
+                    error:
+                      code: PLAN-V2-500-002
+                      message: 생성 모델 호출이 연속 실패하여 작업을 종료했습니다.
+                      retryable: true
+                      field: null
+                      correlationId: 1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18
+                      details: { attempts: 3, lastProviderStatus: 503 }
+                    updatedAt: '2026-08-02T09:06:55+09:00'
         '404': { $ref: '#/components/responses/Error' }
   /model-api/{modelId}/v2/generation-jobs/{generationId}/events:
     get:
@@ -404,7 +684,34 @@ paths:
       responses:
         '200':
           description: text/event-stream; events include job.started, toc.section, content.block, job.warning, job.completed, job.failed, heartbeat
-          content: { text/event-stream: { schema: { type: string } } }
+          content:
+            text/event-stream:
+              schema: { type: string }
+              # 프레이밍은 UNE 가정(OB-10) — 계약은 event 이름만 서술로 고정한다.
+              # 아래 전사는 프레임 배치·필드 구성을 보여주는 UNE 측 예시이며,
+              # id 채번 규칙·heartbeat 주기·재연결(Last-Event-ID) 세부는 확정되지 않았다.
+              # 스키마가 type: string이므로 예제도 SSE 전사 문자열 1건이다.
+              examples:
+                transcript:
+                  summary: UNE 측 프레이밍 예시 — 프레임 구조는 UNE 가정(OB-10)
+                  description: >-
+                    계약이 고정하는 것은 event 이름뿐이다. id==data.sequence,
+                    JSON data, 주석형 heartbeat, Last-Event-ID 재개 규칙은 UNE가
+                    요청하는 가정이며 provider 확정값이 아니다.
+                  value: |-
+                    id: 1
+                    event: job.started
+                    data: {"generationId":"c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248","sequence":1,"startedAt":"2026-08-02T09:05:02+09:00"}
+
+                    : heartbeat
+
+                    id: 2
+                    event: content.block
+                    data: {"sequence":2,"block":{"blockId":"7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79","sectionId":"e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304","blockType":"BULLET","order":0,"text":"□ 무더위쉼터 1,240개소 지정·운영(읍면동별 1개소 이상)","structuredData":null,"citations":[],"warnings":[],"status":"GENERATED"}}
+
+                    id: 3
+                    event: job.completed
+                    data: {"sequence":3,"status":"COMPLETED","progress":100,"completedTargetIds":["e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304"],"failedTargetIds":[],"updatedAt":"2026-08-02T09:05:44+09:00"}
   /model-api/{modelId}/v2/generation-jobs/{generationId}/cancel:
     post:
       tags: [GenerationJob]
@@ -424,11 +731,25 @@ paths:
                   reason: 사용자가 계획서 범위를 변경하여 진행 중인 생성을 중단함
       responses:
         '200':
-          {
-            description: Cancel accepted,
-            content:
-              { application/json: { schema: { $ref: '#/components/schemas/GenerationStatus' } } },
-          }
+          description: Cancel accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationStatus' }
+              # 취소는 진행분을 폐기하지 않는다: 취소 시점까지 완료된 대상은
+              # completedTargetIds에 그대로 남고, 취소 자체는 실패가 아니므로
+              # failedTargetIds는 비고 error는 null이다.
+              examples:
+                cancelled:
+                  summary: 취소는 실패가 아니며 진행분(completedTargetIds)을 보존한다
+                  value:
+                    generationId: c9e14a70-6d2b-4f83-9c05-1a7e6b3d0248
+                    status: CANCELLED
+                    progress: 60
+                    completedTargetIds: [e70b5d28-4c91-4a37-b6f0-2d9a1c8e5304]
+                    failedTargetIds: []
+                    warnings: [사용자 취소로 잔여 대상 생성이 중단되었습니다.]
+                    error: null
+                    updatedAt: '2026-08-02T09:08:31+09:00'
         '409': { $ref: '#/components/responses/Error' }
   /model-api/{modelId}/v2/generation-jobs/{generationId}/retry:
     post:
@@ -450,9 +771,10 @@ paths:
                 instructionOverride: { type: string, maxLength: 2000 }
             examples:
               default:
+                summary: 실패한 섹션 단위 부분 재시도 (UNE mock은 SECTION만 구현 — BLOCK은 요청 명세용)
                 value:
-                  targetType: BLOCK
-                  targetIds: [7a41e9c6-0b58-4d23-9f86-1c3d5b0a2e79]
+                  targetType: SECTION
+                  targetIds: [3c9a1f45-7b02-4e68-9d13-5a8c2e0b7f36]
                   instructionOverride: 인용 근거를 포함해 다시 생성할 것
       responses:
         '202': { $ref: '#/components/responses/GenerationAccepted' }
@@ -475,6 +797,16 @@ paths:
                 planId: { type: string }
                 documentType: { type: string }
                 metadataJson: { type: string }
+            # CONDITIONAL(CR-T3Q-007) — mock 미구현이며, 이 예제는 요청 명세용이다.
+            # file 파트는 바이너리이므로 전사 가능한 플레이스홀더 문자열로 표기한다
+            # (실제 전송은 multipart 바이너리 파트).
+            examples:
+              default:
+                value:
+                  file: '(binary: 2025_폭염종합대책.pdf)'
+                  planId: 2d47b8e1-0c95-4f36-a7d2-6b13e8f5c904
+                  documentType: 지침
+                  metadataJson: '{"documentId":"f52b8d07-3a94-4c16-b0e8-6d7a91c25f43","year":2025,"issuer":"행정안전부","correlationId":"1b9d3e77-52a4-4c0f-8d61-9a7e2c4b6f18"}'
       responses:
         '202':
           description: Accepted
@@ -497,14 +829,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ProviderCapabilities' }
-              # Illustrative contract-shape example only. It is not evidence of
-              # T3Q support, and no such mock build exists yet (CC-125 mocked
-              # only the tocV2 202+poll path; the capabilities-discovery mock
-              # arrives with CC-135 — sync this example then).
+              # CC-135에서 capabilities-discovery mock이 구현되었고, 이 예제는 그
+              # in-process mock 응답과 1:1로 동기된다(deep-equal 계약테스트가 비교).
+              # 여전히 T3Q 지원 증거가 아니다: features 플래그는 UNE mock의 능력을
+              # 뜻하며, 실제 제공자 능력 상태는 MOCK_ONLY로 별도 추적한다.
               examples:
                 mock:
+                  summary: UNE in-process mock 응답 — T3Q 지원 증거 아님 (MOCK_ONLY)
+                  description: >-
+                    features 플래그는 UNE mock의 능력이고 limits 값도 UNE mock
+                    상수다(provider 진실 아님 — OB-10). 렌더링에서도 이 사실이
+                    보이도록 예제 필드에 명시한다(ADR-28 D11).
                   value:
-                    providerBuild: contract-example-only
+                    providerBuild: une-mock-target-v2-1.0.1-request
                     contractVersions: ['2.0']
                     features:
                       tocV2: true

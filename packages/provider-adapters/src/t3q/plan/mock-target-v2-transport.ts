@@ -1,18 +1,34 @@
-import { sha256Hex } from '@une/domain';
 import { buildMockOutline, type MockOutlineNode } from './mock-plan-outline';
+import {
+  MockTargetV2JobStore,
+  TargetV2TransportError,
+  type MockTargetV2ScenarioOptions,
+} from './mock-target-v2-job-store';
+import {
+  MOCK_TARGET_V2_CAPABILITIES,
+  buildMockChangeProposal,
+  buildMockErrorResponse,
+  buildMockEvidenceItems,
+  buildMockValidationReport,
+  type ContentGenerationRequestV2,
+  type EvidenceSearchRequestV2,
+  type OutlineSectionV2,
+  type SemanticEditRequestV2,
+  type ValidationRequestV2,
+} from './mock-target-v2-payloads';
+import { serializeTargetV2Sse } from './target-v2-sse.assumed';
 import type { TocGenerationRequestV2 } from './target-v2-toc-mapper';
 
 /**
  * Deterministic in-process transport for the target-v2 mock adapter
- * (CC-125, ADR-26 D5). Faithful to the requested contract's ASYNC shape:
- * POST → 202 GenerationAccepted(QUEUED) → status polls RUNNING → COMPLETED
- * with a full OutlineSection[] — because the 202+Job flow is exactly what
- * CR-T3Q-003 requests. SSE/cancel/partial retry fidelity is CC-135.
+ * (CC-125 toc; CC-135 full lifecycle — content, SSE, cancel, partial retry,
+ * semantic edit, evidence, validation, capabilities). Faithful to the
+ * requested contract's ASYNC shape because the 202+Job flow is exactly what
+ * CR-T3Q-003 requests.
  *
- * Determinism: generationId derives from requestId (same submit → same id),
- * timestamps echo requestedAt, and the outline derives from the SAME
- * PlanContext rules as the legacy mock so both variants produce
- * structurally equivalent canonical trees (port contract test).
+ * Error semantics: non-2xx responses are thrown as TargetV2TransportError
+ * {httpStatus, body(ErrorResponse)} — the seam a live transport (CC-400)
+ * reproduces, so the adapter's 409→T3Q_CONFLICT mapping survives the swap.
  *
  * This transport returns RAW unknown values on purpose — the adapter must
  * run its response guards against it like any provider payload. It is
@@ -21,88 +37,123 @@ import type { TocGenerationRequestV2 } from './target-v2-toc-mapper';
 
 export interface TargetV2Transport {
   submitToc(request: TocGenerationRequestV2): Promise<unknown>;
+  submitContent(request: ContentGenerationRequestV2): Promise<unknown>;
   getStatus(generationId: string): Promise<unknown>;
-}
-
-interface MockGeneration {
-  request: TocGenerationRequestV2;
-  polls: number;
+  /** Raw SSE transcript (string). Framing is a UNE assumption (OB-10). */
+  streamEvents(
+    generationId: string,
+    lastEventId: number | undefined,
+    correlationId: string,
+  ): Promise<unknown>;
+  cancelJob(
+    generationId: string,
+    reason: string | undefined,
+    correlationId: string,
+  ): Promise<unknown>;
+  retryJobTargets(
+    generationId: string,
+    request: { targetType: 'SECTION' | 'BLOCK'; targetIds: string[]; instructionOverride?: string },
+    correlationId: string,
+  ): Promise<unknown>;
+  requestSemanticEdit(request: SemanticEditRequestV2): Promise<unknown>;
+  searchEvidence(request: EvidenceSearchRequestV2): Promise<unknown>;
+  validateContent(request: ValidationRequestV2): Promise<unknown>;
+  getCapabilities(): Promise<unknown>;
 }
 
 export class MockTargetV2Transport implements TargetV2Transport {
-  private readonly generations = new Map<string, MockGeneration>();
+  private readonly store: MockTargetV2JobStore;
+  private readonly options: MockTargetV2ScenarioOptions;
 
-  /** Status polls needed before COMPLETED (>=1 RUNNING poll keeps the
-   * adapter's polling loop honest in tests). */
-  constructor(private readonly runningPolls = 1) {}
+  /** Back-compat: a bare number is the CC-125 `runningPolls` form. */
+  constructor(options: MockTargetV2ScenarioOptions | number = {}) {
+    this.options = typeof options === 'number' ? { runningPolls: options } : options;
+    this.store = new MockTargetV2JobStore(this.options);
+  }
 
   async submitToc(request: TocGenerationRequestV2): Promise<unknown> {
-    const generationId = `gen-${sha256Hex(request.requestId).slice(0, 16)}`;
-    if (!this.generations.has(generationId)) {
-      this.generations.set(generationId, { request, polls: 0 });
-    }
-    return {
-      generationId,
-      status: 'QUEUED',
-      statusUrl: `/model-api/une-mock/v2/generation-jobs/${generationId}`,
-      eventStreamUrl: `/model-api/une-mock/v2/generation-jobs/${generationId}/events`,
-      acceptedAt: request.requestedAt,
-      requestId: request.requestId,
-      correlationId: request.correlationId,
-    };
+    const job = this.store.submitToc(request, buildOutlineSections);
+    return this.store.acceptedBody(job);
+  }
+
+  async submitContent(request: ContentGenerationRequestV2): Promise<unknown> {
+    const job = this.store.submitContent(request);
+    return this.store.acceptedBody(job);
   }
 
   async getStatus(generationId: string): Promise<unknown> {
-    const generation = this.generations.get(generationId);
-    if (!generation) {
-      return {
-        generationId,
-        status: 'FAILED',
-        progress: 0,
-        completedTargetIds: [],
-        failedTargetIds: [],
-        error: {
-          code: 'GENERATION_NOT_FOUND',
-          message: `unknown generationId: ${generationId}`,
-          retryable: false,
-        },
-      };
+    return this.store.pollStatus(generationId);
+  }
+
+  async streamEvents(
+    generationId: string,
+    lastEventId: number | undefined,
+    correlationId: string,
+  ): Promise<unknown> {
+    const frames = this.store.frames(generationId, correlationId);
+    const replay = lastEventId === undefined ? frames : frames.filter((f) => f.id > lastEventId);
+    return serializeTargetV2Sse(replay);
+  }
+
+  async cancelJob(
+    generationId: string,
+    reason: string | undefined,
+    correlationId: string,
+  ): Promise<unknown> {
+    return this.store.cancel(generationId, reason, correlationId);
+  }
+
+  async retryJobTargets(
+    generationId: string,
+    request: { targetType: 'SECTION' | 'BLOCK'; targetIds: string[]; instructionOverride?: string },
+    correlationId: string,
+  ): Promise<unknown> {
+    const child = this.store.retry(generationId, request, correlationId);
+    return this.store.acceptedBody(child);
+  }
+
+  async requestSemanticEdit(request: SemanticEditRequestV2): Promise<unknown> {
+    if ((this.options.editConflictBaseRevisionIds ?? []).includes(request.baseRevisionId)) {
+      throw new TargetV2TransportError(
+        409,
+        buildMockErrorResponse(
+          'PLAN-V2-409-001',
+          `baseRevisionId ${request.baseRevisionId} is stale`,
+          request.correlationId,
+        ),
+      );
     }
-    generation.polls += 1;
-    if (generation.polls <= this.runningPolls) {
-      return {
-        generationId,
-        status: 'RUNNING',
-        progress: Math.min(90, Math.round((generation.polls / (this.runningPolls + 1)) * 100)),
-        completedTargetIds: [],
-        failedTargetIds: [],
-        updatedAt: generation.request.requestedAt,
-      };
-    }
-    const outline = buildOutlineSections(generation.request);
-    return {
-      generationId,
-      status: 'COMPLETED',
-      progress: 100,
-      completedTargetIds: outline.map((section) => section.sectionId as string),
-      failedTargetIds: [],
-      outline,
-      warnings: [],
-      error: null,
-      updatedAt: generation.request.requestedAt,
-    };
+    return buildMockChangeProposal(request);
+  }
+
+  async searchEvidence(request: EvidenceSearchRequestV2): Promise<unknown> {
+    return { requestId: request.requestId, items: buildMockEvidenceItems(request) };
+  }
+
+  async validateContent(request: ValidationRequestV2): Promise<unknown> {
+    return buildMockValidationReport(request);
+  }
+
+  async getCapabilities(): Promise<unknown> {
+    // structuredClone: callers must not be able to mutate the canonical value
+    return structuredClone(MOCK_TARGET_V2_CAPABILITIES);
   }
 }
 
+export {
+  TargetV2TransportError,
+  type MockTargetV2ScenarioOptions,
+} from './mock-target-v2-job-store';
+
 const SEMANTIC_ROLES = ['BACKGROUND', 'ACTION_PLAN', 'APPENDIX'] as const;
 
-function buildOutlineSections(request: TocGenerationRequestV2): Record<string, unknown>[] {
+function buildOutlineSections(request: TocGenerationRequestV2): OutlineSectionV2[] {
   const outline = buildMockOutline({
     subject: request.subject,
     backgroundInfo: request.backgroundInfo,
     contentInstruction: request.contentInstruction,
   });
-  const sections: Record<string, unknown>[] = [];
+  const sections: OutlineSectionV2[] = [];
   let order = 0;
   const walk = (
     nodes: readonly MockOutlineNode[],

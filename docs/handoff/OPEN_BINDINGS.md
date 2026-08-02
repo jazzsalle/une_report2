@@ -12,8 +12,8 @@ These items must not be guessed by Claude Code.
 | OB-06 | real SMS/email/messenger/broadcast contracts | simulation/system channels | channel interface contract |
 | OB-07 | validation institutions and natural/social scenarios | reference scenario packs | institution binding record |
 | OB-08 | Hancom version for Track B (Windows QA env fixed to Windows 11 at CC-000) | Track A only | Track B test report |
-| OB-10 | T3Q plan API CR-T3Q-001/002/003/004/009 acceptance | legacy RPT-001/002 + target-v2 mock adapter | signed change response + dev contract tests |
-| OB-11 | T3Q evidence search and semantic validation CR-T3Q-005/006 | UNE UI placeholder + mock response | accepted contract + representative payloads |
+| OB-10 | T3Q plan API CR-T3Q-001/002/003/004/009 acceptance | legacy RPT-001/002 + target-v2 full mock (CC-135: toc/content/job status/SSE/cancel/partial retry/semantic edit/capabilities — SSE 프레이밍·PARTIAL 종결성·409 코드 체계는 UNE 가정, 갭 매트릭스 §3) | signed change response + dev contract tests |
+| OB-11 | T3Q evidence search and semantic validation CR-T3Q-005/006 | target-v2 mock adapter (CC-135: searchEvidence provenance 충전 + validateContent 휴리스틱 — 판정은 어떤 UNE 경로도 차단하지 않음, ADR-28 D9) | accepted contract + representative payloads |
 | OB-12 | ProcessGPT adoption and rhwp pinned source decisions | ProcessGPT evaluation-only; rhwp not imported until provenance gate | ADR + license/SBOM/hash/POC report |
 | OB-13 | UNI live base path, auth, TLS, limits, and error contract | bundled OpenAPI snapshot + mock adapter | live OpenAPI capture + contract tests |
 | OB-14 | final delivery environment (demo backend host closed: Railway, see below) | demo backend on Railway containers; local Docker Compose for dev; frontend demo on Vercel | delivery env binding record |
