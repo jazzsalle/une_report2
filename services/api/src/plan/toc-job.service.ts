@@ -7,6 +7,8 @@ import {
   canStartTocJob,
   canTransitionJob,
   jobIdempotencyKey,
+  nextStatusOnContentJobAbort,
+  nextStatusOnContentJobStart,
   nextStatusOnTocJobAbort,
   nextStatusOnTocJobStart,
   type TocJobGenerationOption,
@@ -14,6 +16,7 @@ import {
 import { AuditRepository } from '../common/audit.repository';
 import type { AuthContext } from '../common/request-context';
 import { DatabaseService } from '../db/database.service';
+import { GeneratedBlockRepository } from './generated-block.repository';
 import { GenerationJobRepository, type JobRow } from './generation-job.repository';
 import { JobEventRepository } from './job-event.repository';
 import { PlanRepository, type PlanRow } from './plan.repository';
@@ -32,7 +35,8 @@ export interface JobResource {
   attemptNo: number;
   correlationId: string;
   error: Record<string, unknown> | null;
-  result: { tocVersionId: string; tocVersionNo: number } | null;
+  result:
+    { tocVersionId: string; tocVersionNo: number } | { contentSummary: ContentSummary } | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -41,6 +45,15 @@ export interface JobResource {
 export interface TocJobRequestBody {
   contextSnapshotId: string;
   generationOption?: TocJobGenerationOption;
+}
+
+/** Contract GenerationJobResource.result.contentSummary (CC-130). */
+export interface ContentSummary {
+  generated: number;
+  preserved: number;
+  failed: number;
+  blocksWithoutEvidence: number;
+  tocVersionId: string;
 }
 
 const TOC_JOB_ENDPOINT_TEMPLATE = 'POST /plans/{planId}/toc-jobs';
@@ -74,14 +87,28 @@ function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
 }
 
-/** Only the two contract fields are echoed back; the worker may record more
- * bookkeeping in the same event payload. */
+/** Only the contract fields are echoed back; the worker may record more
+ * bookkeeping in the same event payload. TOC and CONTENT terminal payloads
+ * are distinguished by shape (ADR-27 D10: no oneOf split in the contract). */
 function projectResult(payload: Record<string, unknown> | null): JobResource['result'] {
   if (!payload) return null;
-  const tocVersionId = payload.tocVersionId;
-  const tocVersionNo = payload.tocVersionNo;
-  if (typeof tocVersionId !== 'string' || typeof tocVersionNo !== 'number') return null;
-  return { tocVersionId, tocVersionNo };
+  const { tocVersionId, tocVersionNo } = payload;
+  if (typeof tocVersionId === 'string' && typeof tocVersionNo === 'number') {
+    return { tocVersionId, tocVersionNo };
+  }
+  const { generated, preserved, failed, blocksWithoutEvidence } = payload;
+  if (
+    typeof generated === 'number' &&
+    typeof preserved === 'number' &&
+    typeof failed === 'number' &&
+    typeof blocksWithoutEvidence === 'number' &&
+    typeof tocVersionId === 'string'
+  ) {
+    return {
+      contentSummary: { generated, preserved, failed, blocksWithoutEvidence, tocVersionId },
+    };
+  }
+  return null;
 }
 
 /** UNE-PLAN-009 / 010 / 012 / 013. The API only ever enqueues and requests
@@ -94,6 +121,7 @@ export class TocJobService {
     @Inject(PlanRepository) private readonly plans: PlanRepository,
     @Inject(GenerationJobRepository) private readonly jobs: GenerationJobRepository,
     @Inject(JobEventRepository) private readonly jobEvents: JobEventRepository,
+    @Inject(GeneratedBlockRepository) private readonly blocks: GeneratedBlockRepository,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
   ) {}
 
@@ -125,13 +153,21 @@ export class TocJobService {
           { field: 'contextSnapshotId', reason: '현재 확정 Snapshot이 아닙니다.' },
         ]);
       }
-      const active = await this.jobs.findActiveTocJob(c, auth.tenantId, planId);
+      const active = await this.jobs.findActivePlanJob(c, auth.tenantId, planId);
       if (active) throw tocErrors.activeJobExists(active.jobId);
       if (!canStartTocJob(plan.status)) {
         // Includes the orphaned OUTLINE_GENERATING case (status says a job is
         // running but none is): the operator must settle it explicitly.
         throw planErrors.preconditionFailed(
           `현재 상태(${plan.status})에서는 목차 생성을 시작할 수 없습니다.`,
+        );
+      }
+      // Once body blocks exist, regenerating the outline would orphan their
+      // node-key anchors — blocked until the impact-diff flow (CC-170)
+      // exists (ADR-27 D9; ADR-25 D6 이월 종결).
+      if (await this.blocks.hasCurrentBlocks(c, planId)) {
+        throw planErrors.preconditionFailed(
+          '본문 블록이 있는 계획서는 목차를 재생성할 수 없습니다(목차 변경 영향 검토 흐름은 CC-170).',
         );
       }
 
@@ -236,7 +272,7 @@ export class TocJobService {
         });
         await this.restorePlanStatusOnAbort(c, auth, job);
         await this.jobEvents.append(c, jobId, 'job.cancelled', { reason: reason ?? null });
-        await this.insertJobAudit(c, auth, meta, 'TOC_JOB_CANCELLED', jobId, {
+        await this.insertJobAudit(c, auth, meta, `${job.jobType}_JOB_CANCELLED`, jobId, {
           reason: reason ?? null,
           previousStatus: job.status,
         });
@@ -248,7 +284,7 @@ export class TocJobService {
           status: 'CANCEL_REQUESTED',
         });
         await this.jobEvents.append(c, jobId, 'job.cancel_requested', { reason: reason ?? null });
-        await this.insertJobAudit(c, auth, meta, 'TOC_JOB_CANCEL_REQUESTED', jobId, {
+        await this.insertJobAudit(c, auth, meta, `${job.jobType}_JOB_CANCEL_REQUESTED`, jobId, {
           reason: reason ?? null,
           previousStatus: job.status,
         });
@@ -260,9 +296,11 @@ export class TocJobService {
     });
   }
 
-  /** UNE-PLAN-013. TOC generation is whole-outline only; per-block retry is
-   * the RPT-002 content job (CC-130). attempt_no is NOT bumped here — the
-   * worker increments it when it claims the requeued job. */
+  /** UNE-PLAN-013. Whole-job retry only, for BOTH job types: per-block
+   * provider retry is target-v2 partialRetry (CC-135), and scoped
+   * regeneration is a NEW content job via UNE-PLAN-016 targetNodeKeys
+   * (ADR-27 D7). attempt_no is NOT bumped here — the worker increments it
+   * when it claims the requeued job. */
   async retryJob(
     auth: AuthContext,
     jobId: string,
@@ -271,7 +309,11 @@ export class TocJobService {
   ): Promise<JobResource> {
     if (body.blockIds !== undefined && body.blockIds !== null) {
       throw planErrors.invalidRequest([
-        { field: 'blockIds', reason: 'TOC job은 전체 단위 재시도만 지원합니다(CC-130).' },
+        {
+          field: 'blockIds',
+          reason:
+            '블록 단위 재시도는 지원하지 않습니다 — 범위 재생성은 UNE-PLAN-016 targetNodeKeys를 사용하십시오(ADR-27 D7).',
+        },
       ]);
     }
     return this.db.withTenant(auth.tenantId, async (c) => {
@@ -281,22 +323,29 @@ export class TocJobService {
         throw jobErrors.retryNotAllowed(job.status);
       }
       // Retry re-enters generation and must pass the same plan preconditions
-      // as UNE-PLAN-009 (QA review 필수-2/3: a trashed/approval-locked plan
-      // must not regrow an outline, and the one-active-job invariant holds).
+      // as the original request (QA review 필수-2/3: a trashed/approval-locked
+      // plan must not regrow output, and the one-active-job invariant holds).
       const plan = await this.plans.findPlan(c, auth.tenantId, job.aggregateId, {
         forUpdate: true,
       });
       if (!plan) throw planErrors.notFound();
       if (plan.deletedAt) {
-        throw planErrors.preconditionFailed('휴지통의 계획서는 목차를 재생성할 수 없습니다.');
+        throw planErrors.preconditionFailed('휴지통의 계획서는 재생성할 수 없습니다.');
       }
       if (APPROVAL_LOCKED_STATUSES.has(plan.status)) {
         throw planErrors.preconditionFailed(
-          `현재 상태(${plan.status})에서는 목차를 재생성할 수 없습니다.`,
+          `현재 상태(${plan.status})에서는 재생성할 수 없습니다.`,
         );
       }
-      const active = await this.jobs.findActiveTocJob(c, auth.tenantId, plan.planId);
+      const active = await this.jobs.findActivePlanJob(c, auth.tenantId, plan.planId);
       if (active) throw tocErrors.activeJobExists(active.jobId);
+      // A TOC retry under existing body blocks would orphan anchors exactly
+      // like a fresh TOC request (ADR-27 D9).
+      if (job.jobType === 'TOC' && (await this.blocks.hasCurrentBlocks(c, plan.planId))) {
+        throw planErrors.preconditionFailed(
+          '본문 블록이 있는 계획서는 목차를 재생성할 수 없습니다(목차 변경 영향 검토 흐름은 CC-170).',
+        );
+      }
 
       const updated = await this.jobs.updateJobStatus(c, auth.tenantId, jobId, {
         status: 'QUEUED',
@@ -307,11 +356,16 @@ export class TocJobService {
         // reclaims may have exhausted attempt_no already (review minor 5).
         attemptNo: 0,
       });
-      await this.plans.updatePlanStatus(c, auth.tenantId, plan.planId, nextStatusOnTocJobStart());
+      await this.plans.updatePlanStatus(
+        c,
+        auth.tenantId,
+        plan.planId,
+        job.jobType === 'CONTENT' ? nextStatusOnContentJobStart() : nextStatusOnTocJobStart(),
+      );
       await this.jobEvents.append(c, jobId, 'job.retry_requested', {
         reason: body.reason ?? null,
       });
-      await this.insertJobAudit(c, auth, meta, 'TOC_JOB_RETRIED', jobId, {
+      await this.insertJobAudit(c, auth, meta, `${job.jobType}_JOB_RETRIED`, jobId, {
         planId: plan.planId,
         reason: body.reason ?? null,
         attemptBudgetReset: true,
@@ -320,8 +374,9 @@ export class TocJobService {
     });
   }
 
-  /** Cancel/failure never sends the plan to ERROR: it returns to where it was,
-   * derived from whether an outline already exists (US-PLAN-009 E-02). */
+  /** Cancel/failure never sends the plan to ERROR: it returns to where the
+   * work stands — outline existence for TOC (US-PLAN-009 E-02), current
+   * block existence for CONTENT (ADR-27 D3). */
   private async restorePlanStatusOnAbort(
     client: PoolClient,
     auth: AuthContext,
@@ -331,12 +386,11 @@ export class TocJobService {
       forUpdate: true,
     });
     if (!plan) throw planErrors.notFound();
-    return this.plans.updatePlanStatus(
-      client,
-      auth.tenantId,
-      plan.planId,
-      nextStatusOnTocJobAbort(!!plan.currentTocVersionId),
-    );
+    const nextStatus =
+      job.jobType === 'CONTENT'
+        ? nextStatusOnContentJobAbort(await this.blocks.hasCurrentBlocks(client, plan.planId))
+        : nextStatusOnTocJobAbort(!!plan.currentTocVersionId);
+    return this.plans.updatePlanStatus(client, auth.tenantId, plan.planId, nextStatus);
   }
 
   private async insertJobAudit(

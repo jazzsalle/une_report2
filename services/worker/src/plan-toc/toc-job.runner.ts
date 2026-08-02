@@ -13,19 +13,17 @@ import type { WorkerConfig } from '../config/worker-config';
 import type { WorkerDatabase } from '../db/worker-database.service';
 import {
   appendJobEvent,
-  claimTocJobs,
+  claimJobs,
   findJobForUpdate,
   findPlanForUpdate,
   findSnapshot,
   insertAudit,
-  insertTocNodes,
-  insertTocVersion,
-  nextTocVersionNo,
   setJobStatus,
   sweepCancelRequested,
-  updatePlanAfterToc,
+  updatePlanAfterJob,
   type ClaimedJob,
-} from './worker-repositories';
+} from '../plan-jobs/job-dispatch.repository';
+import { insertTocNodes, insertTocVersion, nextTocVersionNo } from './worker-repositories';
 
 export interface RunSummary {
   claimed: number;
@@ -68,7 +66,7 @@ const MOCK_V2_BASE_REVISION_ID = 'une-mock:revision:pending-cc150';
  *                   here (worker RLS WITH CHECK).
  *
  * runOnce() is timer-free on purpose: tests and the API e2e drive it
- * deterministically; TocJobPoller adds the production loop.
+ * deterministically; PlanJobPoller adds the production loop.
  */
 export class TocJobRunner {
   constructor(
@@ -83,7 +81,7 @@ export class TocJobRunner {
     // Cancel sweep: CANCEL_REQUESTED jobs whose execution never started or
     // whose worker crashed — the live checkpoint cannot reach these.
     const cancelTargets = await this.db.withDispatchScope((client) =>
-      sweepCancelRequested(client, this.config.batchSize, this.config.leaseTimeoutMs),
+      sweepCancelRequested(client, 'TOC', this.config.batchSize, this.config.leaseTimeoutMs),
     );
     for (const target of cancelTargets) {
       const outcome = await this.finalizeCancelled({
@@ -98,7 +96,7 @@ export class TocJobRunner {
     }
 
     const claimed = await this.db.withDispatchScope((client) =>
-      claimTocJobs(client, this.config.batchSize, this.config.leaseTimeoutMs),
+      claimJobs(client, 'TOC', this.config.batchSize, this.config.leaseTimeoutMs),
     );
     summary.claimed = claimed.length;
     for (const job of claimed) {
@@ -380,7 +378,7 @@ export class TocJobRunner {
         ...(supersededByUserEdit ? { supersededByUserEdit: true } : {}),
       });
       if (!supersededByUserEdit) {
-        await updatePlanAfterToc(client, job.tenantId, job.aggregateId, {
+        await updatePlanAfterJob(client, job.tenantId, job.aggregateId, {
           status: nextStatusOnTocJobSuccess(),
           currentTocVersionId: tocVersionId,
         });
@@ -453,7 +451,7 @@ export class TocJobRunner {
     });
     const plan = await findPlanForUpdate(client, job.tenantId, job.aggregateId);
     if (plan) {
-      await updatePlanAfterToc(client, job.tenantId, job.aggregateId, {
+      await updatePlanAfterJob(client, job.tenantId, job.aggregateId, {
         status: nextStatusOnTocJobAbort(plan.currentTocVersionId !== null),
       });
     }
@@ -486,7 +484,7 @@ export class TocJobRunner {
     await appendJobEvent(client, job.jobId, 'job.cancelled', { note });
     const plan = await findPlanForUpdate(client, job.tenantId, job.aggregateId);
     if (plan) {
-      await updatePlanAfterToc(client, job.tenantId, job.aggregateId, {
+      await updatePlanAfterJob(client, job.tenantId, job.aggregateId, {
         status: nextStatusOnTocJobAbort(plan.currentTocVersionId !== null),
       });
     }

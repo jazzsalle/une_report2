@@ -33,6 +33,8 @@ const RLS_TABLES = [
   'toc_version',
   'toc_node',
   'plan_context_snapshot',
+  // 0017 (CC-130): generation staging, isolated through EXISTS(plan) as well.
+  'generated_block',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -47,11 +49,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 16 baseline migrations', async () => {
+  it('applies all 17 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(16);
+    expect(applied.rows).toHaveLength(17);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -59,9 +61,15 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     expect(applied.rows[13].name).toBe('0014_api_idempotency');
     expect(applied.rows[14].name).toBe('0015_generation_job_worker_and_toc');
     expect(applied.rows[15].name).toBe('0016_child_table_rls');
+    expect(applied.rows[16].name).toBe('0017_generated_block');
   });
 
-  it('creates the 59-table baseline (57 design tables + role_permission ADR-22 + api_idempotency ADR-23)', async () => {
+  // 60 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
+  // + generated_block (ADR-27). generated_block is not a new requirement: design
+  // 10 §3.3 UNE-PLAN-016, the §7 UFR trace table and the OpenAPI x-db-tables all
+  // name it, while §6.2's DDL table omits its columns — the same ADR-21 baseline
+  // defect class already resolved for plan and generation_job.
+  it('creates the 60-table baseline (+ generated_block, ADR-27 §6.2 defect resolved)', async () => {
     const tables = await withClient(db.url, (c) =>
       c.query(
         `SELECT count(*)::int AS n FROM information_schema.tables
@@ -69,7 +77,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
            AND table_name <> 'pgmigrations'`,
       ),
     );
-    expect(tables.rows[0].n).toBe(59);
+    expect(tables.rows[0].n).toBe(60);
   });
 
   it('enables and forces RLS on all tenant-isolated tables', async () => {
@@ -143,11 +151,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0016 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0017 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011, 0012, 0013, 0014, 0015, 0016
+    await migrate(db.url); // remaining: 0011 ~ 0017
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -162,7 +170,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(16);
+    expect(applied.rows[0].n).toBe(17);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

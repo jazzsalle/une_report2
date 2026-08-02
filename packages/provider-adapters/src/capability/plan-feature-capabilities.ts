@@ -59,15 +59,16 @@ export const T3Q_PLAN_FEATURE_CAPABILITIES: readonly PlanFeatureCapability[] = [
   {
     featureId: 'legacyContent',
     requestId: 'RPT-002',
-    state: 'MOCK_ONLY',
+    state: 'UNE_ADAPTER_READY',
     adapterImplemented: true,
     mockAvailable: true,
     openBinding: 'OB-01',
     providerEvidence: null,
     notes:
-      '본문 생성(+SSE, 프레이밍은 UNE 가정 — OB-01). CC-125: 전송·매핑·가드·SSE 파서 구현, ' +
-      'CONTENT job 파이프라인 미결선(CC-130) → UNE_ADAPTER_READY 아님(ADR-26 D7 기준: ' +
-      '구현 ∧ 런타임 결선 ∧ live spec).',
+      '본문 생성. CC-130: CONTENT job 파이프라인 결선(ContentJobRunner + UNE-PLAN-016) — ' +
+      'ADR-26 D7 3조건(구현 ∧ 런타임 결선 ∧ live spec) 충족. 운영 경로는 동기 JSON; SSE ' +
+      '프레이밍은 UNE 가정(OB-01, UNE_T3Q_CONTENT_STREAM seam). provider 미검증 — OB-01이 ' +
+      '열려 있는 동안 T3Q_*_VERIFIED 승격 불가.',
   },
   {
     featureId: 'legacyDaily',

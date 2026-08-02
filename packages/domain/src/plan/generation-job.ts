@@ -43,6 +43,7 @@ export const PUBLIC_JOB_EVENT_TYPES = [
   'job.started',
   'job.progress',
   'toc.section',
+  'content.block',
   'job.completed',
   'job.failed',
   'job.cancel_requested',

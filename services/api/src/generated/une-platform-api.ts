@@ -455,6 +455,8 @@ export type paths = {
          *     핵심 응답: GenerationJob
          *
          *     오류: T3Q-502-001
+         *
+         *     본문 블록이 존재하면 412 PLAN-412-002(목차 재생성 차단 — 본문 블록의 nodeKey 앵커가 끊어지므로, 목차 변경 영향 Diff 흐름이 생기는 CC-170까지 막는다; ADR-27 D9).
          */
         post: operations["une_plan_009"];
         delete?: never;
@@ -533,6 +535,8 @@ export type paths = {
          *     핵심 응답: GenerationJob
          *
          *     오류: JOB-409-001
+         *
+         *     취소는 계획서 상태를 ERROR로 보내지 않고 작업이 서 있는 자리로 되돌린다. TOC Job은 확정 목차 존재 여부로, CONTENT Job은 현재 본문 블록 존재 여부로 복귀 상태를 판정한다 (ADR-27 D3).
          */
         post: operations["une_plan_012"];
         delete?: never;
@@ -559,6 +563,10 @@ export type paths = {
          *     핵심 응답: GenerationJob
          *
          *     오류: JOB-409-002
+         *
+         *     FAILED Job 전체를 다시 큐잉한다(TOC/CONTENT 공통). blockIds는 예약 필드이며 값이 오면 400 PLAN-4001이다 — 블록 단위 provider 재시도는 target-v2 partialRetry(CC-135), 범위 지정 재생성은 UNE-PLAN-016 targetNodeKeys다 (ADR-27 D7). attempt_no는 0으로 리셋되고 워커가 선점할 때 다시 증가한다.
+         *
+         *     재시도는 원 요청과 같은 전제조건을 다시 적용한다: 휴지통·결재 잠금 계획서는 412 PLAN-412-002, 같은 계획서에 활성 생성 Job이 있으면 409 PLAN-409-002, TOC Job 재시도인데 본문 블록이 존재하면 412 PLAN-412-002다(목차 재생성 차단 — CC-170, ADR-27 D9). FAILED가 아닌 상태는 409 JOB-409-002다.
          */
         post: operations["une_plan_013"];
         delete?: never;
@@ -585,6 +593,8 @@ export type paths = {
          *     핵심 응답: TocVersion
          *
          *     오류: TOC-409-001
+         *
+         *     본문 블록이 존재하면 412 PLAN-412-002(목차 변경 차단). 저장된 본문 블록은 목차 nodeKey에 앵커되어 있어 목차를 바꾸면 앵커가 끊어지므로, 목차 변경 영향 Diff 흐름이 생기는 CC-170까지 저장·확정을 모두 막는다 (ADR-27 D9).
          */
         post: operations["une_plan_014"];
         delete?: never;
@@ -632,11 +642,21 @@ export type paths = {
          * T3Q RPT-002 본문 생성 Job
          * @description 권한: PLAN_GENERATE
          *
-         *     핵심 요청: snapshotId,tocVersionId,protectedBlocks
+         *     핵심 요청: contextSnapshotId,tocVersionId,targetNodeKeys,protectedBlockIds
          *
-         *     핵심 응답: GenerationJob
+         *     핵심 응답: GenerationJob (jobType=CONTENT)
          *
          *     오류: T3Q-502-002
+         *
+         *     확정 PlanContextSnapshot과 목차 버전을 입력으로 CONTENT 생성 Job을 큐잉한다. 202는 큐잉 성공만을 뜻하며 본문 산출물은 워커가 만든다. 진행 상황은 UNE-PLAN-010(상태)과 UNE-PLAN-011(SSE content.block/job.progress)로 관측한다.
+         *
+         *     전제조건: contextSnapshotId는 계획서의 현재 확정 스냅샷이어야 하고 (아니면 400 PLAN-4001, 확정 스냅샷 자체가 없으면 412 PLAN-412-001), tocVersionId는 같은 계획서의 확정(CONFIRMED) 목차 버전이어야 한다 (계획서 불일치·미존재는 404 TOC-404-001, 목차 미확정 등 상태 전제조건 위반은 412 PLAN-412-002).
+         *
+         *     동시성: 같은 계획서에 활성(QUEUED/RUNNING/CANCEL_REQUESTED) 생성 Job이 있으면 409 PLAN-409-002로 거절한다. 이 조건은 job 타입과 무관하다 (TOC/CONTENT 어느 쪽이 진행 중이어도 새 생성 Job을 받지 않는다). 진행 중이라 계획서 상태가 CONTENT_GENERATING인 경우도 412가 아니라 409로 답한다 — 상태 전제조건보다 활성 Job 판정을 먼저 적용한다.
+         *
+         *     재생성 범위: targetNodeKeys를 지정하면 해당 노드 subtree만 재생성하고 나머지 블록은 보존한다. protectedBlockIds로 지정한 사용자 편집 블록은 protection_state=USER_LOCKED로 영속 기록되어 이후 모든 재생성에서 덮어쓰지 않는다 (알 수 없는 blockId는 422 PLAN-422-002).
+         *
+         *     Idempotency-Key는 필수다 (누락 428 COM-0428, 같은 키 다른 본문 409 COM-0409). T3Q-502-002(provider 오류)는 워커 실행 구간에서만 발생하므로 이 요청의 응답 코드가 아니라 job_event/error에 기록된다.
          */
         post: operations["une_plan_016"];
         delete?: never;
@@ -3225,11 +3245,27 @@ export type components = {
                 message?: string;
                 retryable?: boolean;
             } | null;
-            /** @description 완료된 TOC Job의 산출물. 진행 중이거나 실패면 null. */
+            /** @description 완료된 Job의 산출물. 진행 중이거나 실패면 null. TOC Job은 tocVersionId/tocVersionNo를, CONTENT Job(UNE-PLAN-016)은 contentSummary와 입력 tocVersionId를 싣는다. Job 타입별 oneOf 분기를 두지 않는 이유는 생성 타입이 파괴되기 때문이며, 타입별로 실리는 속성만 다르다. */
             result?: {
                 /** Format: uuid */
                 tocVersionId?: string;
                 tocVersionNo?: number;
+                /** @description CONTENT Job 집계. generated+preserved+failed는 이번 job의 대상 노드 수와 일치한다. 범위 지정 재생성(targetNodeKeys)에서 범위 밖 노드는 대상이 아니므로 어느 항목에도 집계되지 않는다. */
+                contentSummary?: {
+                    /** @description 새로 생성된 블록 수. */
+                    generated?: number;
+                    /** @description 보호(protection_state=USER_LOCKED 또는 SYSTEM_LOCKED)로 재생성하지 않고 유지한 블록 수. */
+                    preserved?: number;
+                    /** @description 생성에 실패한 노드 수 (content.block outcome=FAILED). legacy 경로에서는 항상 0이다 — provider 응답 정합 위반은 job 전체를 FAILED로 만들고, 블록 단위 실패는 target-v2 partialRetry(CC-135) 소관이다. */
+                    failed?: number;
+                    /** @description 근거(EvidenceLink)가 하나도 연결되지 않은 생성 블록 수. 사실값 검토 대상 지표다. */
+                    blocksWithoutEvidence?: number;
+                    /**
+                     * Format: uuid
+                     * @description 본문 생성의 기준이 된 목차 버전 id.
+                     */
+                    tocVersionId?: string;
+                };
             } | null;
             /** Format: date-time */
             createdAt: string;
@@ -3296,7 +3332,7 @@ export type components = {
         };
         GenerationJobRetryRequest: {
             reason?: string;
-            /** @description TOC Job은 전체 단위 재시도라 blockIds를 지원하지 않는다 (값이 오면 400 PLAN-4001). RPT-002 본문 생성 Job(CC-130)용 필드. */
+            /** @description 예약 필드. TOC/CONTENT 어느 Job이든 값이 오면 400 PLAN-4001로 거절한다. 블록 단위 provider 재시도는 target-v2 partialRetry(CC-135) 소관이며, 범위 지정 재생성은 UNE-PLAN-016의 targetNodeKeys로 새 job을 생성해야 한다. */
             blockIds?: string[];
         };
         TocVersionSaveRequest: {
@@ -3308,10 +3344,19 @@ export type components = {
             confirm: boolean;
         };
         ContentGenerationRequest: {
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description 계획서의 현재 확정 PlanContextSnapshot id. 다른 값이면 400 PLAN-4001, 확정 스냅샷이 없으면 412 PLAN-412-001.
+             */
             contextSnapshotId: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description 본문 생성의 기준이 되는 확정(CONFIRMED) 목차 버전 id. 계획서에 속하지 않거나 없으면 404 TOC-404-001, 미확정이면 412 PLAN-412-002.
+             */
             tocVersionId: string;
+            /** @description 범위 지정 재생성. 지정하면 해당 노드의 subtree만 재생성하고 나머지 블록은 보존한다. 미지정이면 목차 전체를 생성한다(빈 배열은 400 PLAN-4001 — "전체"는 필드 생략으로 표현한다). 목차 버전에 없는 nodeKey는 422 PLAN-422-002. */
+            targetNodeKeys?: string[];
+            /** @description 현재(supersede되지 않은) generated_block id 목록. 지정 시 해당 블록은 protection_state=USER_LOCKED로 영속 기록되어 이후 모든 재생성에서 보호된다 (범위 지정 재생성 여부와 무관). 알 수 없는 id는 422 PLAN-422-002. */
             protectedBlockIds?: string[];
         };
         HwpImportRequest: {
@@ -4246,9 +4291,17 @@ export interface operations {
         requestBody?: never;
         responses: {
             /**
-             * @description text/event-stream. 공개 이벤트 어휘: job.queued, job.started, job.progress, toc.section, job.completed, job.failed, job.cancel_requested, job.cancelled, job.retry_requested.
+             * @description text/event-stream. 공개 이벤트 어휘: job.queued, job.started, job.progress, toc.section, content.block, job.completed, job.failed, job.cancel_requested, job.cancelled, job.retry_requested.
              *
              *     각 이벤트 프레임은 id(= job_event.sequence_no), event, data를 포함한다. Provider 원문 이벤트는 노출하지 않고 화면용 DTO로 투영한다 (설계 10 §2).
+             *
+             *     toc.section은 TOC Job(UNE-PLAN-009), content.block은 CONTENT Job(UNE-PLAN-016) 전용이다. content.block payload: {nodeKey, blockId, outcome(GENERATED|PRESERVED|FAILED), sortOrder, outlineLevel, contentHash, citationCount, reason?}. GENERATED는 새 블록의 id/해시를, PRESERVED는 유지된 기존 블록의 id/해시를 싣고, FAILED는 blockId·contentHash가 null이다(행이 만들어지지 않는다). reason은 outcome이 PRESERVED일 때 그 블록의 protection_state 값(USER_LOCKED 또는 SYSTEM_LOCKED)이고, FAILED일 때는 실패 사유 코드다.
+             *
+             *     content.block은 이번 job의 "대상" 노드에 대해서만 발행한다. 범위 지정 재생성(targetNodeKeys)에서 범위 밖 노드는 손대지 않으므로 프레임을 발행하지 않고 contentSummary에도 집계되지 않는다.
+             *
+             *     legacy 경로에서는 outcome=FAILED 프레임이 발생하지 않는다: provider 응답이 목차와 정합하지 않으면 job 전체가 FAILED로 끝난다. 블록 단위 실패/재시도는 target-v2 partialRetry(CC-135) 소관이다.
+             *
+             *     job.progress payload: {completed, total, pct}. CC-130부터 CONTENT Job이 발행을 시작하며, 블록 10개 또는 10%p 진행마다 스로틀한다(마지막 블록은 항상 발행). TOC Job의 job.progress는 기존과 같이 단계 전환 시점에만 발행한다.
              *
              *     heartbeat는 15초 주기로 전송한다. heartbeat 프레임의 id는 마지막으로 전달한 sequence_no를 반복하므로 Last-Event-ID 재개 지점을 이동시키지 않는다.
              *
@@ -4417,28 +4470,28 @@ export interface operations {
     une_plan_016: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
             };
             path: {
                 planId: string;
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["ContentGenerationRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description Accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Plan"];
+                    "application/json": components["schemas"]["GenerationJobResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4446,7 +4499,9 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
+            428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["ProviderError"];
         };
     };

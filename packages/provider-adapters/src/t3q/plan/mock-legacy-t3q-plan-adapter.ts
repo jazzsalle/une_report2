@@ -4,7 +4,12 @@ import {
   fromContentResponse,
   toPlanContentData,
 } from './legacy-content-mapper';
-import { buildMockOutline, buildMockSectionText, type MockOutlineNode } from './mock-plan-outline';
+import {
+  buildMockOutline,
+  buildMockReference,
+  buildMockSectionText,
+  type MockOutlineNode,
+} from './mock-plan-outline';
 import type { PlanFeatureCapability } from '../../capability/plan-feature-capabilities';
 import {
   capabilityForOperation,
@@ -119,10 +124,13 @@ export class MockLegacyT3qPlanAdapter implements T3qPlanProvider, TocCapable, Co
         const children = Array.isArray(node.children)
           ? toContentSections(node.children as { title: string }[])
           : [];
+        const isLeaf = children.length === 0;
         return {
           name: node.title,
-          content: children.length === 0 ? buildMockSectionText(node.title, disasterType) : '',
-          references: [],
+          content: isLeaf ? buildMockSectionText(node.title, disasterType) : '',
+          // Leaf sections carry one deterministic reference so the CC-130
+          // evidence-mapping path is exercisable end to end.
+          references: isLeaf ? [buildMockReference(node.title, disasterType)] : [],
           children,
         };
       });

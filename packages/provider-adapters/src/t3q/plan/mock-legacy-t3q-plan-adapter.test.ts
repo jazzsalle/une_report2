@@ -63,6 +63,13 @@ describe('MockLegacyT3qPlanAdapter', () => {
       // Leaf sections carry body text; container sections stay empty.
       expect(first.data.sections[0].text).toBe('');
       expect(first.data.sections[0].children[0].text).toContain('□');
+      // Leaves carry a deterministic reference (CC-130 evidence mapping);
+      // containers carry none.
+      expect(first.data.sections[0].citations).toEqual([]);
+      const leafCitations = first.data.sections[0].children[0].citations;
+      expect(leafCitations).toHaveLength(1);
+      expect(leafCitations[0].sourceRef).toMatch(/^ref-[0-9a-f]{4}$/);
+      expect(second.data.sections[0].children[0].citations).toEqual(leafCitations);
       expect(first.operation).toBe('content');
       // Node keys never leak into the provider request (US-PLAN-007 step 5).
       expect(JSON.stringify(first.rawRequest)).not.toContain('"nodeKey"');

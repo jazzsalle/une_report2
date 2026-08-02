@@ -15,6 +15,9 @@ import { HealthController } from './health/health.controller';
 import { OrganizationsController, RolesController, UsersController } from './iam/iam.controller';
 import { IamRepository } from './iam/iam.repository';
 import { IamService } from './iam/iam.service';
+import { ContentJobController } from './plan/content-job.controller';
+import { ContentJobService } from './plan/content-job.service';
+import { GeneratedBlockRepository } from './plan/generated-block.repository';
 import { GenerationJobRepository } from './plan/generation-job.repository';
 import { JobEventRepository } from './plan/job-event.repository';
 import { JobSseService } from './plan/job-sse.service';
@@ -43,6 +46,7 @@ export class AppModule {
         RolesController,
         PlanController,
         TocJobController,
+        ContentJobController,
         TocVersionController,
         PlanJobController,
       ],
@@ -58,8 +62,10 @@ export class AppModule {
         PlanService,
         GenerationJobRepository,
         JobEventRepository,
+        GeneratedBlockRepository,
         TocVersionRepository,
         TocJobService,
+        ContentJobService,
         TocVersionService,
         JobSseService,
         IdempotencyRepository,

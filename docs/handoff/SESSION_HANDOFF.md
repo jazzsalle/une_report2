@@ -1,85 +1,72 @@
 # Session Handoff
 
-- Date/time: 2026-08-02 (집 PC, CC-125 세션)
-- Branch: **feature/CC-125** @ main d484a6b 기반 (CC-120은 PR #7 머지 완료)
-- Current Work Item: **CC-125 DONE(구현·이중리뷰 반영·게이트 통과)** —
-  커밋·push 후 PR 대기 / next **CC-130** (deps=CC-125)
-- 이 PC(집 PC): 로컬 DB 포트 **15432**, 마이그레이션 **16개**(0016 추가).
+- Date/time: 2026-08-02 (집 PC, CC-130 세션)
+- Branch: **feature/CC-130** @ main 61e140a 기반 (CC-125는 PR #8 머지 완료)
+- Current Work Item: **CC-130 DONE(구현·이중리뷰 반영·게이트 통과)** —
+  커밋·push 후 PR 대기 / next **CC-135** (deps=CC-130)
+- 이 PC(집 PC): 로컬 DB 포트 **15432**, 마이그레이션 **17개**(0017 추가).
 
-## Completed this session (CC-125)
+## Completed this session (CC-130)
 
-**Dual Legacy/Target-v2 T3Q Plan 어댑터 + 통합 포트** — 수용기준 5종 전부
-기계 검증. 상세: ADR-26, docs/evidence/CC-125-t3q-dual-adapter-verification.md.
+**RPT-002 CONTENT job + 보호 블록** — 수용기준 4종 전부 기계 검증.
+상세: ADR-27, docs/evidence/CC-130-t3q-content-job-verification.md.
 
-- **포트**: `T3qPlanProvider`(op 어휘 완비 + TocCapable/ContentCapable
-  믹스인 + `T3qPlanResult<T>` 봉투 + `runtimeMode`/`transportProfile`).
-  `T3qTocPort`는 흡수·삭제(ADR-25 D3 이행). adapterId/mappingVersion은
-  호출 결과값 단위 기록.
-- **Legacy 실 HTTP**: undici 분리 타임아웃(5s/60s = UNE 기준선, OB-01),
-  base URL/auth 폴백 전무(미설정=기동 실패), 응답 전 실패만 1회 재시도 +
-  429/503 Retry-After(상한 10s), op별 프로세스 로컬 CB, lease>호출예산
-  기동 검증. 픽스처 서버(node:http 실 소켓) 22케이스.
-- **RPT-002 경계**: 전송·매핑·가드·SSE 파서·`ContentDraft`(legacy 형상의
-  도메인 승격 + v2 provenance 슬롯 예약 — 리뷰 M1 정정)까지. CONTENT job
-  파이프라인·GeneratedBlock·보호 블록은 CC-130.
-- **Target-v2**: tocV2만, 202→폴링→COMPLETED 결정적 mock. 요청은
-  TocGenerationRequest 스키마로 기계 검증(오탈자 음성 포함).
-  documentId/baseRevisionId는 mock 전용 플레이스홀더(`une-mock:*`) —
-  live transport에서 접두사 감지 시 fail-closed(리뷰 M2 기제화).
-- **선택 계층**: `UNE_T3Q_PLAN_ADAPTER=mock-legacy|legacy-http|
-  mock-target-v2`. **구 변수 `UNE_T3Q_TOC_ADAPTER`는 기동 하드 실패**(해금
-  아님 — ADR-26 D6이 CC-120 예고를 뒤집음). provider_config 토글은 admin
-  API 선행 조건부 이연(예약 키 `t3q.planAdapter`). prod+mock 기동 차단.
-- **추적성**: CC-120의 가드 위반 raw 유실 결함 시정(실패값에 raw 동봉),
-  provider.requested 발행(phase:'intent', 어댑터 transportProfile 기준,
-  본문·헤더·토큰 없음), 결과 기준 mappingVersion/httpStatus.
-- **0016**: 자식 4테이블(job_event/toc_version/plan_context_snapshot/
-  toc_node) EXISTS-부모 FORCE RLS — ADR-25 D2 종결. 한계 핀 테스트 반전,
-  EXPLAIN 인덱스 경로 고정.
-- **capability**: legacyToc → UNE_ADAPTER_READY(구현∧결선∧live spec 기준
-  문장화). legacyContent/tocV2 MOCK_ONLY 유지. CR-T3Q-* 불변식 신설.
-  mock 인스턴스는 `describeRuntimeCapability`가 MOCK RUNTIME 명시(리뷰 M3).
-- 이중 리뷰 반영(당일 전부): 아키텍처 MAJOR 3(M1 ContentDraft 서술 정정,
-  M2 플레이스홀더 차단 기제화, M3 mock 인스턴스 capability 표시) + MINOR
-  11, QA PASS WITH CONDITIONS(F1=커밋, R1~R6 반영 — 503/403 테스트,
-  수치 오기, 핸드오프 갱신 등).
-- 게이트: provider-adapters 67, domain 35, contract-tests 38, worker 24,
-  db-integration 51, api 175, baseline 6, contracts(예제 12·면제 2)/
-  handoff/build/typecheck/lint/format 전부 PASS.
+- **0017 `generated_block`**(60번째 테이블 — §3.3/x-db-tables vs §6.2
+  기준선 결함 해소, ADR-27 D2): 행 불변 + 세대 supersede(부분 유니크
+  current), protection_state(0003 어휘), citations_json+citation_count,
+  EXISTS-plan FORCE RLS, une_worker 보호 트리거(보호 행·비허용 컬럼 변경
+  차단; BEFORE 트리거에서 STORED 컬럼 NULL 이슈 반영).
+- **ContentJobRunner**: 3-tx, 위치+정규화 제목 이중 일치 앵커링(불일치는
+  전량 격리), B0/B1 보호 재확인, 아웃라인 이동 fail-closed/전량 폐기,
+  content.block/job.progress 합성(비실시간 — 수용 한계), 운영 경로 동기
+  JSON(`UNE_T3Q_CONTENT_STREAM` seam). 공유 디스패치 원시연산
+  `plan-jobs/`로 추출(ADR-25 D12 종결), PlanJobPoller 일반화.
+- **API**: UNE-PLAN-016(보호 영속·targetNodeKeys·contentSummary), 활성 job
+  불변식 job 타입 무관 + 본문 존재 시 TOC 재생성 412(ADR-27 D9), 부분
+  재시도=새 job(blockIds 400), cancel/retry 타입 인지형.
+- **capability**: legacyContent → UNE_ADAPTER_READY(3조건 충족).
+- 자체 발견 결함 수정: toc_node 트리 재구성 ORDER BY level(sort_order는
+  형제 내 순서), supersede→insert 순서(부분 유니크 과도 상태), 트리거
+  STORED 컬럼(DB 에이전트).
+- 이중 리뷰 당일 전건 반영: 아키텍처 BLOCKER 1(범위 재생성 좌표 손상 →
+  전체 목차 절대 좌표 주입) + MAJOR 5(폐기 경로 plan 고착, 수동 목차 저장
+  가드, 422 통일, PRESERVED 해시, 계약 동기) + MINOR 11; QA F1~F5·G1~G9
+  (CI pytest baseline 편입 포함). 상세: 증거 문서 이중 리뷰 절.
+- 게이트(반영 후): domain 52, provider-adapters 67, contract-tests 38,
+  db-integration 65, worker 31, api 193, baseline 10, mock 19라우트 —
+  전부 green.
 
 ## Exact next actions
 
 1. **사용자**: push(프롬프트 승인) → PR 생성·머지(CI verify + db-verify).
-2. 다음 항목 **CC-130**(RPT-002 CONTENT job + 보호 블록): CC-125가 준
-   것 — ContentCapable 어댑터(전송·매핑·SSE 파서 완료), ContentDraft,
-   provider.requested. CC-130이 정의할 것 — GeneratedBlock·generated_block
-   영속, 보호 블록 준수, 부분 이벤트(job.progress), 워커 CONTENT job 결선
-   후 legacyContent capability 승격 평가, 리포지토리 추출 재평가(ADR-25
-   D12), v2 generationOption 매핑 재평가(ADR-26 수용 한계).
-3. CC-135 이월: v2 mock 확장(SSE/취소/부분재시도/semanticEdit/evidence/
-   validation), 응답측 예제 확충(ADR-24 R2), getPlanProviderCapabilities
-   예제 동기화, registerPlanReferenceDocument 면제 종결.
+2. 다음 항목 **CC-135**(target-v2 plan job·semantic edit·evidence·
+   validation mocks): CC-130이 준 것 — generated_block/ContentDraft
+   provenance 슬롯/CR-T3Q-* 불변식/UNE_T3Q_CONTENT_STREAM seam. CC-135가
+   할 것 — v2 job status/SSE/cancel/부분재시도(failedTargetIds) mock,
+   ChangeProposal/ValidationIssue/evidence mock, 응답측 예제 확충(ADR-24
+   R2), getPlanProviderCapabilities 예제 동기화,
+   registerPlanReferenceDocument 면제 종결, v2 PARTIAL 매핑 재평가.
+3. 이월 항목: 실시간 부분 이벤트(CC-135/CC-400), generated_block →
+   document_revision materialize(CC-150), 목차 변경 영향 Diff(CC-170),
+   근거 정규화(CC-230), 0016/0017 보존정책(CC-430).
 
 ## Risks/blockers
 
-- provider 중복 실행 가능성(레거시 멱등키 부재 — lease 하한으로 UNE 창만
-  제거, OB-01/CC-400), SSE 프레이밍 UNE 가정(.assumed., OB-01), CB
-  프로세스 로컬(CC-430), v2 폴링 예산은 lease 검증 밖(in-process라 무해,
-  CC-135 재산정), documentId/baseRevisionId 실값은 CC-150.
-- job.progress 이벤트 미발행(CC-130). 기존 이월분(OB-01/10/11 OPEN,
-  redocly CC-400) 유지.
-- 로컬 무DB `pnpm test`는 worker e2e·db-integration이 조용히 skip(QA R6)
-  — CI db-verify가 커버. DATABASE_URL(superuser)을 설정하고 돌릴 것.
+- legacy 멱등키 부재 → provider 중복 실행 가능성은 CONTENT에서 비용이 더
+  큼(UNE 측 반영은 FOR UPDATE 재확인으로 1회 보장; OB-01/CC-400).
+- 부분 이벤트 타이밍 비실시간(완료 시 일괄) — UX 기대와 어긋날 수 있음,
+  CR-T3Q-003 수용 후 해소.
+- 로컬 무DB `pnpm test`는 worker e2e·db-integration이 조용히 skip — CI
+  db-verify가 커버. DATABASE_URL(superuser)을 설정하고 돌릴 것.
+- 기존 이월분(OB-01/10/11 OPEN, redocly CC-400) 유지.
 
 ## Notes
 
 - 이 PC DATABASE_URL: superuser une @ localhost:**15432**
   (infrastructure/.env 조합; WSL vmIdleTimeout으로 컨테이너가 내려갈 수
-  있음 — `wsl -d Ubuntu` 깨우면 restart 정책으로 복구).
-- prettier를 docs/·contracts/에 실행하지 말 것(전사본·설계 원문 재포맷
-  사고 2회 — 대상은 소스 디렉터리로 한정하고 커밋 전
-  `git status -- docs/design-markdown` 무변경 확인).
-- services/api e2e는 워커 **소스**를 상대경로 import(tsconfig.test rootDir
-  ../..) — dist 검증 금지 원칙(CC-115 QA F1).
-- 루트 .env.example의 T3Q_API_BASE_URL은 전사본 host 문서화 전용 —
-  UNE_T3Q_BASE_URL로 복사 금지(경고 주석 추가됨).
+  있음 — `wsl -d Ubuntu` 깨우고 `docker start une-postgres`).
+- prettier를 docs/·contracts/에 실행하지 말 것(사고 2회) — 커밋 전
+  `git status -- docs/design-markdown` 무변경 확인.
+- services/api e2e는 워커 **소스**를 상대경로 import — dist 검증 금지.
+- mock-server의 멱등키 누락 응답은 400(관례; 계약상 428 COM-0428) —
+  테스트 주석에 기록됨, 일괄 전환은 별도 판단.

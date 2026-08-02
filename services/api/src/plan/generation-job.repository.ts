@@ -137,9 +137,11 @@ export class GenerationJobRepository {
     return result.rows[0] ? toJobRow(result.rows[0]) : null;
   }
 
-  /** At most one non-terminal TOC job per plan; the caller holds the plan row
-   * FOR UPDATE, which serializes concurrent requests for the same plan. */
-  async findActiveTocJob(
+  /** At most one non-terminal generation job per plan — job-type-agnostic
+   * since CC-130 (ADR-27 D9): a TOC job regenerating the outline while a
+   * CONTENT job writes under its node keys would orphan anchors. The caller
+   * holds the plan row FOR UPDATE, which serializes concurrent requests. */
+  async findActivePlanJob(
     client: PoolClient,
     tenantId: string,
     planId: string,
@@ -147,7 +149,6 @@ export class GenerationJobRepository {
     const result = await client.query(
       `${JOB_SELECT}
        WHERE tenant_id = $1
-         AND job_type = 'TOC'
          AND aggregate_type = 'PLAN'
          AND aggregate_id = $2
          AND status = ANY($3::text[])

@@ -15,10 +15,16 @@ import {
  * privilege, cross-tenant dispatch policies, append-only job_event, and the
  * job/TOC constraints the baseline left open. */
 
-/** Exactly the grants 0015 gives une_worker; anything else is a wide grant. */
+/** Exactly the grants 0015 (+ later migrations that add a table the worker must
+ * touch) give une_worker; anything else is a wide grant. 0017 adds
+ * generated_block SELECT/INSERT/UPDATE for the CONTENT job — deliberately no
+ * DELETE, because generation history is audit data (CC-130). */
 const EXPECTED_WORKER_GRANTS = [
   'audit_log:INSERT',
   'audit_log:SELECT',
+  'generated_block:INSERT',
+  'generated_block:SELECT',
+  'generated_block:UPDATE',
   'generation_job:SELECT',
   'generation_job:UPDATE',
   'job_event:INSERT',

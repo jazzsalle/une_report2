@@ -66,3 +66,34 @@ export function nextStatusOnTocJobAbort(hasTocVersion: boolean): string {
 export function nextStatusOnTocConfirm(): string {
   return 'OUTLINE_CONFIRMED';
 }
+
+/** Statuses from which a CONTENT generation job may start (CC-130, ADR-27).
+ * OUTLINE_CONFIRMED is the entry (US-PLAN-012 precondition: confirmed
+ * outline); EDITING allows regeneration rounds (protected blocks are
+ * preserved by the worker filter). CONTENT_GENERATING is excluded — the
+ * active-job check answers 409. NOTE: TOC_JOB_STARTABLE stays unchanged on
+ * purpose — once content exists, restarting TOC generation is blocked at
+ * the service layer (412) so protected-block anchors cannot be orphaned
+ * (ADR-27 D9; the impact-diff flow is CC-170). */
+const CONTENT_JOB_STARTABLE: ReadonlySet<string> = new Set(['OUTLINE_CONFIRMED', 'EDITING']);
+
+export function canStartContentJob(current: string): boolean {
+  return CONTENT_JOB_STARTABLE.has(current);
+}
+
+export function nextStatusOnContentJobStart(): string {
+  return 'CONTENT_GENERATING';
+}
+
+/** Success always lands in EDITING (SCR-PLAN-007: generated body is an
+ * editing surface, not an approval state). */
+export function nextStatusOnContentJobSuccess(): string {
+  return 'EDITING';
+}
+
+/** Failure/cancel never sends the plan to ERROR (ADR-25 D6 precedent);
+ * the plan returns to where content work stands — EDITING when any current
+ * block exists (earlier rounds survive), else back to OUTLINE_CONFIRMED. */
+export function nextStatusOnContentJobAbort(hasCurrentBlocks: boolean): string {
+  return hasCurrentBlocks ? 'EDITING' : 'OUTLINE_CONFIRMED';
+}
