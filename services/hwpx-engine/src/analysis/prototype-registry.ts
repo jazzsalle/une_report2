@@ -1,5 +1,6 @@
-import type { ClonePolicy, PrefixPolicy, RawXmlAnchor } from '@une/domain';
+import type { ClonePolicy, PrefixPolicy, TemplateProfilePrototype } from '@une/domain';
 import type { ParagraphSource, TableSource } from '../ir/ir-builder';
+import { sourceAnchor } from '../ir/anchors';
 import { stableId } from '../ir/stable-id';
 import { elementsOf, type XmlElement } from '../package/xml';
 
@@ -23,20 +24,16 @@ import { elementsOf, type XmlElement } from '../package/xml';
  */
 export type { ClonePolicy, PrefixPolicy };
 
-export interface Prototype {
-  readonly prototypeId: string;
-  readonly sourceParagraphId: string | null;
-  readonly sourceTableId: string | null;
-  readonly styleRole: string;
-  readonly outlineLevel: number | null;
-  readonly tableContext: boolean;
-  readonly clonePolicy: ClonePolicy;
-  readonly prefixPolicy: PrefixPolicy;
-  readonly fallbackChain: readonly string[];
-  readonly rawXmlAnchor: RawXmlAnchor;
-  readonly immutable: true;
-  readonly evidence: string;
-}
+/**
+ * Prototype **타입도** 도메인이 정본이다(ADR-29 D4).
+ *
+ * 같은 모양을 엔진에서 다시 선언해 두었더니 API가 두 타입을 잇느라
+ * `as unknown as readonly Prototype[]` 이중 캐스트를 써야 했고, 그 캐스트는
+ * 나중에 한쪽에 필드가 늘어도 컴파일 오류를 내지 않는다 — 즉 "정본이 하나"라는
+ * 규칙을 지키는 척하면서 실제로는 드리프트를 숨긴다. 여기서는 도메인 타입을
+ * 읽기 전용으로 좁힌 별칭만 둔다.
+ */
+export type Prototype = Readonly<TemplateProfilePrototype>;
 
 export interface ResolveRequest {
   readonly styleRole: string;
@@ -136,7 +133,11 @@ export function buildPrototypes(input: BuildPrototypesInput): Prototype[] {
         : 'KEEP_SOURCE_PREFIX'
       : 'REPLACE_TEXT_ONLY';
     prototypes.push({
-      prototypeId: stableId('PROTO', key, source.paragraph.rawXmlAnchor),
+      prototypeId: stableId(
+        'PROTO',
+        key,
+        sourceAnchor(source.paragraph, source.paragraph.paragraphId),
+      ),
       sourceParagraphId: source.paragraph.paragraphId,
       sourceTableId: null,
       styleRole: role.styleRole,
@@ -145,7 +146,7 @@ export function buildPrototypes(input: BuildPrototypesInput): Prototype[] {
       clonePolicy,
       prefixPolicy,
       fallbackChain: fallbackChainFor(role.styleRole, role.outlineLevel),
-      rawXmlAnchor: source.paragraph.rawXmlAnchor,
+      rawXmlAnchor: sourceAnchor(source.paragraph, source.paragraph.paragraphId),
       immutable: true,
       evidence:
         `simpleParagraph=${simple} literalPrefix=${hasPrefix} ` +
@@ -155,11 +156,15 @@ export function buildPrototypes(input: BuildPrototypesInput): Prototype[] {
 
   // 표 기본형 — 첫 표를 TABLE_DEFAULT 원본으로 등록한다.
   const firstTable = [...input.tables].sort((a, b) =>
-    a.table.rawXmlAnchor.localeCompare(b.table.rawXmlAnchor),
+    sourceAnchor(a.table, a.table.tableId).localeCompare(sourceAnchor(b.table, b.table.tableId)),
   )[0];
   if (firstTable) {
     prototypes.push({
-      prototypeId: stableId('PROTO', 'TABLE_DEFAULT', firstTable.table.rawXmlAnchor),
+      prototypeId: stableId(
+        'PROTO',
+        'TABLE_DEFAULT',
+        sourceAnchor(firstTable.table, firstTable.table.tableId),
+      ),
       sourceParagraphId: null,
       sourceTableId: firstTable.table.tableId,
       styleRole: 'TABLE_DEFAULT',
@@ -168,7 +173,7 @@ export function buildPrototypes(input: BuildPrototypesInput): Prototype[] {
       clonePolicy: 'CLONE_XML',
       prefixPolicy: 'REPLACE_TEXT_ONLY',
       fallbackChain: ['BODY_DEFAULT', 'SYSTEM_SAFE_DEFAULT'],
-      rawXmlAnchor: firstTable.table.rawXmlAnchor,
+      rawXmlAnchor: sourceAnchor(firstTable.table, firstTable.table.tableId),
       immutable: true,
       evidence: `rows=${firstTable.table.rows.length} :: §1.7 표는 항상 CLONE_XML`,
     });

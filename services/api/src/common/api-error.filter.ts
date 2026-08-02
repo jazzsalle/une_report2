@@ -22,6 +22,7 @@ export class ApiErrorFilter implements ExceptionFilter {
     const res = ctx.getResponse<Response>();
 
     let status = 500;
+    let extraMeta: Record<string, unknown> | undefined;
     const error: ErrorBody = {
       code: 'COM-0001',
       message: '서버 오류가 발생했습니다.',
@@ -36,6 +37,12 @@ export class ApiErrorFilter implements ExceptionFilter {
       error.recoverable = exception.recoverable;
       if (exception.userAction) error.userAction = exception.userAction;
       if (exception.violations) error.violations = exception.violations;
+      extraMeta = exception.meta;
+      // Recovery headers (CC-150: the authoritative ETag on a 409). Set before
+      // res.json so a header thrown after the body would be a no-op.
+      for (const [name, value] of Object.entries(exception.headers ?? {})) {
+        res.setHeader(name, value);
+      }
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       error.code = `COM-${String(status).padStart(4, '0')}`;
@@ -47,6 +54,6 @@ export class ApiErrorFilter implements ExceptionFilter {
       console.error(`[une-api] unhandled error corr=${req?.correlationId ?? '-'}`, exception);
     }
 
-    res.status(status).json({ success: false, error, meta: metaFor(req) });
+    res.status(status).json({ success: false, error, meta: { ...metaFor(req), ...extraMeta } });
   }
 }

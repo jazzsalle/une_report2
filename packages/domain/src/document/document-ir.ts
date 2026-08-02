@@ -20,6 +20,33 @@ import type { HwpxFinding, ObjectClassification } from './compatibility';
  * character offsets belong to CC-150's SelectionResolver, not here. */
 export type RawXmlAnchor = string;
 
+/** Where an authored node sits relative to an existing one. Expressed against
+ * STABLE IDS, never against a raw XML anchor — an authored node has no anchor
+ * at all. Lives here (not in change-set.ts) because it is an IR concept; the
+ * ChangeSet vocabulary re-exports it. */
+export interface BlockAnchor {
+  relation: 'BEFORE' | 'AFTER' | 'FIRST_CHILD' | 'LAST_CHILD';
+  /** Stable id of the reference node (paragraph/table/cell). */
+  ref: string;
+}
+
+/** Where a node came from. */
+export type NodeOrigin = 'SOURCE' | 'AUTHORED';
+
+/**
+ * Origin and its anchor evidence, as a DISCRIMINATED UNION (CC-150, ADR-30 D3).
+ *
+ * The point is that "a node with neither an anchor nor a hint" does not
+ * compile: invariant I9 is enforced by the type checker before any runtime
+ * check runs. SOURCE nodes point back into the original XML; AUTHORED nodes
+ * carry the placement CC-160's delta writer needs, because inferring it from
+ * IR order later would turn §1.10-3 (raw fragment relative order) from data
+ * into trust in an algorithm.
+ */
+export type NodeProvenance =
+  | { origin: 'SOURCE'; rawXmlAnchor: RawXmlAnchor; anchorHint?: undefined }
+  | { origin: 'AUTHORED'; rawXmlAnchor?: undefined; anchorHint: BlockAnchor };
+
 export interface StyleRef {
   paraPrId: number | null;
   charPrId: number | null;
@@ -42,17 +69,18 @@ export interface RunIR {
   controls: RawXmlAnchor[];
 }
 
-export interface ParagraphIR {
+export interface ParagraphCore {
   paragraphId: string;
   runs: RunIR[];
   styleRef: StyleRef;
   editState: EditState;
-  rawXmlAnchor: RawXmlAnchor;
   /** Analyzer output when a role was resolved (OUTLINE_1..n, BODY, TITLE …). */
   styleRole?: string;
   outlineLevel?: number;
   prototypeId?: string;
 }
+
+export type ParagraphIR = ParagraphCore & NodeProvenance;
 
 export interface TableCellIR {
   cellId: string;
@@ -67,12 +95,13 @@ export interface TableRowIR {
   cells: TableCellIR[];
 }
 
-export interface TableIR {
+export interface TableCore {
   tableId: string;
   rows: TableRowIR[];
-  rawXmlAnchor: RawXmlAnchor;
   prototypeId?: string;
 }
+
+export type TableIR = TableCore & NodeProvenance;
 
 export type BlockIR =
   | ({ kind: 'PARAGRAPH' } & ParagraphIR)
@@ -80,12 +109,18 @@ export type BlockIR =
   /** Structures the engine models only as preserved XML (pictures, OLE,
    * equations, unknown controls). They occupy their position in block order
    * so surrounding edits cannot reorder or drop them. */
-  | {
-      kind: 'PRESERVED';
-      preservedId: string;
-      rawXmlAnchor: RawXmlAnchor;
-      classification: ObjectClassification;
-    };
+  | PreservedBlockIR;
+
+/** A preserved object can never be AUTHORED: it is a placeholder for original
+ * bytes, and an editor cannot create one. It therefore does NOT use
+ * NodeProvenance — `origin` is pinned to SOURCE. */
+export interface PreservedBlockIR {
+  kind: 'PRESERVED';
+  origin: 'SOURCE';
+  preservedId: string;
+  rawXmlAnchor: RawXmlAnchor;
+  classification: ObjectClassification;
+}
 
 export interface PageSettings {
   /** Raw page/section properties kept as an anchor — layout is rhwp's job. */
@@ -127,9 +162,10 @@ export interface StyleIndex {
 }
 
 export interface DocumentIR {
-  /** IR schema version — bumped when the shape changes so persisted
-   * ir_json can be interpreted (CC-150 reads rows written by earlier code). */
-  irVersion: '1';
+  /** IR schema version. v2 adds NodeProvenance (CC-150, ADR-30 D3); v1 rows
+   * are lifted on read. Bumped when the shape changes so persisted ir_json
+   * stays interpretable by code written before the change. */
+  irVersion: '1' | '2';
   documentId: string;
   /** Revision this IR belongs to; null until CC-150 creates revisions. */
   revision: string | null;

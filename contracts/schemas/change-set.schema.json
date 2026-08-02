@@ -1,0 +1,359 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.une.local/change-set.schema.json",
+  "title": "UNE Document ChangeSet Request",
+  "description": "Atomic edit request for UNE-DOC-006 (POST /documents/{documentId}/changesets) and the delta of UNE-DOC-009 (autosaves). A ChangeSet is the ONLY way a document changes (design 07 §1.9): either every operation applies and a new revision exists, or nothing happened. Corrections are new ChangeSets — an applied one is never rewritten (CLAUDE.md: never overwrite audit history). The vocabularies here are the same values as packages/domain/src/document/{change-set,selection}.ts; that file is the runtime source of truth and this schema is its wire contract.\n\nComposition note (ADR-24 D4): this document never combines `allOf` with `additionalProperties:false`. Under JSON Schema 2020-12 a branch carrying `additionalProperties:false` cannot see properties declared in a sibling branch, so such a combination rejects every instance. Shared shapes are therefore inlined, and `allOf` is used only for if/then constraints that add `required` without adding properties.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["baseRevisionId", "origin", "clientMutationId"],
+  "allOf": [
+    {
+      "title": "Undo/Redo carries no operations",
+      "description": "Normal edits require `operations`. Undo/Redo instead name the ChangeSet to reverse and carry none: the stored inverse set is server-side data (ADR-30 D6 as amended). Accepting it back on the request surface would mean trusting arbitrary IR fragments — a client could plant SOURCE-origin nodes, forged rawXmlAnchors or locked blocks, and the discriminated union cannot stop that because it is a compile-time guarantee.",
+      "if": { "required": ["undoesChangeSetId"] },
+      "then": {
+        "properties": { "origin": { "enum": ["UNDO", "REDO"] } },
+        "not": { "required": ["operations"] }
+      },
+      "else": { "required": ["operations"] }
+    }
+  ],
+  "properties": {
+    "baseRevisionId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Revision the client edited against. Optimistic-concurrency partner of the If-Match header (ADR-30 D4): If-Match carries that revision's revision_no and the two must agree, or the request contradicts itself (422 DOC-422-004)."
+    },
+    "origin": { "$ref": "#/$defs/changeSetOrigin" },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/changeOperation" },
+      "description": "Applied in `order`; the inverse set applies in reverse."
+    },
+    "clientMutationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,100}$",
+      "description": "Idempotency anchor for retried submissions, unique within the document (uk_change_set_mutation). Same id + same payload replays the original receipt; same id + different payload is 409 COM-0409."
+    },
+    "dryRun": {
+      "type": "boolean",
+      "default": false,
+      "description": "Build the diff and validate, but create no revision (US-PLAN-017 AC-01: the document does not move before the user approves the Diff). No change_set/change_operation row is written either — a preview leaves no trace."
+    },
+    "undoesChangeSetId": {
+      "$ref": "#/$defs/uuid",
+      "description": "ChangeSet to reverse (change_set.undoes_change_set_id). Undo is a NEW ChangeSet, so the edge is what makes Redo targeting and UNDO_CONFLICT detection queryable instead of memory-resident. Present ⇒ origin is UNDO/REDO and `operations` must be absent: the server applies the stored inverse set. If any later applied ChangeSet touched the same nodes, the undo is refused with 422 DOC-422-004 and the affected node ids (US-PLAN-017 E-03)."
+    },
+    "checkpointLabel": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Version-history checkpoint label (US-PLAN-020 #3/A-02). Deliberately not an enum: the canon lists 생성전/목차확정/초안완료/수동 checkpoint in one place and 목차확정/본문완료/최종저장 in another, so the set is not closed."
+    },
+    "changeSummary": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Human-readable summary shown in version history. Free prose — never a query predicate (that is what `origin` is for)."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "changeSetOrigin": {
+      "enum": ["USER", "AI", "AUTOSAVE", "UNDO", "REDO", "RESTORE", "MATERIALIZE"],
+      "description": "Where the edit came from. Undo/Redo do NOT get a separate stack (§1.9 keeps AI and user edits in one stack), so origin is the audit and display axis rather than a stack selector."
+    },
+    "changeOperationType": {
+      "enum": [
+        "INSERT_BLOCKS",
+        "REPLACE_RANGE",
+        "DELETE_RANGE",
+        "SPLIT_PARAGRAPH",
+        "MERGE_PARAGRAPHS",
+        "MOVE_BLOCK",
+        "APPLY_STYLE_ROLE",
+        "TABLE_PATCH"
+      ],
+      "description": "The eight operations design 07 §1.9 fixes. This list does not grow without an ADR: executor, inverse generator, diff and audit all switch on it exhaustively, and change_operation carries ck_change_operation_type with exactly these values."
+    },
+    "textPosition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paragraphId", "offset"],
+      "properties": {
+        "paragraphId": { "type": "string", "minLength": 1 },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "UTF-16 code unit index into the paragraph's concatenated run text (§1.8, fixed for parity with JavaScript string indexing). The offset space is defined by OFFSET_CONTRIBUTING_ELEMENTS / OFFSET_TRANSPARENT_ELEMENTS in packages/domain/src/document/selection.ts — a client that counts differently edits at the wrong position."
+        }
+      }
+    },
+    "selectionEnvelope": {
+      "description": "What the client sends. It has NO field for pixel/visual coordinates and NO field for a raw XML anchor (§1.8-4): the selection layer is L3 (node id + character offset) and must never reference L1 (partPath#el[n]). Each branch is written out in full rather than composed with allOf, so `additionalProperties:false` stays meaningful.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "baseRevisionId", "at"],
+          "properties": {
+            "kind": { "const": "CURSOR" },
+            "baseRevisionId": { "$ref": "#/$defs/uuid" },
+            "at": { "$ref": "#/$defs/textPosition" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "baseRevisionId", "start", "end"],
+          "properties": {
+            "kind": { "const": "TEXT_RANGE" },
+            "baseRevisionId": { "$ref": "#/$defs/uuid" },
+            "start": { "$ref": "#/$defs/textPosition" },
+            "end": { "$ref": "#/$defs/textPosition" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "baseRevisionId", "blockIds"],
+          "properties": {
+            "kind": { "const": "BLOCK" },
+            "baseRevisionId": { "$ref": "#/$defs/uuid" },
+            "blockIds": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "baseRevisionId", "sectionId"],
+          "properties": {
+            "kind": { "const": "SECTION" },
+            "baseRevisionId": { "$ref": "#/$defs/uuid" },
+            "sectionId": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "baseRevisionId", "tableId", "cellId"],
+          "properties": {
+            "kind": { "const": "TABLE_CELL" },
+            "baseRevisionId": { "$ref": "#/$defs/uuid" },
+            "tableId": { "type": "string", "minLength": 1 },
+            "cellId": { "type": "string", "minLength": 1 },
+            "start": { "$ref": "#/$defs/textPosition" },
+            "end": { "$ref": "#/$defs/textPosition" }
+          }
+        }
+      ]
+    },
+    "blockAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation", "ref"],
+      "description": "Placement expressed against STABLE IDS, never against a raw XML anchor — an authored node has no anchor at all (ADR-30 D3).",
+      "properties": {
+        "relation": { "enum": ["BEFORE", "AFTER", "FIRST_CHILD", "LAST_CHILD"] },
+        "ref": { "type": "string", "minLength": 1 }
+      }
+    },
+    "insertSource": {
+      "description": "Where new blocks come from. GENERATED_BLOCKS is the materialize path (ADR-27 D2 assigned generated_block → document materialize to CC-150): modelled as a SOURCE of INSERT_BLOCKS rather than a ninth operation, so the §1.9 vocabulary stays closed.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "blocks"],
+          "properties": {
+            "kind": { "const": "INLINE" },
+            "blocks": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["text"],
+                "properties": {
+                  "text": { "type": "string" },
+                  "styleRole": { "type": "string", "minLength": 1 },
+                  "outlineLevel": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "prototypeId", "count"],
+          "properties": {
+            "kind": { "const": "PROTOTYPE" },
+            "prototypeId": { "type": "string", "minLength": 1 },
+            "count": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "planId", "tocVersionId"],
+          "description": "Materialize generated_block rows into the document. Server-side defence is threefold (ADR-27 D4 carried over): the plan's current_toc_version_id must equal tocVersionId (fail-closed otherwise), only rows with superseded_at IS NULL are read, and rows whose protection_state is not NONE are excluded with a reason reported back — never silently.",
+          "properties": {
+            "kind": { "const": "GENERATED_BLOCKS" },
+            "planId": { "$ref": "#/$defs/uuid" },
+            "tocVersionId": { "$ref": "#/$defs/uuid" }
+          }
+        }
+      ]
+    },
+    "changeOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "order"],
+      "properties": {
+        "type": { "$ref": "#/$defs/changeOperationType" },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position within the ChangeSet, unique per set (uk_change_operation_order). Where order is the meaning, uniqueness is correctness rather than performance: duplicate orders make application non-deterministic and break invert∘apply == identity (ADR-30 D6)."
+        },
+        "selection": { "$ref": "#/$defs/selectionEnvelope" },
+        "anchor": { "$ref": "#/$defs/blockAnchor" },
+        "source": { "$ref": "#/$defs/insertSource" },
+        "payload": {
+          "type": "object",
+          "description": "Operation-specific arguments. Left open on purpose: the eight types have genuinely different shapes, and the per-type required arguments are pinned by the if/then rules below rather than by eight parallel object definitions.",
+          "additionalProperties": true,
+          "properties": {
+            "text": { "type": "string" },
+            "paragraphId": { "type": "string" },
+            "offset": { "type": "integer", "minimum": 0 },
+            "leftId": { "type": "string" },
+            "rightId": { "type": "string" },
+            "blockId": { "type": "string" },
+            "styleRole": { "type": "string" },
+            "outlineLevel": { "type": "integer", "minimum": 0 },
+            "tableId": { "type": "string" },
+            "cellOps": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "description": "INSERT_BLOCKS needs a placement and a source.",
+          "if": { "properties": { "type": { "const": "INSERT_BLOCKS" } }, "required": ["type"] },
+          "then": { "required": ["anchor", "source"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "REPLACE_RANGE" } }, "required": ["type"] },
+          "then": { "required": ["selection"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "DELETE_RANGE" } }, "required": ["type"] },
+          "then": { "required": ["selection"] }
+        },
+        {
+          "description": "MERGE_PARAGRAPHS is expressed by ids, not by a range: the two paragraphs need not be adjacent in the selection the user made.",
+          "if": { "properties": { "type": { "const": "MERGE_PARAGRAPHS" } }, "required": ["type"] },
+          "then": {
+            "required": ["payload"],
+            "properties": { "payload": { "required": ["leftId", "rightId"] } }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "MOVE_BLOCK" } }, "required": ["type"] },
+          "then": {
+            "required": ["anchor", "payload"],
+            "properties": { "payload": { "required": ["blockId"] } }
+          }
+        },
+        {
+          "description": "APPLY_STYLE_ROLE names a ROLE; §1.9 forbids setting styleId directly, because the prototype — not the caller — decides which style id a role resolves to. The ban is scoped to this operation so it mirrors the executor exactly.",
+          "if": { "properties": { "type": { "const": "APPLY_STYLE_ROLE" } }, "required": ["type"] },
+          "then": {
+            "required": ["payload"],
+            "properties": {
+              "payload": {
+                "required": ["blockId", "styleRole"],
+                "not": { "required": ["styleId"] }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "TABLE_PATCH" } }, "required": ["type"] },
+          "then": {
+            "required": ["payload"],
+            "properties": { "payload": { "required": ["tableId", "cellOps"] } }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "baseRevisionId": "3f1c1a52-2b0f-4a1e-9f2d-6c7b8a9d0e11",
+      "origin": "USER",
+      "clientMutationId": "edit-2026-08-01-0007",
+      "operations": [
+        {
+          "type": "REPLACE_RANGE",
+          "order": 0,
+          "selection": {
+            "kind": "TEXT_RANGE",
+            "baseRevisionId": "3f1c1a52-2b0f-4a1e-9f2d-6c7b8a9d0e11",
+            "start": { "paragraphId": "P-000012", "offset": 0 },
+            "end": { "paragraphId": "P-000012", "offset": 7 }
+          },
+          "payload": { "text": "폭염 대비" }
+        }
+      ]
+    },
+    {
+      "baseRevisionId": "3f1c1a52-2b0f-4a1e-9f2d-6c7b8a9d0e11",
+      "origin": "MATERIALIZE",
+      "clientMutationId": "materialize-toc-v3",
+      "checkpointLabel": "초안완료",
+      "operations": [
+        {
+          "type": "INSERT_BLOCKS",
+          "order": 0,
+          "anchor": { "relation": "LAST_CHILD", "ref": "S-0001" },
+          "source": {
+            "kind": "GENERATED_BLOCKS",
+            "planId": "9d4e5f60-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+            "tocVersionId": "2a7c8d11-4e5f-4a6b-9c8d-1e2f3a4b5c6d"
+          }
+        }
+      ]
+    },
+    {
+      "baseRevisionId": "3f1c1a52-2b0f-4a1e-9f2d-6c7b8a9d0e11",
+      "origin": "AI",
+      "clientMutationId": "ai-diff-preview-41",
+      "dryRun": true,
+      "operations": [
+        {
+          "type": "SPLIT_PARAGRAPH",
+          "order": 0,
+          "selection": {
+            "kind": "CURSOR",
+            "baseRevisionId": "3f1c1a52-2b0f-4a1e-9f2d-6c7b8a9d0e11",
+            "at": { "paragraphId": "P-000012", "offset": 12 }
+          }
+        },
+        {
+          "type": "APPLY_STYLE_ROLE",
+          "order": 1,
+          "payload": { "blockId": "P-000012", "styleRole": "OUTLINE_2" }
+        }
+      ]
+    }
+  ]
+}

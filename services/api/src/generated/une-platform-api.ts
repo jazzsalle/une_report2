@@ -785,6 +785,10 @@ export type paths = {
          *     핵심 응답: DocumentIR
          *
          *     오류: DOC-404-001
+         *
+         *     revisionId를 생략하면 head Revision을 반환한다. ETag는 **반환한 표현의** revision_no이며(기본 경로에서는 곧 head의 번호), 그대로 UNE-DOC-006/008/009의 If-Match 값이 된다. 과거 Revision을 명시 조회하면 head와 다른 값이 나가고 그것을 If-Match로 쓰면 409가 된다 — 과거 표현을 기준으로 쓰기를 시도하는 것은 실제로 충돌이므로 이것이 안전한 쪽이다. head 식별자는 응답 본문의 headRevisionId/headRevisionNo로도 함께 나간다.
+         *
+         *     ir_json이 v1로 적힌 행은 읽기 시 v2로 승격해 반환한다(liftedFromV1=true, ADR-30 D3). 승격은 origin=SOURCE 주입뿐이며 ID·앵커·텍스트는 바뀌지 않는다.
          */
         get: operations["une_doc_005"];
         put?: never;
@@ -808,11 +812,23 @@ export type paths = {
          * ChangeSet 원자 적용
          * @description 권한: DOC_EDIT
          *
-         *     핵심 요청: baseRevisionId,selection,operations
+         *     핵심 요청: If-Match, baseRevisionId, origin, operations, clientMutationId
          *
-         *     핵심 응답: DocumentRevision
+         *     핵심 응답: ChangeSetResult(새 Revision + Diff + 역연산)
          *
-         *     오류: DOC-409-001,DOC-422-004
+         *     오류: DOC-409-001, DOC-422-004, COM-0409, COM-0428
+         *
+         *     이중 가드: If-Match(head revision_no)와 body.baseRevisionId가 모두 필요하다. 둘이 서로 다른 Revision을 가리키면 요청 자체가 자기모순이므로 422 DOC-422-004로 끝난다 — 재조회로 고쳐지지 않는 오류를 409로 답하면 클라이언트가 무한히 재시도한다. 둘이 일치하지만 head가 이미 움직였으면 409 DOC-409-001이며, 응답에 현재 ETag 헤더와 meta.conflict(currentRevisionId/currentRevisionNo/headIrHash)를 함께 싣는다.
+         *
+         *     원자성: change_set + change_operation N + document_revision + document 포인터 + audit_log가 한 트랜잭션이다. 연산 하나라도 실패하면 리비전은 생기지 않는다(설계 07 §1.9 on error rollback + no partial document mutation).
+         *
+         *     dryRun: 검증과 Diff까지만 하고 아무 행도 쓰지 않는다(US-PLAN-017 AC-01). ETag는 그대로 head의 값이 나간다.
+         *
+         *     멱등: clientMutationId가 앵커다(uk_change_set_mutation). 같은 값 + 같은 내용은 원래 결과를 replayed=true로 되돌려 주고, 같은 값 + 다른 내용은 409 COM-0409다. 재전송 응답의 diff는 비어 있다 — 문서 본문 미리보기를 재생산하려고 저장해 두지 않는다. **거절(REJECTED)된 요청의 재전송은 200이 아니라 다시 422다**: 200 + applied=false를 주면 오프라인 큐가 성공으로 처리해 사용자의 편집이 조용히 사라진다.
+         *
+         *     Undo/Redo: operations를 싣지 않고 undoesChangeSetId로 되돌릴 ChangeSet만 지목한다. 서버가 저장해 둔 역연산을 적용하므로 요청 표면에 IR 조각이 들어올 자리가 없다. 대상 이후 같은 노드를 건드린 ChangeSet이 있으면 422 DOC-422-004이며 violations에 영향 노드 ID가 실린다(US-PLAN-017 E-03).
+         *
+         *     상태: document.status가 EDITING이 아니면 422 DOC-422-004다(재조회로 고쳐지지 않는다).
          */
         post: operations["une_doc_006"];
         delete?: never;
@@ -832,11 +848,15 @@ export type paths = {
          * Revision 목록
          * @description 권한: DOC_READ
          *
-         *     핵심 요청: page
+         *     핵심 요청: page, size
          *
-         *     핵심 응답: Page<Revision>
+         *     핵심 응답: Page<Revision> (origin, checkpointLabel 포함)
          *
          *     오류: DOC-404-002
+         *
+         *     버전이력 화면(US-PLAN-020 정상흐름 #3)이 쓰는 목록이다. 최신 Revision이 먼저 온다. 본문(ir_json)은 싣지 않는다 — 페이지당 수 MB가 되고, 화면이 필요로 하는 것은 작성자·시각·변경요약·출처·checkpoint 라벨뿐이다. 본문은 UNE-DOC-005로 개별 조회한다.
+         *
+         *     origin은 리비전이 왜 생겼는지를 질의 가능한 값으로 남긴 것이다 (IMPORT/MATERIALIZE/CHANGESET/AUTOSAVE/UNDO/REDO/RESTORE). checkpointLabel은 어휘가 정본에서 닫혀 있지 않아 enum이 아니다(0019 §2.2).
          */
         get: operations["une_doc_007"];
         put?: never;
@@ -860,11 +880,17 @@ export type paths = {
          * Revision 복원
          * @description 권한: DOC_EDIT
          *
-         *     핵심 요청: reason
+         *     핵심 요청: If-Match, reason, checkpointLabel
          *
-         *     핵심 응답: DocumentRevision
+         *     핵심 응답: 새 head DocumentRevision
          *
-         *     오류: DOC-409-002
+         *     오류: DOC-409-002, DOC-404-001, COM-0428
+         *
+         *     US-PLAN-020 AC-01: 복원은 과거 revision을 변경하지 않고 새 head revision을 생성한다. 이 오퍼레이션에는 어떤 UPDATE document_revision도 없다 — 과거 리비전의 ir_json을 읽어서 새 행으로 넣고, 함께 남기는 change_set(origin=RESTORE)이 계보를 기록한다.
+         *
+         *     change_operation 행은 만들지 않는다: 복원은 8종 연산 어휘로 표현되는 편집이 아니라 이 시점의 문서로 되돌린다는 한 번의 사실이며, 어휘에 없는 연산을 지어내면 역연산 생성기가 전수 분기에서 실패한다.
+         *
+         *     If-Match는 현재 head의 revision_no다. 불일치는 409 DOC-409-002이며 현재 ETag와 meta.conflict를 함께 싣는다. 이미 head인 Revision을 복원 대상으로 지정하면 422 DOC-422-004다(같은 내용의 리비전을 하나 더 만드는 것은 이력 오염이다).
          */
         post: operations["une_doc_008"];
         delete?: never;
@@ -886,11 +912,21 @@ export type paths = {
          * 자동저장
          * @description 권한: DOC_EDIT
          *
-         *     핵심 요청: baseRevisionId,delta,clientMutationId
+         *     핵심 요청: If-Match, baseRevisionId, delta, clientMutationId, seq
          *
          *     핵심 응답: AutosaveReceipt
          *
-         *     오류: DOC-409-003
+         *     오류: DOC-409-003, DOC-422-004, COM-0409, COM-0428
+         *
+         *     batch 1건이 저널 1행(document_autosave) + ChangeSet 1건 + Revision 1건이다. 수신확인(receipt)의 status는 셋뿐이다:
+         *
+         *     ACCEPTED — 반영되었다. resultRevisionId가 결과 리비전을 가리킨다. **내용이 그대로면 새 리비전을 만들지 않고 기존 head를 가리킨다**(ir_hash 동일 → ADR-30 D8 중복 제거): 같은 문자 재입력·입력 후 즉시 취소 같은 batch가 버전이력을 의미 없는 행으로 덮지 않게 한다. 저널 행은 그때도 남는다.
+         *
+         *     CONFLICT — head가 이미 움직였다. 409 DOC-409-003으로 나가지만 판정 자체는 저널에 남는다 — 그래야 화면이 저장 실패를 표시할 수 있다(US-PLAN-020 AC-02). 저널의 base_revision_id에는 **요청이 기준으로 삼은 Revision**을 적는다(재현 가능성). If-Match와 baseRevisionId가 서로 다른 Revision을 가리키는 자기모순 요청은 409가 아니라 422 DOC-422-004다 — 적용(UNE-DOC-006)과 같은 규칙이며, 재조회로 고쳐지지 않는 오류를 409로 답하면 클라이언트가 무한히 재시도한다.
+         *
+         *     SUPERSEDED — 도착했을 때 이미 같은 문서의 더 나중 자동저장이 반영돼 있었다 (A-01 오프라인 재동기화). 실패가 아니라 무해한 폐기이므로 200이다. 이 판정을 충돌보다 먼저 하는 이유: 늦게 도착한 항목은 baseRevisionId가 낡아 있는 것이 정상이라, 충돌로 판정하면 사용자에게 거짓 경보가 된다.
+         *
+         *     멱등: clientMutationId가 앵커다(uk_document_autosave_mutation). 오프라인 큐는 같은 항목을 여러 번 재전송하는 것이 정상 동작이므로, 이 유일성이 없으면 재전송이 곧 리비전 중복 생성이 된다. 같은 값 + 같은 delta는 같은 receipt를 replayed=true로 돌려주고, 같은 값 + 다른 delta는 409 COM-0409다.
          */
         post: operations["une_doc_009"];
         delete?: never;
@@ -3365,13 +3401,287 @@ export type components = {
             /** Format: uuid */
             planId?: string | null;
         };
+        /**
+         * @description 일반 편집은 `operations`가 필수다. **Undo/Redo는 반대로 `operations`를 싣지
+         *     않는다** — `undoesChangeSetId`로 되돌릴 ChangeSet만 지목하면 서버가 저장해 둔
+         *     역연산을 쓴다(ADR-30 D6 보정). 역연산은 원본 블록 IR을 통째로 나르므로, 요청
+         *     표면에서 받으면 클라이언트가 origin:'SOURCE'·위조 앵커·locked 노드를 문서에
+         *     직접 심을 수 있다.
+         */
         ChangeSetRequest: {
+            /**
+             * Format: uuid
+             * @description If-Match가 가리키는 Revision과 같아야 한다(다르면 422 DOC-422-004).
+             */
+            baseRevisionId: string;
+            origin: components["schemas"]["ChangeSetOrigin"];
+            operations?: components["schemas"]["ChangeOperation"][];
+            /** @description 문서 범위 멱등 앵커(uk_change_set_mutation). */
+            clientMutationId: string;
+            /**
+             * @description 검증·Diff만 수행하고 리비전을 만들지 않는다.
+             * @default false
+             */
+            dryRun: boolean;
+            /**
+             * Format: uuid
+             * @description 되돌릴 ChangeSet(change_set.undoes_change_set_id). 이 값을 실으면 origin은
+             *     UNDO 또는 REDO여야 하고 operations를 실을 수 없다. 대상 이후 같은 노드를
+             *     건드린 ChangeSet이 있으면 422 DOC-422-004(UNDO_CONFLICT)다.
+             */
+            undoesChangeSetId?: string;
+            checkpointLabel?: string;
+            changeSummary?: string;
+        } & unknown;
+        /** @enum {string} */
+        ChangeSetOrigin: "USER" | "AI" | "AUTOSAVE" | "UNDO" | "REDO" | "RESTORE" | "MATERIALIZE";
+        /**
+         * @description 설계 07 §1.9가 고정한 8종. ADR 없이 늘어나지 않는다(ck_change_operation_type).
+         * @enum {string}
+         */
+        ChangeOperationType: "INSERT_BLOCKS" | "REPLACE_RANGE" | "DELETE_RANGE" | "SPLIT_PARAGRAPH" | "MERGE_PARAGRAPHS" | "MOVE_BLOCK" | "APPLY_STYLE_ROLE" | "TABLE_PATCH";
+        TextPosition: {
+            paragraphId: string;
+            /** @description 문단 run 텍스트를 이은 문자열에 대한 UTF-16 코드 단위 인덱스(§1.8). */
+            offset: number;
+        };
+        /** @description 화면좌표와 원시 XML 앵커를 담는 필드가 없다(§1.8-4). 종류별 필수 항목은 contracts/schemas/change-set.schema.json이 oneOf로 닫는다. */
+        SelectionEnvelope: {
+            /** @enum {string} */
+            kind: "CURSOR" | "TEXT_RANGE" | "BLOCK" | "SECTION" | "TABLE_CELL";
             /** Format: uuid */
             baseRevisionId: string;
-            operations: {
+            at?: components["schemas"]["TextPosition"];
+            start?: components["schemas"]["TextPosition"];
+            end?: components["schemas"]["TextPosition"];
+            blockIds?: string[];
+            sectionId?: string;
+            tableId?: string;
+            cellId?: string;
+        };
+        BlockAnchor: {
+            /** @enum {string} */
+            relation: "BEFORE" | "AFTER" | "FIRST_CHILD" | "LAST_CHILD";
+            /** @description 기준 노드의 안정 ID(원시 XML 앵커가 아니다). */
+            ref: string;
+        };
+        /** @description INSERT_BLOCKS의 블록 출처. GENERATED_BLOCKS가 materialize 경로이며 서버가 3중 방어(현재 목차버전 일치, superseded_at IS NULL, 보호 블록 제외)를 건다. */
+        InsertSource: {
+            /** @enum {string} */
+            kind: "INLINE" | "PROTOTYPE" | "GENERATED_BLOCKS";
+            blocks?: {
                 [key: string]: unknown;
             }[];
+            prototypeId?: string;
+            count?: number;
+            /** Format: uuid */
+            planId?: string;
+            /** Format: uuid */
+            tocVersionId?: string;
+        };
+        ChangeOperation: {
+            type: components["schemas"]["ChangeOperationType"];
+            /** @description ChangeSet 안에서 유일해야 한다(uk_change_operation_order). */
+            order: number;
+            selection?: components["schemas"]["SelectionEnvelope"];
+            anchor?: components["schemas"]["BlockAnchor"];
+            source?: components["schemas"]["InsertSource"];
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        DiffEntry: {
+            /** @enum {string} */
+            kind: "ADDED" | "REMOVED" | "MODIFIED" | "MOVED";
+            nodeId: string;
+            /** @description 짧은 텍스트 미리보기. 본문이므로 로그·목록에는 싣지 않는다. */
+            preview?: string;
+        };
+        NodeAlias: {
+            from: string;
+            to: string;
+            /** @description MERGE는 오른쪽 문단의 모든 오프셋을 왼쪽 길이만큼 민다. 이 값이 없으면 재조회가 노드는 맞히고 문자 위치는 틀린다. */
+            offsetDelta: number;
+        };
+        MaterializeReport: {
+            /** Format: uuid */
+            planId: string;
+            /** Format: uuid */
+            tocVersionId: string;
+            candidateBlocks: number;
+            insertedBlocks: number;
+            /** @description 제외된 블록과 사유. 조용히 빠지면 사용자는 문서가 왜 비었는지 모른다. */
+            excluded: {
+                /** Format: uuid */
+                blockId: string;
+                nodeKey: string;
+                reason: string;
+            }[];
+        };
+        ChangeSetResult: {
+            /**
+             * Format: uuid
+             * @description dryRun이면 null(아무 행도 쓰지 않았다).
+             */
+            changeSetId: string | null;
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            baseRevisionId: string;
+            dryRun: boolean;
+            applied: boolean;
+            /** @description 같은 clientMutationId 재전송으로 원래 결과를 돌려준 경우 true. */
+            replayed: boolean;
+            /** Format: uuid */
+            newRevisionId: string | null;
+            newRevisionNo: number | null;
+            irHash: string;
+            diff: components["schemas"]["DiffEntry"][];
+            /** @description Undo가 재유도가 아니라 자료 조회가 되도록 저장된 역연산(ADR-30 D6). */
+            inverseOperations: components["schemas"]["ChangeOperation"][];
+            aliases: components["schemas"]["NodeAlias"][];
+            /** @description 이번 ChangeSet이 무효화한 alias(MERGE 되돌림으로 되살아난 문단). */
+            aliasRemovals: components["schemas"]["NodeAlias"][];
+            warnings: string[];
+            materialize: components["schemas"]["MaterializeReport"] | null;
+        };
+        ChangeSetResultResponse: {
+            success: boolean;
+            data: components["schemas"]["ChangeSetResult"];
+            meta: components["schemas"]["Meta"];
+        };
+        DocumentIrResource: {
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            revisionId: string;
+            revisionNo: number;
+            irHash: string;
+            origin: components["schemas"]["RevisionOrigin"];
+            checkpointLabel: string | null;
+            /** Format: uuid */
+            headRevisionId: string;
+            headRevisionNo: number;
+            /** @enum {string} */
+            irVersion: "1" | "2";
+            /** @description 저장된 ir_json이 v1이라 읽기 시 v2로 승격했는가(ADR-30 D3). */
+            liftedFromV1: boolean;
+            /** @description contracts/schemas/document-ir.schema.json이 정본이다. */
+            ir: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DocumentIrResponse: {
+            success: boolean;
+            data: components["schemas"]["DocumentIrResource"];
+            meta: components["schemas"]["Meta"];
+        };
+        /**
+         * @description 리비전이 어떤 기제로 만들어졌는가(ck_document_revision_origin). ChangeSet의 출처(누가 요청했나)와 축이 다르다 — USER/AI 편집은 둘 다 CHANGESET이다.
+         * @enum {string}
+         */
+        RevisionOrigin: "IMPORT" | "MATERIALIZE" | "CHANGESET" | "AUTOSAVE" | "UNDO" | "REDO" | "RESTORE";
+        RevisionResource: {
+            /** Format: uuid */
+            revisionId: string;
+            /** Format: uuid */
+            documentId: string;
+            revisionNo: number;
+            /** Format: uuid */
+            parentRevisionId: string | null;
+            irHash: string;
+            changeSummary: string | null;
+            origin: components["schemas"]["RevisionOrigin"];
+            /** @description 자동/수동 checkpoint 라벨. 어휘가 정본에서 닫혀 있지 않아 enum이 아니다. */
+            checkpointLabel: string | null;
+            isHead: boolean;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        RevisionPageResponse: {
+            success: boolean;
+            data: {
+                items: components["schemas"]["RevisionResource"][];
+                page: number;
+                size: number;
+                totalElements: number;
+                totalPages: number;
+                /** Format: uuid */
+                headRevisionId: string | null;
+                headRevisionNo: number | null;
+            };
+            meta: components["schemas"]["Meta"];
+        };
+        RevisionRestoreRequest: {
+            reason?: string;
+            checkpointLabel?: string;
+        };
+        RevisionRestoreResponse: {
+            success: boolean;
+            data: {
+                revision: components["schemas"]["RevisionResource"];
+                /** Format: uuid */
+                changeSetId: string;
+                /** Format: uuid */
+                restoredFromRevisionId: string;
+                restoredFromRevisionNo: number;
+            };
+            meta: components["schemas"]["Meta"];
+        };
+        AutosaveRequest: {
+            /** Format: uuid */
+            baseRevisionId: string;
+            delta: {
+                operations: components["schemas"]["ChangeOperation"][];
+            };
             clientMutationId: string;
+            /** @description 클라이언트 큐 순번. 생략하면 서버가 문서별 다음 값을 쓴다. 하한이 0인 이유는 0-based/1-based를 정하는 정본이 없기 때문이다(0019 §6). */
+            seq?: number;
+        };
+        AutosaveReceipt: {
+            /** Format: uuid */
+            autosaveId: string;
+            /** Format: uuid */
+            documentId: string;
+            clientMutationId: string;
+            /** @description bigint이므로 문자열로 나간다(정밀도 보존). */
+            seq: string;
+            /** @enum {string} */
+            status: "ACCEPTED" | "CONFLICT" | "SUPERSEDED";
+            /** Format: uuid */
+            baseRevisionId: string;
+            /** Format: uuid */
+            resultRevisionId: string | null;
+            resultRevisionNo: number | null;
+            irHash: string | null;
+            replayed: boolean;
+            /** Format: date-time */
+            receivedAt: string;
+        };
+        AutosaveReceiptResponse: {
+            success: boolean;
+            data: components["schemas"]["AutosaveReceipt"];
+            meta: components["schemas"]["Meta"];
+        };
+        RevisionConflictEnvelope: {
+            /** @enum {boolean} */
+            success: false;
+            error: components["schemas"]["Error"];
+            meta: components["schemas"]["Meta"] & {
+                /** @description 복구 정보. 이것이 없는 409는 클라이언트가 쓸 수 없다 — 최신 Revision을 다시 조회할 좌표가 응답 안에 있어야 한다. */
+                conflict: {
+                    /** Format: uuid */
+                    currentRevisionId: string;
+                    currentRevisionNo: number;
+                    headIrHash: string;
+                };
+            };
         };
         ExportRequest: {
             /** @enum {string} */
@@ -3557,6 +3867,17 @@ export type components = {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Conflict (문서 Revision 충돌) */
+        RevisionConflict: {
+            headers: {
+                /** @description 현재 head revision_no */
+                ETag?: string;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["RevisionConflictEnvelope"];
+            };
+        };
         /** @description Provider Error */
         ProviderError: {
             headers: {
@@ -3572,6 +3893,7 @@ export type components = {
         IdempotencyKey: string;
         IdempotencyKeyRequired: string;
         IfMatch: string;
+        IfMatchRequired: string;
         LastEventId: string;
     };
     requestBodies: never;
@@ -4642,7 +4964,10 @@ export interface operations {
     };
     une_doc_005: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 생략 시 head Revision. */
+                revisionId?: string;
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -4656,10 +4981,12 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description 반환한 Revision의 revision_no (강한 태그, 예 `"3"`) */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["DocumentIrResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4674,16 +5001,16 @@ export interface operations {
     une_doc_006: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatchRequired"];
             };
             path: {
                 documentId: string;
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["ChangeSetRequest"];
             };
@@ -4692,24 +5019,30 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description 새 head revision_no (dryRun이면 기존 값) */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["ChangeSetResultResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            409: components["responses"]["RevisionConflict"];
             422: components["responses"]["Unprocessable"];
+            428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["ProviderError"];
         };
     };
     une_doc_007: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: number;
+                size?: number;
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -4723,10 +5056,12 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description 현재 head revision_no */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["RevisionPageResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4741,73 +5076,80 @@ export interface operations {
     une_doc_008: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatchRequired"];
             };
             path: {
                 documentId: string;
+                /** @description 복원 대상(과거) Revision */
                 revisionId: string;
             };
             cookie?: never;
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["RevisionRestoreRequest"];
             };
         };
         responses: {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description 복원으로 생성된 새 head revision_no */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["RevisionRestoreResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            409: components["responses"]["RevisionConflict"];
             422: components["responses"]["Unprocessable"];
+            428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["ProviderError"];
         };
     };
     une_doc_009: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatchRequired"];
             };
             path: {
                 documentId: string;
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["AutosaveRequest"];
             };
         };
         responses: {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description 새 head revision_no (SUPERSEDED면 기존 값) */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["AutosaveReceiptResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            409: components["responses"]["RevisionConflict"];
             422: components["responses"]["Unprocessable"];
+            428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["ProviderError"];
         };
     };

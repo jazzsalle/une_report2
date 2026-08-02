@@ -34,7 +34,7 @@ const SHA = 'a'.repeat(64);
 /** Minimal-but-complete IR exercising every block kind, built from the domain
  * types so a type change breaks compilation here first. */
 const sampleIr: DocumentIR = {
-  irVersion: '1',
+  irVersion: '2',
   documentId: 'doc-1',
   revision: null,
   sourceHash: SHA,
@@ -46,6 +46,7 @@ const sampleIr: DocumentIR = {
       blocks: [
         {
           kind: 'PARAGRAPH',
+          origin: 'SOURCE',
           paragraphId: 'P-1',
           runs: [{ runId: 'R-1', text: '□ 추진 배경', charPrId: 13, controls: [] }],
           styleRef: { paraPrId: 25, charPrId: 13, numberingId: null, styleId: null },
@@ -56,6 +57,7 @@ const sampleIr: DocumentIR = {
         },
         {
           kind: 'TABLE',
+          origin: 'SOURCE',
           tableId: 'T-1',
           rawXmlAnchor: 'Contents/section0.xml#tbl[1]',
           rows: [
@@ -69,6 +71,7 @@ const sampleIr: DocumentIR = {
                   blocks: [
                     {
                       kind: 'PARAGRAPH',
+                      origin: 'SOURCE',
                       paragraphId: 'P-2',
                       runs: [],
                       styleRef: { paraPrId: 3, charPrId: 1, numberingId: null, styleId: null },
@@ -83,6 +86,7 @@ const sampleIr: DocumentIR = {
         },
         {
           kind: 'PRESERVED',
+          origin: 'SOURCE',
           preservedId: 'X-1',
           rawXmlAnchor: 'Contents/section0.xml#pic[1]',
           classification: {
@@ -153,6 +157,51 @@ describe('document-ir.schema.json ↔ @une/domain', () => {
       unknownParts: { partPath: string; contentType: string | null }[];
     };
     mutated.unknownParts = [{ partPath: 'Scripts/x.js', contentType: null }];
+    expect(validate(mutated)).toBe(false);
+  });
+
+  it('rejects a block with no origin — I9 must bite at the contract layer too', () => {
+    const mutated = structuredClone(sampleIr) as unknown as {
+      sections: { blocks: Record<string, unknown>[] }[];
+    };
+    delete mutated.sections[0].blocks[0].origin;
+    expect(validate(mutated)).toBe(false);
+  });
+
+  it('rejects an AUTHORED node that still carries a rawXmlAnchor', () => {
+    const mutated = structuredClone(sampleIr) as unknown as {
+      sections: { blocks: Record<string, unknown>[] }[];
+    };
+    mutated.sections[0].blocks[0].origin = 'AUTHORED';
+    mutated.sections[0].blocks[0].anchorHint = { relation: 'AFTER', ref: 'P-0' };
+    // rawXmlAnchor is still present from the SOURCE fixture — exclusivity must fail it.
+    expect(validate(mutated)).toBe(false);
+  });
+
+  it('rejects an AUTHORED node with neither anchor nor hint', () => {
+    const mutated = structuredClone(sampleIr) as unknown as {
+      sections: { blocks: Record<string, unknown>[] }[];
+    };
+    mutated.sections[0].blocks[0].origin = 'AUTHORED';
+    delete mutated.sections[0].blocks[0].rawXmlAnchor;
+    expect(validate(mutated)).toBe(false);
+  });
+
+  it('ACCEPTS a well-formed AUTHORED node — the constraint must not reject everything', () => {
+    const mutated = structuredClone(sampleIr) as unknown as {
+      sections: { blocks: Record<string, unknown>[] }[];
+    };
+    mutated.sections[0].blocks[0].origin = 'AUTHORED';
+    delete mutated.sections[0].blocks[0].rawXmlAnchor;
+    mutated.sections[0].blocks[0].anchorHint = { relation: 'AFTER', ref: 'P-0' };
+    expect(validate(mutated), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it('a PRESERVED block can never be AUTHORED — it stands for original bytes', () => {
+    const mutated = structuredClone(sampleIr) as unknown as {
+      sections: { blocks: Record<string, unknown>[] }[];
+    };
+    mutated.sections[0].blocks[2].origin = 'AUTHORED';
     expect(validate(mutated)).toBe(false);
   });
 

@@ -5,8 +5,8 @@
 적용된 마이그레이션에서 자동 생성된 데이터 사전이다 (G-DB 게이트 증거).
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
-- 테이블 수: 60
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block
+- 테이블 수: 61
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface
 
 ## api_idempotency
 
@@ -82,10 +82,11 @@
 
 ## change_operation
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - change_operation_pkey: PRIMARY KEY (operation_id)
+- ck_change_operation_type: CHECK (((operation_type)::text = ANY ((ARRAY['INSERT_BLOCKS'::character varying, 'REPLACE_RANGE'::character varying, 'DELETE_RANGE'::character varying, 'SPLIT_PARAGRAPH'::character varying, 'MERGE_PARAGRAPHS'::character varying, 'MOVE_BLOCK'::character varying, 'APPLY_STYLE_ROLE'::character varying, 'TABLE_PATCH'::character varying])::text[])))
 - fk_change_operation_change_set_id: FOREIGN KEY (change_set_id) REFERENCES change_set(change_set_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: change_operation_pkey
+- 인덱스: change_operation_pkey, uk_change_operation_order
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -99,12 +100,15 @@
 
 ## change_set
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - change_set_pkey: PRIMARY KEY (change_set_id)
+- ck_change_set_origin: CHECK (((origin)::text = ANY ((ARRAY['USER'::character varying, 'AI'::character varying, 'AUTOSAVE'::character varying, 'UNDO'::character varying, 'REDO'::character varying, 'RESTORE'::character varying, 'MATERIALIZE'::character varying])::text[])))
+- ck_change_set_status: CHECK (((status)::text = ANY ((ARRAY['APPLIED'::character varying, 'REJECTED'::character varying])::text[])))
 - fk_change_set_base_revision_id: FOREIGN KEY (base_revision_id) REFERENCES document_revision(revision_id) DEFERRABLE INITIALLY DEFERRED
 - fk_change_set_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
 - fk_change_set_result_revision_id: FOREIGN KEY (result_revision_id) REFERENCES document_revision(revision_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: change_set_pkey
+- fk_change_set_undoes_change_set_id: FOREIGN KEY (undoes_change_set_id) REFERENCES change_set(change_set_id) DEFERRABLE INITIALLY DEFERRED
+- 인덱스: change_set_pkey, uk_change_set_mutation
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -117,6 +121,8 @@
 | status | character varying(20) | NN |  | APPLIED/REJECTED |
 | created_by | uuid | NN |  | 사용자 |
 | created_at | timestamp with time zone | NN | now() | 시각 |
+| origin | character varying(20) | NN | 'USER'::character varying | 변경 출처 USER/AI/AUTOSAVE/UNDO/REDO/RESTORE/MATERIALIZE |
+| undoes_change_set_id | uuid | - |  | 되돌림 대상 ChangeSet(Undo 계보) |
 
 ## conflict_resolution
 
@@ -179,6 +185,7 @@
 ## document
 
 - 격리: RLS enforced (FORCE)
+- ck_document_status: CHECK (((status)::text = ANY ((ARRAY['EDITING'::character varying, 'REVIEW'::character varying, 'APPROVED'::character varying])::text[])))
 - document_pkey: PRIMARY KEY (document_id)
 - fk_document_current_revision_id: FOREIGN KEY (current_revision_id) REFERENCES document_revision(revision_id) DEFERRABLE INITIALLY DEFERRED
 - fk_document_source_file_id: FOREIGN KEY (source_file_id) REFERENCES file_object(file_id) DEFERRABLE INITIALLY DEFERRED
@@ -198,13 +205,39 @@
 | created_at | timestamp with time zone | NN | now() | 생성 |
 | updated_at | timestamp with time zone | NN | now() | 수정 |
 
+## document_autosave
+
+자동저장 명령 저널(UNE-DOC-009, US-PLAN-020)
+- 격리: RLS enforced (FORCE)
+- ck_document_autosave_status: CHECK (((status)::text = ANY ((ARRAY['ACCEPTED'::character varying, 'CONFLICT'::character varying, 'SUPERSEDED'::character varying])::text[])))
+- document_autosave_pkey: PRIMARY KEY (autosave_id)
+- fk_document_autosave_base_revision_id: FOREIGN KEY (base_revision_id) REFERENCES document_revision(revision_id) DEFERRABLE INITIALLY DEFERRED
+- fk_document_autosave_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
+- fk_document_autosave_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
+- fk_document_autosave_result_revision_id: FOREIGN KEY (result_revision_id) REFERENCES document_revision(revision_id) DEFERRABLE INITIALLY DEFERRED
+- 인덱스: document_autosave_pkey, ix_document_autosave_doc_seq, uk_document_autosave_mutation
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| autosave_id | uuid | NN | gen_random_uuid() | 자동저장 |
+| document_id | uuid | NN |  | 문서 |
+| base_revision_id | uuid | NN |  | 기준 Revision |
+| client_mutation_id | character varying(100) | NN |  | 클라이언트 멱등키 |
+| seq | bigint | NN |  | 클라이언트 큐 순번(오프라인 재동기화 순서) |
+| delta_json | jsonb | NN |  | 변경 batch(delta) |
+| result_revision_id | uuid | - |  | 결과 Revision(ACCEPTED일 때) |
+| status | character varying(20) | NN |  | ACCEPTED/CONFLICT/SUPERSEDED |
+| created_by | uuid | NN |  | 사용자 |
+| created_at | timestamp with time zone | NN | now() | 수신 |
+
 ## document_block
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_document_block_protection_state: CHECK (((protection_state)::text = ANY ((ARRAY['NONE'::character varying, 'USER_LOCKED'::character varying, 'SYSTEM_LOCKED'::character varying])::text[])))
 - document_block_pkey: PRIMARY KEY (block_id)
 - fk_document_block_parent_block_id: FOREIGN KEY (parent_block_id) REFERENCES document_block(block_id) DEFERRABLE INITIALLY DEFERRED
 - fk_document_block_revision_id: FOREIGN KEY (revision_id) REFERENCES document_revision(revision_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: document_block_pkey
+- 인덱스: document_block_pkey, uk_document_block_stable_key
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -221,7 +254,10 @@
 
 ## document_revision
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_document_revision_ir_hash: CHECK ((ir_hash ~ '^[0-9a-f]{64}$'::text))
+- ck_document_revision_no: CHECK ((revision_no > 0))
+- ck_document_revision_origin: CHECK (((origin)::text = ANY ((ARRAY['IMPORT'::character varying, 'MATERIALIZE'::character varying, 'CHANGESET'::character varying, 'AUTOSAVE'::character varying, 'UNDO'::character varying, 'REDO'::character varying, 'RESTORE'::character varying])::text[])))
 - document_revision_pkey: PRIMARY KEY (revision_id)
 - fk_document_revision_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_document_revision_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
@@ -239,6 +275,8 @@
 | change_summary | text | - |  | 변경요약 |
 | created_by | uuid | NN |  | 작성자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+| origin | character varying(20) | NN | 'CHANGESET'::character varying | 리비전 출처 IMPORT/MATERIALIZE/CHANGESET/AUTOSAVE/UNDO/REDO/RESTORE |
+| checkpoint_label | character varying(100) | - |  | Checkpoint 라벨(자동/수동, 없으면 NULL) |
 
 ## evaluation
 
@@ -346,7 +384,7 @@
 
 ## export_job
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - export_job_pkey: PRIMARY KEY (export_id)
 - fk_export_job_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
 - fk_export_job_requested_by: FOREIGN KEY (requested_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
@@ -1042,7 +1080,8 @@
 
 ## style_prototype
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_style_prototype_fingerprint: CHECK ((style_fingerprint ~ '^[0-9a-f]{64}$'::text))
 - fk_style_prototype_template_profile_id: FOREIGN KEY (template_profile_id) REFERENCES template_profile(template_profile_id) DEFERRABLE INITIALLY DEFERRED
 - style_prototype_pkey: PRIMARY KEY (prototype_id)
 - 인덱스: style_prototype_pkey
@@ -1123,7 +1162,8 @@
 
 ## template_profile
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_template_profile_analysis_hash: CHECK ((analysis_hash ~ '^[0-9a-f]{64}$'::text))
 - fk_template_profile_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
 - template_profile_pkey: PRIMARY KEY (template_profile_id)
 - 인덱스: template_profile_pkey
@@ -1240,7 +1280,7 @@
 
 ## validation_report
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - validation_report_pkey: PRIMARY KEY (validation_report_id)
 - 인덱스: validation_report_pkey
 

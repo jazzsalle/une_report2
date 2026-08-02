@@ -115,7 +115,10 @@ function isNonCappingLayoutControl(element: XmlElement): boolean {
  * 원문 보존(I5)은 바이트가, 역참조(I2)는 앵커가 그대로 책임진다 — 이 정규화는
  * **읽기용 텍스트 스트림**에만 영향을 준다.
  */
-const WHITESPACE_CHARACTERS: Readonly<Record<string, string>> = Object.freeze({
+/** 공개 export다(CC-150 ADR-30 D5): 이 표가 곧 **offset 공간의 정의**이며,
+ * 도메인의 `OFFSET_CONTRIBUTING_ELEMENTS`와 어긋나면 클라이언트와 서버의
+ * 문자 위치가 조용히 달라진다. 두 표의 동치는 계약 테스트가 고정한다. */
+export const WHITESPACE_CHARACTERS: Readonly<Record<string, string>> = Object.freeze({
   fwSpace: '\u0020',
   nbSpace: '\u00A0',
   tab: '\u0009',
@@ -272,6 +275,9 @@ class IrBuilder {
       runs,
       styleRef,
       editState: { editedByUser: false, locked: false },
+      // 읽기 경로가 만드는 노드는 전부 원본 XML에서 왔다(ADR-30 D3). 편집이
+      // 만든 노드만 AUTHORED이며, 그것은 CC-150 편집층에서만 생긴다.
+      origin: 'SOURCE',
       rawXmlAnchor: anchor,
     };
     this.paragraphs.push({
@@ -403,6 +409,7 @@ class IrBuilder {
     const table: TableIR = {
       tableId: stableIdForAnchor('TBL', anchor),
       rows,
+      origin: 'SOURCE',
       rawXmlAnchor: anchor,
     };
     this.tables.push({ table, element, sectionIndex: context.sectionIndex });
@@ -442,6 +449,8 @@ class IrBuilder {
     }
     return {
       kind: 'PRESERVED',
+      // 보존 객체는 AUTHORED가 될 수 없다 — 원본 바이트의 자리표다.
+      origin: 'SOURCE',
       preservedId: stableIdForAnchor('PRE', anchor),
       rawXmlAnchor: anchor,
       classification,
@@ -513,7 +522,10 @@ export function buildDocumentIr(
     .sort((a, b) => a.partPath.localeCompare(b.partPath));
 
   const ir: DocumentIR = {
-    irVersion: '1',
+    // v2를 **직접** 산출한다. 표현이 두 벌이면 모든 소비자가 "언제 lift해야
+    // 하는지"를 알아야 하고, CC-160/CC-170이 그 부담을 그대로 물려받는다.
+    // 영속 데이터가 0건인 지금이 무비용 전환 시점이다(ADR-30).
+    irVersion: '2',
     documentId: options.documentId ?? stableId('DOC', analysis.archiveSha256),
     revision: options.revision ?? null,
     sourceHash: analysis.archiveSha256,

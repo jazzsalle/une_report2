@@ -37,6 +37,16 @@ export * from './analysis/confidence';
 export * from './analysis/template-analyzer';
 export * from './analysis/template-profile';
 
+// CC-150 — 편집층(IR v2, Selection, ChangeSet, 역연산)
+export * from './edit/ir-lift';
+export * from './edit/authored-id';
+export * from './edit/document-tree';
+export * from './edit/selection-resolver';
+export * from './edit/prototype-resolve';
+export * from './edit/inverse-ops';
+export * from './edit/change-set-executor';
+export * from './edit/edit-invariants';
+
 // 반입 상태 신고
 export * from './intake/rhwp-status';
 

@@ -1,6 +1,6 @@
 import type { ConfidenceComponents, DocumentCompatibilityVerdict, HwpxFinding } from '@une/domain';
 import { classify, type ClassificationResult } from '../compat/classifier';
-import { anchorOf } from '../ir/anchors';
+import { anchorOf, sourceAnchor } from '../ir/anchors';
 import type { DocumentIrBuildResult, ParagraphSource } from '../ir/ir-builder';
 import type { PackageAnalysisResult } from '../package/package-analysis';
 import { computeConfidenceEvidence, type ConfidenceEvidence } from './confidence';
@@ -109,7 +109,7 @@ function assignRoles(
       });
       continue;
     }
-    if (coverAnchors.has(source.paragraph.rawXmlAnchor)) {
+    if (coverAnchors.has(sourceAnchor(source.paragraph, paragraphId))) {
       roles.push({
         paragraphId,
         styleRole: 'TITLE',
