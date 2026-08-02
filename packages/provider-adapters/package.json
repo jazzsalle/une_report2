@@ -16,10 +16,12 @@
     "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
+    "@types/node": "^22.20.1",
     "typescript": "^5.9.2",
     "vitest": "^3.2.0"
   },
   "dependencies": {
-    "@une/domain": "workspace:*"
+    "@une/domain": "workspace:*",
+    "undici": "^8.9.0"
   }
 }

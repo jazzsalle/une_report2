@@ -46,24 +46,28 @@ export const T3Q_PLAN_FEATURE_CAPABILITIES: readonly PlanFeatureCapability[] = [
   {
     featureId: 'legacyToc',
     requestId: 'RPT-001',
-    state: 'MOCK_ONLY',
-    adapterImplemented: false,
+    state: 'UNE_ADAPTER_READY',
+    adapterImplemented: true,
     mockAvailable: true,
     openBinding: 'OB-01',
     providerEvidence: null,
     notes:
-      '목차 생성. CC-120: 결정적 in-process mock(MockLegacyT3qTocAdapter) 구현 — ' +
-      '실 HTTP LegacyT3qPlanAdapter는 CC-125.',
+      '목차 생성. CC-125: 실 HTTP LegacyT3qPlanAdapter 구현 + 워커 런타임 결선 ' +
+      '(UNE_T3Q_PLAN_ADAPTER=legacy-http). provider 미검증 — OB-01이 열려 있는 동안 ' +
+      'T3Q_*_VERIFIED 승격 불가. mock: MockLegacyT3qPlanAdapter.',
   },
   {
     featureId: 'legacyContent',
     requestId: 'RPT-002',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-01',
     providerEvidence: null,
-    notes: '본문 생성(+SSE, 프레이밍 상세는 OB-01).',
+    notes:
+      '본문 생성(+SSE, 프레이밍은 UNE 가정 — OB-01). CC-125: 전송·매핑·가드·SSE 파서 구현, ' +
+      'CONTENT job 파이프라인 미결선(CC-130) → UNE_ADAPTER_READY 아님(ADR-26 D7 기준: ' +
+      '구현 ∧ 런타임 결선 ∧ live spec).',
   },
   {
     featureId: 'legacyDaily',
@@ -80,11 +84,14 @@ export const T3Q_PLAN_FEATURE_CAPABILITIES: readonly PlanFeatureCapability[] = [
     featureId: 'tocV2',
     requestId: 'CR-T3Q-001',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-10',
     providerEvidence: null,
-    notes: '안정 sectionId·semanticRole 포함 목차 v2.',
+    notes:
+      '안정 sectionId·semanticRole 포함 목차 v2. CC-125: TargetV2T3qPlanAdapter + ' +
+      'in-process mock(202→폴링→COMPLETED). 대상 계약 자체가 미수락(OB-10)이라 ' +
+      'MOCK_ONLY 고정 — CR-T3Q-* 불변식.',
   },
   {
     featureId: 'contentV2',
@@ -104,7 +111,9 @@ export const T3Q_PLAN_FEATURE_CAPABILITIES: readonly PlanFeatureCapability[] = [
     mockAvailable: false,
     openBinding: 'OB-10',
     providerEvidence: null,
-    notes: '생성 Job 상태 조회.',
+    notes:
+      '생성 Job 상태 조회. CC-125의 mock 전송기가 내부 폴링용 GenerationStatus를 ' +
+      '제공하지만 포트 op(jobStatus)로는 미노출 — 독립 mock은 CC-135.',
   },
   {
     featureId: 'jobSse',

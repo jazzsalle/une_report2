@@ -8,7 +8,7 @@ import {
   type TocJobRequest,
   type TocNodeDraft,
 } from '@une/domain';
-import type { T3qTocPort, T3qTocResult } from '@une/provider-adapters';
+import type { T3qPlanTocAdapter, T3qTocResult } from '@une/provider-adapters';
 import type { WorkerConfig } from '../config/worker-config';
 import type { WorkerDatabase } from '../db/worker-database.service';
 import {
@@ -46,9 +46,17 @@ interface JobFailure {
 }
 
 /** Raw provider payloads are kept for traceability but capped so a runaway
- * response cannot bloat job_event (full raw retention store is re-evaluated
- * in CC-125 — ADR-25 D10). */
+ * response cannot bloat job_event (dedicated trace store re-evaluated and
+ * declined — ADR-26 D8; retention policy is CC-430). */
 const RAW_PAYLOAD_CAP = 200_000;
+
+/** target-v2 PlanRequestBase requires documentId/baseRevisionId, which do
+ * not exist in the UNE plan flow until CC-150 (Revision). These are
+ * EXPLICIT mock-only placeholders (ADR-26 D5): the v2 adapter is MOCK_ONLY
+ * by the CR-T3Q-* governance invariant, so they can never reach a real
+ * provider. Real bindings replace them when CC-150 lands. */
+const MOCK_V2_DOCUMENT_ID = 'une-mock:document:pending-cc150';
+const MOCK_V2_BASE_REVISION_ID = 'une-mock:revision:pending-cc150';
 
 /**
  * TOC job execution (design 10 §4.2 / §7.9 7-9단계; ADR-25):
@@ -65,7 +73,7 @@ const RAW_PAYLOAD_CAP = 200_000;
 export class TocJobRunner {
   constructor(
     private readonly db: WorkerDatabase,
-    private readonly adapter: T3qTocPort,
+    private readonly adapter: T3qPlanTocAdapter,
     private readonly config: WorkerConfig,
   ) {}
 
@@ -176,6 +184,21 @@ export class TocJobRunner {
       }
 
       await appendJobEvent(client, job.jobId, 'job.started', { attemptNo: job.attemptNo });
+      // provider.requested (internal, ADR-26 D8): with a real HTTP adapter
+      // this is the only trace of a call that never came back. Emitted in
+      // tx B0 BEFORE the call, so it records INTENT, not a wire fact —
+      // phase:'intent' makes that explicit for the append-only log (review
+      // minor 1 / QA R5). Identity and budget only — NO body/headers/tokens.
+      // Transport identity comes from the ADAPTER, never from worker config
+      // (a mismatch would record a wrong host — review minor 2).
+      await appendJobEvent(client, job.jobId, 'provider.requested', {
+        phase: 'intent',
+        adapterId: this.adapter.adapterId,
+        variant: this.adapter.variant,
+        runtimeMode: this.adapter.runtimeMode,
+        operation: 'toc',
+        ...(this.adapter.transportProfile ? { ...this.adapter.transportProfile } : {}),
+      });
       await setJobStatus(client, job.tenantId, job.jobId, { status: 'RUNNING', progressPct: 10 });
       const planAtStart = await findPlanForUpdate(client, job.tenantId, job.aggregateId);
       return {
@@ -200,7 +223,37 @@ export class TocJobRunner {
     let result: T3qTocResult;
     try {
       result = await this.adapter.generateToc(
-        { planContext: prepared.planContext, generationOption: prepared.request.generationOption },
+        {
+          planContext: prepared.planContext,
+          generationOption: prepared.request.generationOption,
+          // v2 PlanRequestBase bindings from job context — adapters never
+          // invent them; legacy adapters ignore the block entirely.
+          // Placeholders are injected ONLY for a mock runtime (review M2);
+          // a live v2 transport gets no documentId/baseRevisionId and the
+          // mapper fail-closes with T3Q_REQUEST_REJECTED until CC-150
+          // provides real values. requestId varies per attempt: v2 treats
+          // it as the idempotency key, and a retry is a NEW generation —
+          // reusing it could replay the failed attempt (review minor 6).
+          ...(this.adapter.variant === 'target-v2'
+            ? {
+                trace: {
+                  planId: job.aggregateId,
+                  planContextSnapshotId: prepared.request.snapshotId,
+                  contextHash: prepared.request.contextHash,
+                  requestId: `${job.jobId}#${job.attemptNo}`,
+                  tenantId: job.tenantId,
+                  userId: prepared.request.requestedBy,
+                  ...(this.adapter.runtimeMode === 'mock'
+                    ? {
+                        documentId: MOCK_V2_DOCUMENT_ID,
+                        baseRevisionId: MOCK_V2_BASE_REVISION_ID,
+                      }
+                    : {}),
+                  requestedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
+        },
         { correlationId: job.correlationId },
       );
     } catch (err) {
@@ -230,7 +283,7 @@ export class TocJobRunner {
       );
     }
 
-    const issues = validateTocTree(result.tree);
+    const issues = validateTocTree(result.data.tree);
     if (issues.length > 0) {
       return this.finalizeFailed(
         job,
@@ -251,7 +304,7 @@ export class TocJobRunner {
       job,
       prepared.request,
       result,
-      result.tree,
+      result.data.tree,
       prepared.tocVersionIdAtStart,
     );
   }
@@ -293,9 +346,13 @@ export class TocJobRunner {
       });
       await insertTocNodes(client, tocVersionId, flattenTocTree(tree));
 
+      // Trace identity comes from the RESULT, not the port constants — one
+      // adapter maps different operations with different versions (ADR-26 D1).
       await appendJobEvent(client, job.jobId, 'provider.responded', {
-        adapterId: this.adapter.adapterId,
-        mappingVersion: this.adapter.mappingVersion,
+        adapterId: result.adapterId,
+        mappingVersion: result.mappingVersion,
+        operation: result.operation,
+        ...(result.httpStatus !== undefined ? { httpStatus: result.httpStatus } : {}),
         latencyMs: result.latencyMs,
         rawRequest: cap(result.rawRequest),
         rawResponse: cap(result.rawResponse),
@@ -367,8 +424,10 @@ export class TocJobRunner {
   ): Promise<void> {
     if (result) {
       await appendJobEvent(client, job.jobId, 'provider.failed', {
-        adapterId: this.adapter.adapterId,
-        mappingVersion: this.adapter.mappingVersion,
+        adapterId: result.adapterId,
+        mappingVersion: result.mappingVersion,
+        operation: result.operation,
+        ...(result.httpStatus !== undefined ? { httpStatus: result.httpStatus } : {}),
         latencyMs: result.latencyMs,
         rawRequest: cap(result.rawRequest),
         rawResponse: cap(result.rawResponse),

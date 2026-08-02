@@ -321,17 +321,40 @@ describe.skipIf(!ADMIN_URL)('generation_job worker role and dispatch RLS (CC-120
     });
   });
 
-  it('documents the RLS gap on child tables: dispatch scope CAN read job_event/toc_version (known limitation)', async () => {
-    // Deliberate reality pin (review M1): these child tables have no RLS at
-    // the baseline — their only tenant protection is the application-layer
-    // parent join / caller-verified ids (ADR-21). If this test starts
-    // failing, the 0016 hardening landed and this pin plus the 0015 comment
-    // and ADR-25 D2 must be updated together.
+  it('blocks the dispatch scope from child tables too (0016 closed the 0015 gap)', async () => {
+    // Inverted by CC-125 / migration 0016. Until then these child tables had
+    // no RLS and the dispatch scope could read them (0015 §7 known limitation,
+    // ADR-25 D2). 0016 gives each an EXISTS(parent) tenant policy, so the
+    // tenant-less dispatch scope now sees nothing — the same rule that already
+    // applied to plan/audit_log above. Full coverage lives in
+    // tests/integration/src/child-table-rls.test.ts.
+    await withClient(db.url, async (c) => {
+      // Guarantee non-zero rows exist, so "0 rows" proves RLS, not emptiness.
+      const jobId = await insertJob(c, fxA);
+      await c.query(
+        `INSERT INTO job_event (job_id, sequence_no, event_type, payload_json)
+         VALUES ($1, 1, 'job.started', '{}')`,
+        [jobId],
+      );
+      await c.query(
+        `INSERT INTO toc_version
+           (plan_id, version_no, source_type, base_snapshot_id, status, content_hash, created_by)
+         VALUES ($1, 500, 'AI', $2, 'DRAFT', $3, $4)`,
+        [fxA.planId, fxA.snapshotId, '5'.repeat(64), fxA.userId],
+      );
+      const seeded = await c.query(
+        `SELECT (SELECT count(*)::int FROM job_event) AS events,
+                (SELECT count(*)::int FROM toc_version) AS versions`,
+      );
+      expect(seeded.rows[0].events).toBeGreaterThan(0);
+      expect(seeded.rows[0].versions).toBeGreaterThan(0);
+    });
+
     await asWorker(db.url, null, async (c) => {
       const events = await c.query(`SELECT count(*)::int AS n FROM job_event`);
-      expect(events.rows[0].n).toBeGreaterThanOrEqual(0); // readable, not blocked
+      expect(events.rows[0].n).toBe(0);
       const versions = await c.query(`SELECT count(*)::int AS n FROM toc_version`);
-      expect(versions.rows[0].n).toBeGreaterThanOrEqual(0);
+      expect(versions.rows[0].n).toBe(0);
     });
   });
 });

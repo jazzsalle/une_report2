@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 59
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls
 
 ## api_idempotency
 
@@ -474,7 +474,7 @@
 
 ## job_event
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - fk_job_event_job_id: FOREIGN KEY (job_id) REFERENCES generation_job(job_id) DEFERRABLE INITIALLY DEFERRED
 - job_event_pkey: PRIMARY KEY (job_event_id)
 - 인덱스: job_event_pkey, uk_job_event_seq
@@ -696,7 +696,7 @@
 
 ## plan_context_snapshot
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - fk_plan_context_snapshot_confirmed_by: FOREIGN KEY (confirmed_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_plan_context_snapshot_plan_id: FOREIGN KEY (plan_id) REFERENCES plan(plan_id) DEFERRABLE INITIALLY DEFERRED
 - fk_plan_context_snapshot_supersedes_id: FOREIGN KEY (supersedes_id) REFERENCES plan_context_snapshot(context_snapshot_id) DEFERRABLE INITIALLY DEFERRED
@@ -1115,7 +1115,7 @@
 
 ## toc_node
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - ck_toc_node_level: CHECK (((level >= 1) AND (level <= 6)))
 - fk_toc_node_parent: FOREIGN KEY (parent_node_id) REFERENCES toc_node(toc_node_id) DEFERRABLE INITIALLY DEFERRED
 - fk_toc_node_toc_version_id: FOREIGN KEY (toc_version_id) REFERENCES toc_version(toc_version_id) DEFERRABLE INITIALLY DEFERRED
@@ -1135,7 +1135,7 @@
 
 ## toc_version
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - ck_toc_version_source: CHECK (((source_type)::text = ANY ((ARRAY['AI'::character varying, 'USER'::character varying])::text[])))
 - ck_toc_version_status: CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'CONFIRMED'::character varying])::text[])))
 - fk_toc_version_base_snapshot: FOREIGN KEY (base_snapshot_id) REFERENCES plan_context_snapshot(context_snapshot_id) DEFERRABLE INITIALLY DEFERRED

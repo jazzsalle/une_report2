@@ -5,7 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { runner } from 'node-pg-migrate';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { MOCK_FAIL_PREFIX, MockLegacyT3qTocAdapter } from '@une/provider-adapters';
+import { MOCK_FAIL_PREFIX, MockLegacyT3qPlanAdapter } from '@une/provider-adapters';
 import { createApp } from '../app.factory';
 import { buildMockExternalToken } from '../auth/mock-sso';
 import type { ApiConfig } from '../config/api-config';
@@ -213,10 +213,10 @@ describe.skipIf(!ADMIN_URL)('CC-120 TOC job e2e (API + in-process worker)', () =
       UNE_DB_RUNTIME_ROLE: 'une_worker',
     });
     workerDb = new WorkerDatabase(workerConfig);
-    workerRunner = new TocJobRunner(workerDb, new MockLegacyT3qTocAdapter(), workerConfig);
+    workerRunner = new TocJobRunner(workerDb, new MockLegacyT3qPlanAdapter(), workerConfig);
     failRunner = new TocJobRunner(
       workerDb,
-      new MockLegacyT3qTocAdapter({ scenariosEnabled: true }),
+      new MockLegacyT3qPlanAdapter({ scenariosEnabled: true }),
       workerConfig,
     );
   }, 240_000);

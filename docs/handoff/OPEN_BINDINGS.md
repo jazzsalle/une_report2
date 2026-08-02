@@ -4,7 +4,7 @@ These items must not be guessed by Claude Code.
 
 | ID | Binding | Current fallback | Completion evidence |
 |---|---|---|---|
-| OB-01 | T3Q auth, base URL, TLS, timeout, rate limit, error schema, RPT-002 SSE framing (contract only fixes `x-sse-done: '[DONE]'`; frame structure/heartbeat/event names are UNE assumptions — see tests/contract fixtures `.assumed.`) | mock adapter | signed interface sheet + contract test |
+| OB-01 | T3Q auth, base URL, TLS, timeout, rate limit, error schema, RPT-002 SSE framing (contract only fixes `x-sse-done: '[DONE]'`; frame structure/heartbeat/event names are UNE assumptions — see tests/contract fixtures `.assumed.`) | LegacyT3qPlanAdapter (mock + unverified HTTP; provider 미검증) | signed interface sheet + contract test |
 | OB-02 | T3Q current disaster situation API | SituationProviderPort disabled adapter | approved API contract |
 | OB-03 | T3Q RPT-003 use for journal | UNE JournalProjection is owner | ADR amendment if enabled |
 | OB-04 | UNI compns actual fields and SopGraph mapping | versioned mapper + raw payload retention | mapping table + test payloads |
