@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.une.local/template-profile.schema.json",
+  "title": "HWPX Template Analysis Profile",
+  "description": "TemplateAnalyzer output, canonicalized by toTemplateProfile() (CC-140, ADR-29 D5; design 07 Spec §1.5~§1.7). Persisted as template_profile.profile_json with analysis_status = compatibility.verdict. This schema is validated against REAL engine output for the whole corpus — a hand-written fixture would not catch drift (review M-1/QA F-4). The two compatibility layers are deliberately distinct: object grades (§8.4) roll up into one document verdict (§8.6 G15-1), and the cap axis is separate from the grade axis (capsVerdict, review M-3) — see ADR-29 D2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profileVersion",
+    "sourceHash",
+    "compatibility",
+    "outlinePatterns",
+    "prototypes",
+    "staticRegions",
+    "warnings"
+  ],
+  "properties": {
+    "profileVersion": { "const": "1" },
+    "sourceHash": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 of the analyzed HWPX package bytes — ties the profile to an exact input (== DocumentIR.sourceHash)."
+    },
+    "compatibility": { "$ref": "#/$defs/compatibility" },
+    "outlinePatterns": { "type": "array", "items": { "$ref": "#/$defs/outlinePattern" } },
+    "prototypes": { "type": "array", "items": { "$ref": "#/$defs/prototype" } },
+    "staticRegions": { "type": "array", "items": { "$ref": "#/$defs/staticRegion" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "unitInterval": { "type": "number", "minimum": 0, "maximum": 1 },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "confidence",
+        "components",
+        "confidenceBasis",
+        "objectCounts",
+        "objects",
+        "unclassifiedElements"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": ["AUTO", "CONFIRM", "LIMITED", "REJECT"],
+          "description": "Document-level analysis verdict (ADR v1.1 §8.6 G15-1). Produced by the roll-up rules in ADR-29 D2 — REJECT objects and fatal findings override confidence, and ELEMENT-scope capping objects cap it at LIMITED."
+        },
+        "confidence": { "$ref": "#/$defs/unitInterval" },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "styleConsistency",
+            "prefixConsistency",
+            "indentHierarchy",
+            "repetitionEvidence",
+            "positionEvidence",
+            "semanticHint"
+          ],
+          "description": "Weighted-sum inputs fixed by Spec §1.5 (0.30/0.20/0.15/0.15/0.10/0.10). Written inline rather than composed with allOf: under JSON Schema 2020-12 a base branch carrying additionalProperties:false does not see the sibling branch's properties, which is the exact defect ADR-24 D4 had to repair in the target-v2 contract.",
+          "properties": {
+            "styleConsistency": { "$ref": "#/$defs/unitInterval" },
+            "prefixConsistency": { "$ref": "#/$defs/unitInterval" },
+            "indentHierarchy": { "$ref": "#/$defs/unitInterval" },
+            "repetitionEvidence": { "$ref": "#/$defs/unitInterval" },
+            "positionEvidence": { "$ref": "#/$defs/unitInterval" },
+            "semanticHint": { "$ref": "#/$defs/unitInterval" }
+          }
+        },
+        "confidenceBasis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "styleConsistency",
+            "prefixConsistency",
+            "indentHierarchy",
+            "repetitionEvidence",
+            "positionEvidence",
+            "semanticHint"
+          ],
+          "description": "Human-readable basis per component — G15-1 requires the verdict AND its reason to be reproducible.",
+          "properties": {
+            "styleConsistency": { "type": "string" },
+            "prefixConsistency": { "type": "string" },
+            "indentHierarchy": { "type": "string" },
+            "repetitionEvidence": { "type": "string" },
+            "positionEvidence": { "type": "string" },
+            "semanticHint": { "type": "string" }
+          }
+        },
+        "objectCounts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["NATIVE_EDIT", "PRESERVE_ONLY", "FLATTEN_EXPORT_ONLY", "REJECT"],
+          "properties": {
+            "NATIVE_EDIT": { "type": "integer", "minimum": 0 },
+            "PRESERVE_ONLY": { "type": "integer", "minimum": 0 },
+            "FLATTEN_EXPORT_ONLY": { "type": "integer", "minimum": 0 },
+            "REJECT": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "objects": { "type": "array", "items": { "$ref": "#/$defs/objectClassification" } },
+        "unclassifiedElements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/unclassifiedElement" },
+          "description": "Elements the rule table did not match (review M-2). Carried as data so a hole that classifies nothing is distinguishable from a table that classifies everything."
+        }
+      }
+    },
+    "objectClassification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objectClass", "scope", "reasonCode", "locator", "evidence", "capsVerdict"],
+      "properties": {
+        "objectClass": {
+          "enum": ["NATIVE_EDIT", "PRESERVE_ONLY", "FLATTEN_EXPORT_ONLY", "REJECT"]
+        },
+        "scope": { "enum": ["PART", "ELEMENT"] },
+        "reasonCode": { "type": "string", "minLength": 1 },
+        "locator": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "string", "minLength": 1 },
+        "capsVerdict": { "type": "boolean" }
+      }
+    },
+    "unclassifiedElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["localName", "parentLocalName", "anchor"],
+      "properties": {
+        "localName": { "type": "string", "minLength": 1 },
+        "parentLocalName": { "type": ["string", "null"] },
+        "anchor": { "type": "string", "minLength": 1 }
+      }
+    },
+    "outlinePattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patternId",
+        "kind",
+        "literalPrefix",
+        "leadingWhitespace",
+        "trailingWhitespace",
+        "indent",
+        "paraPrIds",
+        "outlineLevel",
+        "occurrences",
+        "firstDocumentOrder",
+        "transitions",
+        "confirmRequired",
+        "conflicts"
+      ],
+      "description": "Spec §1.6. Leading/trailing whitespace is stored VERBATIM — trimming it would lose the '기호 앞 공백' the form inherits, which measurement showed is the actual outline-level signal.",
+      "properties": {
+        "patternId": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["AUTO_NUMBERING", "OUTLINE_PROPERTY", "LITERAL_PREFIX"] },
+        "literalPrefix": { "type": "string" },
+        "leadingWhitespace": { "type": "string" },
+        "trailingWhitespace": { "type": "string" },
+        "indent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["marginLeft", "marginIntent"],
+          "description": "marginIntent is a NEGATIVE hanging indent in real documents — summing it with marginLeft inverts the hierarchy (CC-140 measurement).",
+          "properties": {
+            "marginLeft": { "type": "number" },
+            "marginIntent": { "type": "number" }
+          }
+        },
+        "paraPrIds": { "type": "array", "items": { "type": "integer" } },
+        "outlineLevel": { "type": "integer", "minimum": 1 },
+        "occurrences": { "type": "integer", "minimum": 1 },
+        "firstDocumentOrder": { "type": "integer", "minimum": 0 },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["toPatternId", "count"],
+            "properties": {
+              "toPatternId": { "type": "string", "minLength": 1 },
+              "count": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "confirmRequired": { "type": "boolean" },
+        "conflicts": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "prototype": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prototypeId",
+        "styleRole",
+        "outlineLevel",
+        "tableContext",
+        "clonePolicy",
+        "prefixPolicy",
+        "fallbackChain",
+        "sourceParagraphId",
+        "sourceTableId",
+        "rawXmlAnchor",
+        "immutable",
+        "evidence"
+      ],
+      "description": "Spec §1.7 — a reusable structure, not a style id list. CLONE_XML is the default; only simple paragraphs may relax it.",
+      "properties": {
+        "prototypeId": { "type": "string", "minLength": 1 },
+        "styleRole": { "type": "string", "minLength": 1 },
+        "outlineLevel": { "type": ["integer", "null"], "minimum": 1 },
+        "tableContext": { "type": "boolean" },
+        "clonePolicy": { "enum": ["CLONE_XML", "CLONE_IR", "REBUILD_ALLOWED"] },
+        "prefixPolicy": {
+          "enum": ["KEEP_SOURCE_PREFIX", "REPLACE_TEXT_ONLY", "NUMBERING_ENGINE"]
+        },
+        "fallbackChain": { "type": "array", "items": { "type": "string" } },
+        "sourceParagraphId": { "type": ["string", "null"] },
+        "sourceTableId": { "type": ["string", "null"] },
+        "rawXmlAnchor": { "type": "string", "minLength": 1 },
+        "immutable": { "const": true },
+        "evidence": { "type": "string", "minLength": 1 }
+      }
+    },
+    "staticRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["regionId", "kind", "locator", "evidence"],
+      "properties": {
+        "regionId": { "type": "string", "minLength": 1 },
+        "kind": {
+          "enum": [
+            "HEADER",
+            "FOOTER",
+            "PAGE_NUMBER",
+            "NOTE",
+            "FIELD",
+            "APPROVAL_BLOCK",
+            "COVER_TITLE",
+            "FIXED_PHRASE"
+          ]
+        },
+        "locator": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

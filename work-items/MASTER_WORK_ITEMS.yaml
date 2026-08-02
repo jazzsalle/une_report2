@@ -288,7 +288,7 @@ work_items:
   gate: G2
   dependencies:
   - CC-001
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - source archive provenance template
   - package analysis
@@ -298,7 +298,9 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/evidence/CC-140-hwpx-ir-verification.md
+  - docs/adr/ADR-29-cc140-hwpx-intake-gate-and-document-ir.md
 - id: CC-150
   title: Implement document Revision, ChangeSet, autosave, diff, and conflict
   gate: G2

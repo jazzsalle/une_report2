@@ -9,7 +9,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@une/domain": "workspace:*"
+  },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.0"
   }

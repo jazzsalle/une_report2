@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+- CC-140 (2026-08-02): HWPX intake gate, package analysis, Document IR, and
+  compatibility classification (ADR-29). **rhwp is still not imported** — this
+  item builds the gate that makes intake enforceable (OB-12):
+  `scripts/validate-source-intake.mjs` R1..R11 in CI verify — provenance schema
+  (20 fields + G15 poc_gate), floating-ref ban (main/master/HEAD/latest),
+  tree_digest that blocks in-place upstream edits (patches must go through
+  PATCHES.yaml), submodule-bypass detection, THIRD_PARTY_NOTICES drift, SBOM
+  presence, and a ban on importing source that has not been intaken. The gate is
+  green in the pre-intake state (R11) and 40 negative fixtures prove each rule
+  actually fails. Engine in TypeScript (ADR-29 D3) with **zero new runtime
+  dependencies** — own central-directory ZIP reader (local headers distrusted;
+  zip-slip, bomb, duplicate paths, CRC32) and own pull XML parser (DOCTYPE
+  refused by a leading byte scan, so XXE is unrepresentable rather than
+  switched off). Package analysis cross-checks mimetype/version.xml/
+  container.xml/content.hpf and records a SourcePreservationMap plus
+  `unmanifestedParts`; the real corpus showed content.hpf's manifest omits
+  BinData/Scripts/Preview/META-INF, so non-manifested parts carry the
+  losslessness burden. Document IR keeps canonical nodes beside
+  `partPath#el[n]` anchors (ADR-29 D6; deterministic hash ids, not ULIDs, so
+  I1/I7 can hold). Type ownership is split (D4): IR, the two compatibility
+  vocabularies, the roll-up and the §1.5 confidence weights live in
+  @une/domain; the engine consumes them; JSON Schemas in contracts/schemas
+  carry a schema↔union drift guard. Losslessness is proven three ways (D7):
+  coverage (known ∪ unknown == every ZIP entry), byte preservation, and
+  in-memory no-edit reconstruction equivalence — RT-A data sufficiency
+  established before the Package Writer exists. Corpus = 6 REAL forms in
+  templete/ resolved by sha256 + 9 synthetic negatives. Two defects were found
+  and fixed by measurement rather than review: the AUTO verdict was
+  structurally unreachable (package parts that every HWPX carries were capping
+  the verdict, and hp:colPr/hp:fwSpace/hp:lineBreak were being treated as
+  unsupported objects) — roll-up rule 3 now applies to ELEMENT scope only,
+  benign layout/whitespace constructs became explicit rules, catch-all hits are
+  pinned at 0, cap CAUSES rather than labels are frozen in the golden table,
+  and AUTO reachability is proven by a synthetic A/B pair at identical
+  confidence; and outline-level inference was inverted because hc:intent is a
+  negative hanging indent, so leading whitespace is the real level signal
+  (§1.6-3). Migrations: 0 — D9 also registers the document child-table RLS gap
+  (document_revision/document_block/change_set/template_profile… have never had
+  RLS while une_app holds ALL TABLES DML) as a blocking prerequisite for
+  CC-150. Dual review found and fixed a BLOCKER of exactly the kind this item
+  is meant to prevent: filling measured values into CORPUS.yaml added keys the
+  loader deliberately rejects, which killed the 94-case corpus regression at
+  collection time — the earlier "196 passed" had therefore never run. Fixed by
+  teaching the loader the keys AND cross-pinning the manifest against the golden
+  table, so fixing only one side can no longer make it pass. Other review fixes:
+  the grade axis was separated from the cap axis (capsVerdict) because promoting
+  layout/whitespace to NATIVE_EDIT would have handed un-parsed XML to CC-160's
+  "minimal re-save"; unmatched elements are carried out as data instead of
+  dropped (the old "catch-all is zero" guard could not tell a hole from a
+  complete table); §1.6-3 whitespace (fwSpace/tab/nbSpace) now reaches the text
+  stream that feeds outline-level ordering; the intake gate became symmetric
+  (source in the tree with status NOT_IMPORTED used to ship with a "not
+  imported" notice) and R12 now enforces §8.3's POC-Gate wording, retracting an
+  ADR reinterpretation that had leaned on a lower-priority document; and
+  template-profile.schema.json was rewritten against the real analyzer output
+  with a contract test that validates all six corpus documents — that test
+  immediately caught the new schema repeating the allOf +
+  additionalProperties:false trap ADR-24 D4 had already documented. Gates
+  (single `pnpm test`): domain 62, hwpx-engine 238, contract-tests 152,
+  db-integration 68, provider-adapters 108, api 193, worker 33,
+  validate:intake(R1~R12)/validate:contracts/validate:handoff PASS, baseline 10.
+  Evidence: docs/evidence/CC-140-hwpx-ir-verification.md.
+
 - CC-135 (2026-08-02): target-v2 plan job / semantic edit / evidence /
   validation full in-process mock (ADR-28) — every v2 capability stays
   MOCK_ONLY; nothing here is T3Q support (contract 1.0.1-request NOT

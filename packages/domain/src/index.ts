@@ -8,3 +8,7 @@ export * from './plan/content-draft';
 export * from './plan/provider-proposal-drafts';
 export * from './plan/generated-block';
 export * from './plan/content-job-request';
+export * from './document/compatibility';
+export * from './document/document-ir';
+export * from './document/template-profile';
+export * from './document/ir-hash';

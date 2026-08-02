@@ -188,7 +188,14 @@ importers:
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(yaml@2.9.0)
 
   services/hwpx-engine:
+    dependencies:
+      '@une/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
@@ -238,6 +245,12 @@ importers:
 
   tests/contract:
     dependencies:
+      '@une/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@une/hwpx-engine':
+        specifier: workspace:*
+        version: link:../../services/hwpx-engine
       '@une/provider-adapters':
         specifier: workspace:*
         version: link:../../packages/provider-adapters

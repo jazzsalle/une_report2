@@ -1,11 +1,121 @@
-upstream_url: OPEN
+# rhwp 소스 반입 기록 템플릿 (CC-140 / ADR-29 D1)
+#
+# 이 파일은 템플릿이며 반입 증거가 아니다. 실제 반입 시 이 파일을
+# `third_party/rhwp/PROVENANCE.yaml`로 복사하고 모든 OPEN/PENDING을
+# 실제 값으로 교체한다. 절차는 `INTAKE_PROCEDURE.md`.
+#
+# 정본 형식: `third_party/rhwp/PROVENANCE.schema.json` (JSON Schema 2020-12)
+# 강제 게이트: `node scripts/validate-source-intake.mjs` (pnpm validate:intake)
+#
+# 게이트는 PROVENANCE.yaml이 존재할 때만 이 스키마를 적용한다. 값에 `OPEN`이
+# 하나라도 남아 있으면 실패한다(R3). 따라서 이 템플릿 자체를 PROVENANCE.yaml로
+# 이름만 바꿔 두는 것은 통과하지 못한다.
+
+# 업스트림 저장소 (고정값 — 변경 불가)
+upstream_url: https://github.com/edwardkim/rhwp
+
+# 반입 기준이 tag인지 commit인지. 허용: tag | commit
+# 예: tag
+ref_type: OPEN
+
+# 고정 tag. ref_type=commit이면 빈 문자열("")로 둔다.
+# main / master / HEAD / latest는 게이트 R4가 거부한다(floating 추적 금지).
+# 예: v0.4.2
 tag: OPEN
+
+# 해석된 40자리 소문자 hex commit SHA. tag 반입에서도 필수.
+# 예: 0123456789abcdef0123456789abcdef01234567
 commit: OPEN
+
+# 다운로드한 소스 아카이브 URL (https 필수)
+# 예: https://github.com/edwardkim/rhwp/archive/refs/tags/v0.4.2.tar.gz
+archive_url: OPEN
+
+# 다운로드 파일명. 아카이브 자체는 저장소에 커밋하지 않는다.
+# 예: rhwp-0.4.2.tar.gz
 archive_filename: OPEN
+
+# 아카이브의 SHA-256 (64자리 소문자 hex) — ADR v1.1 §8.3 필수 기록
+# 예: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 archive_sha256: OPEN
+
+# 업스트림 SPDX 라이선스 식별자. 허용목록은 PROVENANCE.schema.json 참조
+# (permissive 계열만). copyleft는 신규 ADR 없이 반입 불가.
+# 예: MIT
 license: OPEN
+
+# 반입한 원본 LICENSE 파일 경로 (third_party/rhwp 기준, upstream/ 아래여야 함)
+# 예: upstream/LICENSE
 license_file: OPEN
-imported_at: OPEN
-imported_by: OPEN
+
+# license_file 내용의 SHA-256 (64자리 소문자 hex). 게이트 R5가 실측 대조한다.
+# 예: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+license_file_sha256: OPEN
+
+# SBOM 파일 경로 (third_party/rhwp 기준, sbom/ 아래 *.json)
+# 예: sbom/rhwp-0.4.2.spdx.json
 sbom_file: OPEN
+
+# SBOM 포맷. 허용: spdx-json | cyclonedx-json
+# 예: spdx-json
+sbom_format: OPEN
+
+# 패치 매니페스트 경로 (고정값 — 변경 불가)
 patch_manifest: patches/PATCHES.yaml
+
+# upstream/ 파일트리 집계 해시 (64자리 소문자 hex).
+# 산정 정의는 scripts/validate-source-intake.mjs 헤더 주석.
+# 재현: node scripts/validate-source-intake.mjs --print-tree-digest
+# 예: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+tree_digest: OPEN
+
+# 반입 시각 (RFC3339, 오프셋 필수)
+# 예: 2026-08-02T09:30:00+09:00
+imported_at: OPEN
+
+# 반입 실행자
+# 예: une-hwpx-eng
+imported_by: OPEN
+
+# 반입을 승인한 사람 (CLAUDE.md Safety: 외부 아카이브 반입은 명시 승인 필요)
+# 예: une-architecture-lead
+approved_by: OPEN
+
+# 승인 근거 위치 (변경기록/ADR/이슈 경로 등)
+# 예: docs/handoff/CHANGE_LOG.md#cc-145-rhwp-intake
+approval_evidence: OPEN
+
+# 반입 상태. 허용: NOT_IMPORTED | PROVENANCE_RECORDED | IMPORTED | SUPERSEDED
+# 게이트 R2는 양방향이다.
+#   - IMPORTED인데 upstream/이 비어 있으면 실패(R2a).
+#   - upstream/에 파일이 있는데 status가 IMPORTED/SUPERSEDED가 아니면 실패(R2b).
+#     트리에 있는 소스는 배포물에 포함되므로 반드시 선언되어야 한다(§8.3·§8.5).
+# PROVENANCE_RECORDED = ref/해시는 확정했지만 아직 upstream/에 배치하지 않은 단계.
+# 예: IMPORTED
+status: OPEN
+
+# ADR v1.1 §8.6 엔진 POC Gate. 각 항목 state는 PENDING | PASS | FAIL.
+# PASS/FAIL이면 evidence(증거 경로)가 비어 있으면 안 된다.
+# 게이트 R12: status=IMPORTED이면 최소 집합 G15-1(분석)·G15-6(라이선스)이 PASS여야
+# 한다. §8.3이 "POC Gate를 통과한 tag/commit을 반입한다"라고 명시하기 때문이다.
+# G15-2~G15-5는 UNE 계층이 있어야 수행 가능하므로 PENDING 허용, FAIL 불가.
+# 아직 게이트를 못 돌린 단계는 status: PROVENANCE_RECORDED + 빈 upstream/으로 둔다.
+poc_gate:
+  G15-1: # 분석: 임의 HWPX 10종 이상 AUTO/CONFIRM/LIMITED/REJECT 판정 재현
+    state: PENDING
+    evidence: '' # 예: docs/evidence/cc-145/g15-1-analysis.md
+  G15-2: # 양식상속: 타깃 샘플 3종 스타일/번호/표 유지
+    state: PENDING
+    evidence: ''
+  G15-3: # 편집: Cursor/Range/Block/Section, 안정 ID, Undo/Redo, 잠금 보호
+    state: PENDING
+    evidence: ''
+  G15-4: # 저장: 원본→편집→저장→재열기, dangling 0, 미지원 객체 무손실
+    state: PENDING
+    evidence: ''
+  G15-5: # 성능: 일반 50쪽 분석 P95 5초, 편집 적용 P95 300ms
+    state: PENDING
+    evidence: ''
+  G15-6: # 라이선스: MIT/Third-party 고지, 금지 폰트 미포함, SBOM 생성
+    state: PENDING
+    evidence: ''
