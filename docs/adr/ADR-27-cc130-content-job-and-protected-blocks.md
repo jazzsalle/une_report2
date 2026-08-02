@@ -105,8 +105,10 @@ legacy citation({sourceRef,fileName,page})은 안정 id·검색 경로가 없어
 정규화 테이블은 v2 Citation 형상 추정(OB-10/11)이 된다 — 기각.
 `ix_generated_block_no_evidence` 부분 인덱스로 "근거 없는 블록" 탐지 경로
 확보; `blocksWithoutEvidence`를 job.completed와 contentSummary에 가시화
-(차단은 CC-135 validation — LLM 출력 비권위 규칙은 가시화+편집 표면으로
-이행). 정규화 저장소 도입 조건: 근거가 검색 가능한 식별자를 갖는
+(~~차단은 CC-135 validation~~ — **정정(ADR-28 D9)**: CC-135 validation은
+MOCK_ONLY이므로 어떤 UNE 경로도 차단하지 않는다; 실제 차단은 CR-T3Q-006
+수락(OB-11 종결) 후 CC-400/CC-170 판단. LLM 출력 비권위 규칙은 가시화+편집
+표면으로 이행). 정규화 저장소 도입 조건: 근거가 검색 가능한 식별자를 갖는
 시점(CR-T3Q-005 수용, CC-230 EvidenceSet) — 그때 citations_json이
 마이그레이션 원천.
 

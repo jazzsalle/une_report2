@@ -269,7 +269,7 @@ work_items:
   gate: G2
   dependencies:
   - CC-130
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - job status/SSE/cancel/retry mocks
   - Range/Block/Section change proposals
@@ -280,7 +280,9 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - T3Q_PLAN_API_CHANGE_REQUEST
-  evidence: []
+  evidence:
+  - docs/evidence/CC-135-target-v2-mock-verification.md
+  - docs/adr/ADR-28-cc135-target-v2-mocks.md
 - id: CC-140
   title: Implement HWPX import, provenance, IR, and prototype analysis shell
   gate: G2

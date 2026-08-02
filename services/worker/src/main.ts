@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import {
   createT3qPlanProvider,
   describeRuntimeCapability,
+  describeRuntimeFeature,
   type ContentCapable,
   type PlanProviderFactoryOptions,
   type T3qPlanProvider,
@@ -41,7 +42,8 @@ async function bootstrap(): Promise<void> {
   const adapter = createT3qPlanProvider(factoryOptions(config));
   const runners: PlanJobRunner[] = [new TocJobRunner(db, adapter, config)];
   // CONTENT jobs run only when the selected adapter supports the operation
-  // (target-v2 is toc-only until CC-135) — jobs stay QUEUED otherwise.
+  // — jobs stay QUEUED otherwise (CC-135: mock-target-v2 is content-capable;
+  // the operating profile remains legacy).
   if (isContentCapable(adapter)) {
     runners.push(new ContentJobRunner(db, adapter, config));
   } else {
@@ -72,6 +74,22 @@ async function bootstrap(): Promise<void> {
   // RUNTIME, never a bare UNE_ADAPTER_READY.
   console.warn(`[une-worker] capability ${describeRuntimeCapability(adapter, 'toc')}`);
   console.warn(`[une-worker] capability ${describeRuntimeCapability(adapter, 'content')}`);
+  if (adapter.variant === 'target-v2') {
+    // CC-135 AC "mock-only status visible": every finer-grained v2 feature
+    // prints its governed state + MOCK RUNTIME marker at startup.
+    for (const featureId of [
+      'semanticEdit',
+      'evidenceSearch',
+      'validation',
+      'jobStatus',
+      'jobSse',
+      'jobCancel',
+      'partialRetry',
+      'capabilityDiscovery',
+    ]) {
+      console.warn(`[une-worker] capability ${describeRuntimeFeature(adapter, featureId)}`);
+    }
+  }
   if (adapter.runtimeMode === 'live') {
     console.warn(
       `[une-worker] T3Q provider = ${adapter.adapterId} (live transport — provider 미검증, ` +

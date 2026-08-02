@@ -114,13 +114,19 @@ if (mockChecked === 0) {
 // operations are checked on the response side (2xx only), everything else on
 // the requestBody side.
 const EXAMPLE_REQUIRED_FILES = {
-  't3q-plan-api-change-request-v1.yaml': {
-    // operationId -> reason it is exempt from the example requirement.
-    streamGenerationEvents: 'SSE text/event-stream (schema is an opaque string)',
-    registerPlanReferenceDocument:
-      'multipart/form-data with a binary part; example deferred to the CC-135 mock build ' +
-      '(CR-T3Q-007 is CONDITIONAL — OB-10/OB-11 close at CC-400)',
-  },
+  // operationId -> reason it is exempt from the example requirement.
+  // An EMPTY object still enables the coverage check for the file: the lookup
+  // below is `if (EXAMPLE_REQUIRED_FILES[name])`, and `{}` is truthy, so every
+  // operation stays required while nothing is exempt. Do not replace it with
+  // null/undefined — that silently drops the file from the coverage gate.
+  //
+  // CC-135 closed both former exemptions:
+  //  - streamGenerationEvents: satisfied by an SSE transcript string example
+  //    (the schema is an opaque string, so the transcript is the example).
+  //  - registerPlanReferenceDocument: satisfied by a multipart/form-data example
+  //    whose binary `file` part is a placeholder string (CR-T3Q-007 stays
+  //    CONDITIONAL and unmocked; the example is request-specification only).
+  't3q-plan-api-change-request-v1.yaml': {},
 };
 
 // Transcript integrity pin (review N1 / ADR-24 D3): the legacy contract is a

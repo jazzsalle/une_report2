@@ -95,9 +95,10 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     // Fencing floor (ADR-26 D3): if a lease can expire while one provider
     // call (with its single retry) is still legitimately in flight, a second
     // worker would double-call a provider that has no idempotency key.
-    // Covers legacy-http only: the v2 mock's poll budget (maxPolls×interval)
-    // is in-process today; re-derive this bound when CC-135 gives target-v2
-    // a real transport (review minor 11).
+    // Covers legacy-http only. Re-evaluated at CC-135 (review minor 11):
+    // target-v2 stayed in-process mock (full lifecycle, but no network
+    // transport — OB-10 unaccepted), so the fencing floor still does not
+    // apply to it. Re-derive when CC-400 binds a real v2 transport.
     const callBudgetMs =
       2 * (t3qHttp.connectTimeoutMs + t3qHttp.responseTimeoutMs) + RETRY_DELAY_CAP_MS;
     if (leaseTimeoutMs <= callBudgetMs) {

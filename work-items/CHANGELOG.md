@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- CC-135 (2026-08-02): target-v2 plan job / semantic edit / evidence /
+  validation full in-process mock (ADR-28) — every v2 capability stays
+  MOCK_ONLY; nothing here is T3Q support (contract 1.0.1-request NOT
+  accepted, OB-10/11 open). Port: SemanticEditCapable / EvidenceSearchCapable
+  / ValidationCapable / JobLifecycleCapable mixins under the UNCHANGED 6-op
+  vocabulary (lifecycle reports as jobStatus — ADR-28 D2), T3Q_CONFLICT
+  error code, describeRuntimeFeature for the finer featureIds (AC5).
+  Canonical-lite provisional drafts (EditProposal/EvidenceItem/
+  ValidationIssue) live in @une/domain so provider DTOs never leak (D3).
+  Mock: MockTargetV2JobStore single ledger — polling, `.assumed` SSE frames
+  (id==sequence, heartbeat comments, Last-Event-ID replay, terminal event
+  required; resume-past-terminal = empty-frames SUCCESS per QA F-3), cancel
+  (freezes progress; terminal cancel 409→T3Q_CONFLICT), partial retry
+  (failed SECTION targets only — non-failed 409, BLOCK honestly 422
+  not-mocked; new deterministic generationId), idempotent resubmit joins the
+  same generation with payload-fingerprint 409 on mismatch, retained-job cap.
+  PARTIAL read fail-closed as NON-terminal (D4); UNE job/plan vocabulary
+  unchanged. contentV2 joins section blocks onto an outline-parallel
+  ContentDraft tree (D7, lossy fields kept raw); evidence fills the ADR-26
+  D4 provenance slots and round-trips to generated_block.citations_json
+  (migration count 0 — catalog pinned by db-integration); validation = 6
+  deterministic UNE heuristics whose verdict gates NOTHING (D9; ADR-27 D8
+  corrected in place); capabilities discovery deep-equals the contract
+  example (providerBuild une-mock-*), and negotiation can never promote the
+  registry (D11). Worker: CC-130 m-10 v2 trace seam closed (placeholders
+  mock-runtime only, per-attempt requestId), partial failure writes NO row
+  and supersedes NOTHING while auditing failed counts (arch M-1), startup
+  prints describeRuntimeFeature for all 8 v2 features. Adapter unions
+  declared∪observed failures (arch M-2 fail-open fix), protected-block
+  response re-check scans operation payloads recursively (m-5), live
+  transports are refused at construction without explicit opt-in (QA F-4 /
+  m-8 — no timeout/retry/CB policy exists before CC-400). Contract:
+  response-side examples 12→22 (ADR-24 R2 closed), exemptions 2→0, OB-10
+  caveats moved into rendered example summaries/descriptions, version kept
+  at 1.0.1-request with generated-types diff 0 as the machine proof. Dual
+  review (opus, parallel) same-day: architecture 0 BLOCKER / 2 MAJOR / 9
+  MINOR; QA PASS WITH CONDITIONS F-1~F-4 + G-1~G-9 (numbers independently
+  reproduced; G-6/G-7 accepted with rationale). Gates: domain 52,
+  provider-adapters 108, contract-tests 60, db-integration 68, worker 33,
+  api 193, baseline 10, validate:contracts/handoff PASS. Evidence:
+  docs/evidence/CC-135-target-v2-mock-verification.md.
+
 - CC-130 (2026-08-02): T3Q RPT-002 CONTENT job + protected blocks.
   UNE-PLAN-016 detailed to 009 parity (GenerationJobResponse 202, required
   idempotency, targetNodeKeys scoped regeneration, protectedBlockIds

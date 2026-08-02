@@ -68,10 +68,12 @@ const CONTEXT_FIELDS: readonly (keyof TargetV2RequestContext)[] = [
   'requestedAt',
 ];
 
-export function toTocGenerationRequest(
+/** Shared PlanRequestBase construction for every v2 request mapper (CC-135
+ * extracted from the toc mapper — one binding-validation path). */
+export function toPlanRequestBase(
   planContext: Record<string, unknown>,
   context: TargetV2RequestContext,
-): TocGenerationRequestV2 {
+): Omit<TocGenerationRequestV2, 'existingOutline' | 'generationOption'> {
   for (const field of CONTEXT_FIELDS) {
     if (typeof context[field] !== 'string' || context[field].length === 0) {
       throw new TargetV2MappingError(field, 'required PlanRequestBase binding is missing');
@@ -105,6 +107,13 @@ export function toTocGenerationRequest(
     // systemPromptVersion intentionally absent: v2 replaces the legacy
     // systemPrompt full text and UNE has no version registry yet (gap matrix).
   };
+}
+
+export function toTocGenerationRequest(
+  planContext: Record<string, unknown>,
+  context: TargetV2RequestContext,
+): TocGenerationRequestV2 {
+  return toPlanRequestBase(planContext, context);
 }
 
 function asOpenObject(value: unknown): Record<string, unknown> {

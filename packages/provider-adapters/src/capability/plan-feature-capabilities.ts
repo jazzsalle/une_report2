@@ -98,83 +98,98 @@ export const T3Q_PLAN_FEATURE_CAPABILITIES: readonly PlanFeatureCapability[] = [
     featureId: 'contentV2',
     requestId: 'CR-T3Q-002',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-10',
     providerEvidence: null,
-    notes: '블록·인용 포함 본문 v2, 보호 블록 준수.',
+    notes:
+      '블록·인용 포함 본문 v2, 보호 블록 준수. CC-135: TargetV2 어댑터 generateContent ' +
+      '(202→폴링, 섹션당 블록 결합 — ADR-28 D7) + 전송기 mock. 계약 미수락(OB-10) — MOCK_ONLY 고정.',
   },
   {
     featureId: 'jobStatus',
     requestId: 'CR-T3Q-003',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-10',
     providerEvidence: null,
     notes:
-      '생성 Job 상태 조회. CC-125의 mock 전송기가 내부 폴링용 GenerationStatus를 ' +
-      '제공하지만 포트 op(jobStatus)로는 미노출 — 독립 mock은 CC-135.',
+      '생성 Job 상태 조회. CC-135: 포트 op(jobStatus)로 노출(JobLifecycleCapable.getJobStatus) + ' +
+      '독립 mock. 계약 미수락(OB-10) — MOCK_ONLY 고정.',
   },
   {
     featureId: 'jobSse',
     requestId: 'CR-T3Q-003',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-10',
     providerEvidence: null,
-    notes: 'Job 이벤트 SSE(Last-Event-ID 재개).',
+    notes:
+      'Job 이벤트 SSE(Last-Event-ID 재개). CC-135: streamJobEvents + .assumed 프레이밍 ' +
+      '(파서·직렬화, 종결 이벤트 필수 — ADR-28 D5). 프레이밍은 UNE 가정(OB-10) — MOCK_ONLY 고정.',
   },
   {
     featureId: 'jobCancel',
     requestId: 'CR-T3Q-003',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-10',
     providerEvidence: null,
-    notes: 'Job 취소.',
+    notes:
+      'Job 취소. CC-135: cancelJob(비종결→CANCELLED·진행분 보존, 종결→409 T3Q_CONFLICT). ' +
+      '계약 미수락(OB-10) — MOCK_ONLY 고정.',
   },
   {
     featureId: 'partialRetry',
     requestId: 'CR-T3Q-003',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-10',
     providerEvidence: null,
-    notes: '실패 섹션/블록 단위 재시도.',
+    notes:
+      '실패 대상 재시도(CR 요청은 섹션/블록 양쪽; mock은 섹션 단위만 — BLOCK은 422 not-mocked). ' +
+      'CC-135: retryJobTargets(실패 대상만 허용, 새 generationId). ' +
+      'UNE 부분 재생성(targetNodeKeys 새 job, ADR-27 D7)과는 별개 층(ADR-28 D6). MOCK_ONLY 고정.',
   },
   {
     featureId: 'semanticEdit',
     requestId: 'CR-T3Q-004',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-10',
     providerEvidence: null,
-    notes: '의미 편집 제안(ChangeProposal).',
+    notes:
+      '의미 편집 제안(ChangeProposal). CC-135: requestSemanticEdit + 보호블록 응답 가드(ADR-28 D8). ' +
+      '적용은 CC-150 소유 — 어댑터는 제안만 반환. 계약 미수락(OB-10) — MOCK_ONLY 고정.',
   },
   {
     featureId: 'evidenceSearch',
     requestId: 'CR-T3Q-005',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-11',
     providerEvidence: null,
-    notes: '근거 검색(Citation) — SHOULD.',
+    notes:
+      '근거 검색(Citation) — SHOULD. CC-135: searchEvidence + provenance 슬롯 충전(ADR-26 D4). ' +
+      '비권위·비영속(EvidenceSet은 CC-230). 계약 미수락(OB-11) — MOCK_ONLY 고정.',
   },
   {
     featureId: 'validation',
     requestId: 'CR-T3Q-006',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-11',
     providerEvidence: null,
-    notes: '의미 검증 — SHOULD.',
+    notes:
+      '의미 검증 — SHOULD. CC-135: validateContent mock. 판정은 UNE 휴리스틱 모사 — 어떤 UNE ' +
+      '경로도 이 결과로 차단하지 않음(ADR-28 D9). 계약 미수락(OB-11) — MOCK_ONLY 고정.',
   },
   {
     featureId: 'referenceUpload',
@@ -190,11 +205,13 @@ export const T3Q_PLAN_FEATURE_CAPABILITIES: readonly PlanFeatureCapability[] = [
     featureId: 'capabilityDiscovery',
     requestId: 'CR-T3Q-009',
     state: 'MOCK_ONLY',
-    adapterImplemented: false,
-    mockAvailable: false,
+    adapterImplemented: true,
+    mockAvailable: true,
     openBinding: 'OB-10',
     providerEvidence: null,
-    notes: 'GET /v2/capabilities 런타임 협상.',
+    notes:
+      'GET /v2/capabilities 런타임 협상. CC-135: discoverCapabilities mock(providerBuild ' +
+      'une-mock-target-v2-*). 협상 결과는 레지스트리 정본을 바꾸지 못함(ADR-28 D11). MOCK_ONLY 고정.',
   },
 ] as const;
 
