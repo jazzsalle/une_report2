@@ -1,4 +1,5 @@
 import type { RawXmlAnchor, StaticRegionKind } from '@une/domain';
+import { sourceAnchor } from '../ir/anchors';
 import type { HeaderIndex } from '../ir/header-index';
 import type { ParagraphSource, TableSource } from '../ir/ir-builder';
 import { stableId } from '../ir/stable-id';
@@ -129,7 +130,7 @@ export function detectStaticRegions(input: DetectStaticRegionsInput): StaticRegi
       regions.push(
         region(
           'APPROVAL_BLOCK',
-          source.table.rawXmlAnchor,
+          sourceAnchor(source.table, source.table.tableId),
           `approval labels matched=${[...matched].sort().join('/')} rows=${source.table.rows.length}`,
         ),
       );
@@ -153,7 +154,7 @@ export function detectStaticRegions(input: DetectStaticRegionsInput): StaticRegi
     regions.push(
       region(
         'COVER_TITLE',
-        source.paragraph.rawXmlAnchor,
+        sourceAnchor(source.paragraph, source.paragraph.paragraphId),
         `documentOrder=${source.documentOrder} align=${align ?? '(none)'} charHeight=${charHeight ?? -1} textLength=${text.length}`,
       ),
     );
@@ -167,7 +168,7 @@ export function detectStaticRegions(input: DetectStaticRegionsInput): StaticRegi
       regions.push(
         region(
           'FIXED_PHRASE',
-          source.paragraph.rawXmlAnchor,
+          sourceAnchor(source.paragraph, source.paragraph.paragraphId),
           `fixedPhrasePattern=#${matched} textLength=${text.length}`,
         ),
       );

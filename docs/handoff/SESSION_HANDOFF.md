@@ -1,115 +1,133 @@
 # Session Handoff
 
-- Date/time: 2026-08-02 (집 PC, CC-140 세션)
-- Branch: **feature/CC-140** @ main 0c5e198 기반 (CC-135는 PR #10 머지 완료)
-- Current Work Item: **CC-140 DONE(구현·이중리뷰 반영·게이트 통과)** —
-  커밋·push 후 PR 대기 / next **CC-150** (Revision/ChangeSet, deps=CC-135·CC-140)
-- 이 PC(집 PC): 로컬 DB 포트 **15432**. CC-140은 **마이그레이션 0건**이라
-  DB 없이도 대부분의 게이트가 돈다(다른 워크스페이스 회귀 확인 시에만 필요).
+- Date/time: 2026-08-02 (집 PC, CC-150 세션 — **미완, 내일 회사 PC에서 계속**)
+- Branch: **feature/CC-150** @ main e2a6954 기반 (CC-140은 PR #11 머지 완료)
+- Current Work Item: **CC-150 진행 중(WIP)** — 구현·마이그레이션·계약은 완료,
+  **증거문서·이중리뷰·상태문서 갱신이 남음**. 완료 선언하지 않았다.
 
-## Completed this session (CC-140)
+## ⚠️ 회사 PC로 옮길 때 먼저 할 것
 
-**rhwp는 여전히 미반입이다.** 이 항목은 반입을 실행하지 않고 **반입을
-강제·검증하는 게이트**를 만든다(ADR-29 D1, OB-12). 상세: ADR-29,
-docs/evidence/CC-140-hwpx-ir-verification.md.
+이 브랜치는 **의존성과 마이그레이션이 둘 다 늘었다.** 순서대로 하지 않으면
+테스트가 엉뚱한 이유로 실패한다.
 
-- **반입 게이트**: `pnpm validate:intake` **R1~R12**를 CI verify에 배선 —
-  provenance 스키마(20필드 + G15 poc_gate), floating ref 금지,
-  `tree_digest`로 upstream 직접 수정 차단(패치는 PATCHES.yaml로만),
-  서브모듈 우회·notices 드리프트·SBOM 누락·미반입 상태 import 차단.
-  R12는 §8.3 문언대로 `IMPORTED`에 POC Gate 최소집합(G15-1·G15-6) PASS를
-  요구한다. **현재 상태에서 그린(R11)**, 게이트 테스트 50건으로 실효 증명.
-- **엔진**(TypeScript, ADR-29 D3, **신규 런타임 의존 0건**): 자체 중앙
-  디렉터리 ZIP 리더(로컬헤더 불신·zip-slip/bomb/중복·CRC32) + 자체 pull XML
-  파서(DOCTYPE를 선행 바이트 스캔으로 거부 — XXE를 "끄는" 게 아니라
-  표현 불가능하게), OPC 교차검증 + SourcePreservationMap + unmanifestedParts.
-- **Document IR**: 결정적 안정 ID(ULID 아님 — I1/I7 성립 불가), `partPath#el[n]`
-  앵커, 불변식 I1~I7. **타입 정본은 `@une/domain`**(ADR-29 D4), 엔진은 소비만.
-- **호환성 2층**: 객체 등급(§8.4) → 문서 판정(§8.6 G15-1) 롤업. 계약 스키마
-  2종 + 도메인 유니온 드리프트 가드.
-- **무손실 3중 증명**(D7): I4 커버리지 + I5 바이트 보존 + **무편집 재구성
-  동치** → Package Writer(CC-160) 이전에 RT-A 데이터 충분성 확보.
-- **코퍼스**: `templete/`의 **실 HWPX 6종**(sha256으로 해석) + 합성 9종.
-  실문서 발견 — `content.hpf` 매니페스트가 BinData/Scripts/Preview/META-INF를
-  적지 않아 **비매니페스트 Part가 무손실의 핵심**.
-- **실측으로 잡은 결함 2건**: ① AUTO 판정이 구조적으로 도달 불가(모든 HWPX가
-  갖는 포장 Part가 상한 유발 + `hp:colPr`/`fwSpace`/`lineBreak`를 미지원
-  객체로 분류) → 롤업 규칙 3을 ELEMENT 층에 한정 + 양성 구성요소를 명시 규칙화,
-  catch-all 적중 0건·**상한 "사유"를 값으로** 고정, 합성 A/B 쌍으로 AUTO 도달
-  증명. ② 개요 계층 뒤집힘(`hc:intent`가 음수 hanging indent — 앞 공백이 실제
-  층 신호, §1.6-3).
-- **이중 리뷰 전건 반영**(아키텍처 BLOCKER 1/MAJOR 8/MINOR 9, QA FAIL→F-1~F-5).
-  BLOCKER는 이 항목이 막으려던 종류의 결함이었다 — CORPUS.yaml에 실측값을
-  채우며 로더가 거부하는 키를 넣어 **코퍼스 회귀 94건이 실행되지 않는 상태**로
-  완료 선언했다. 로더 수정 + 매니페스트↔골든 교차 고정으로 차단.
-  그 외: 등급/상한 축 분리(`capsVerdict`), 미분류 요소 실어보내기,
-  §1.6-3 공백 실측, 반입 게이트 양방향화 + R12(POC Gate), template-profile
-  스키마를 실 산출물 기준으로 재작성 + 6종 실검증 계약 테스트.
-- 게이트(**단일 `pnpm test`로 재현**): domain 62, hwpx-engine 238,
-  contract-tests 152, db-integration 68, provider-adapters 108, api 193,
-  worker 33, validate:intake(R1~R12)/contracts/handoff PASS, baseline 10.
-  **마이그레이션 0건.**
+```bash
+git fetch origin && git checkout feature/CC-150 && git pull
+pnpm install      # ① 락파일 변경(tests/contract·services/api에 @une/hwpx-engine 추가)
+pnpm db:migrate   # ② 0018·0019 신규 — 회사 PC DB에 아직 없다
+pnpm -r build     # ③ domain/hwpx-engine dist 필요(다른 워크스페이스가 import)
+```
 
-## Exact next actions
+- **DB 포트가 PC마다 다르다**: 집 PC는 **15432**(Windows 네이티브 PG가 5432 점유),
+  **회사 PC·저장소 기본값은 5432**. `infrastructure/.env`는 gitignored라 회사 PC
+  값이 그대로 있을 것 — 건드리지 말 것.
+- 통합 테스트는 `DATABASE_URL`(superuser)이 필요하다. 없으면 db-integration
+  107건과 worker e2e가 **조용히 skip**되고 exit 0이 된다.
+- `pnpm test`는 첫 실패에서 중단된다 — 한 워크스페이스가 깨지면 뒤는 아예 실행되지
+  않는다. 수치 인용 전 **분모(`Test Files N passed (N)`)** 까지 확인할 것
+  (CC-140에서 이 함정에 빠졌다).
+- gh CLI는 집 PC에만 설치·인증돼 있다. 회사 PC는 `gh auth status`로 확인하고
+  없으면 `winget install --id GitHub.cli` → `gh auth login --web`.
 
-1. **사용자**: PR 생성·머지(gh CLI 사용 가능).
-2. 다음 항목 **CC-150**(Revision/ChangeSet/autosave/diff/conflict):
-   - **차단성 선행조건**: `0018_document_child_table_rls.sql` — 문서 하위
-     테이블(document_revision/document_block/change_set/change_operation/
-     template_profile/style_prototype/export_job/validation_report)에 RLS가
-     **한 번도 켜진 적이 없고** une_app은 ALL TABLES DML을 갖는다. CC-150이
-     첫 쓰기 경로를 여는 순간 테넌트 격리 구멍이 된다(ADR-29 D9, 0016 패턴 적용).
-   - **rhwp 적합성 확인 권고**: CC-140의 앵커 모델(`partPath#el[n]`) 위에
-     SelectionResolver가 rhwp 편집기 selection을 얹어야 한다. 착수 시점에
-     `@rhwp/core`/`@rhwp/editor` **정확 버전 고정**으로 적합성부터 확인하면
-     CC-150을 다 짜고 나서 어긋나는 것을 막을 수 있다(아래 보류 항목 1).
-   - 이름 드리프트 종결: 설계 `doc_prototype_registry` ↔ 구현 `style_prototype`
-     ↔ OpenAPI `x-db-tables: prototype_registry`.
-   - 빈 표 셀 문서가 등장하면 I6와 스키마 `minItems: 1`이 충돌(실 코퍼스엔 없음).
+## Completed this session (CC-150, WIP)
+
+**서버측 편집 코어.** 편집 UI(rhwp 결선)와 HWPX 저장/Export는 범위 밖(각각
+미반입·CC-160). 결정 정본: **ADR-30**(D1~D15 + 수용 한계).
+
+- **DB**: `0018_document_child_table_rls.sql`(문서 하위 8테이블 RLS — ADR-29 D9가
+  등재한 차단성 선행조건 해소), `0019_document_edit_surface.sql`(**61번째 테이블
+  `document_autosave`** 신설 = `generated_block`과 동일 유형의 기준선 결함 해소,
+  Undo 계보 컬럼, CHECK 다수, 멱등 UK, 인덱스).
+- **도메인**(`packages/domain/src/document/`): `selection.ts`(3층 분리를 타입으로
+  강제, **Offset Normalization Contract** 정본화), `change-set.ts`(8-op 어휘·
+  NodeAlias·거부사유 10종), `document-ir.ts` **v2**(NodeProvenance 판별 유니온).
+- **엔진**(`services/hwpx-engine/src/edit/`): SelectionResolver §1.8 전건,
+  ChangeSetExecutor §1.9 파이프라인, 역연산 도출, 프로토타입 해석, authored-id,
+  ir-lift. **원자성은 롤백이 아니라 자료구조로** — 실패 결과 타입에 `ir` 필드가
+  없어 부분 변형을 저장할 수 없다.
+- **API**(`services/api/src/document/`): UNE-DOC-005~009, ETag+baseRevisionId 이중
+  가드, 409에 ETag 헤더+`meta.conflict`, 멱등, 감사 6종, materialize(ADR-27 D4
+  3중 방어 이식), `DocumentImportService`(HTTP 표면 없음 — 업로드 API는 CC-160).
+- **계약**: `une-platform-api-v1.yaml` 005~009 전면 재작성 + 신규 컴포넌트 20종,
+  `change-set.schema.json` 신규, `document-ir.schema.json` v2(조건부 provenance),
+  `prototype_registry`→`style_prototype` 이름 드리프트 종결, mock 24라우트.
+- **실측으로 잡은 것 3건**: ① CC-140의 안정 ID가 앵커 파생이라 편집 후 붕괴
+  (→ ID 동결 + authored ID 별도 파생), ② §1.9 표대로 만든 역연산이 틀림(문자
+  삭제·SPLIT — 6종 전부 해시 불일치 실측 후 정정), ③ RLS 하 자식 전수 스캔
+  30배(→ 0019 인덱스로 173ms→1.2ms).
+
+### 게이트 (이 브랜치 현재 상태)
+domain 62 / hwpx-engine 348 / contract-tests 186 / api 233 / db-integration 107 /
+provider-adapters 108 / worker 33 / baseline 10. contracts·intake·handoff PASS.
+build·typecheck·lint·format PASS. 설계 원문·전사본·rhwp upstream 무변경.
+
+## 내일 회사 PC에서 할 일 (CC-150 마무리)
+
+1. **증거문서** `docs/evidence/CC-150-document-edit-verification.md` — 수용기준
+   4종(ETag/version conflict, selection anchors, undo/restore, audit) 대응표 +
+   게이트 수치 + 핵심 검증 포인트. CC-140 증거문서를 형식 참고.
+2. **이중 리뷰**: `architecture-guardian` + `qa-gate-reviewer` **병렬(둘 다 opus)**.
+   중점: ADR-30 D2(ID 동결)의 실효, D3 판별 유니온이 계약 층까지 무는지,
+   D4 이중 가드·409 페이로드, D13 트랜잭션 경계, materialize 3중 방어, 본문이
+   로그·감사에 없는지, alias 저장 형태(D14)의 한계.
+3. 지적 전건 반영 → **단일 `pnpm test`로 전 게이트 재현** → 그 수치로만 문서 기재.
+4. `work-items/{IMPLEMENTATION_STATUS.md, MASTER_WORK_ITEMS.yaml, CHANGELOG.md}`
+   갱신 + `docs/adr/README.md`에 **ADR-30 행 추가**(아직 미등재).
+5. 커밋·PR·머지 → 다음 **CC-160**(HWPX 보존 export + Track A).
+
+## 알려진 미결 (내일 판단할 것)
+
+- **ADR-30이 `docs/adr/README.md`에 미등재** — 4번에서 반드시 처리.
+- `change_operation.before_json`이 항상 `null`(엔진이 per-op before-image를 공개
+  표면으로 내지 않음). Undo는 저장된 역연산으로 충분하나 감사 열람 UI가 before를
+  요구하면 엔진 표면 확장 필요.
+- `template_profile.analysis_status` 어휘 미확정(도메인 판정 4종 vs 설계 09
+  상태표 9종) — CC-160에서 종결.
+- `document_block`에 쓰지 않는다(IR이 단일 정본). 투영은 CC-170.
+- alias 저장 형태: merge→undo→merge 반복 시 append-only 목록으로는 부족
+  (ADR-30 D14) — 편집 이력이 길어지는 CC-170에서 재평가.
+- `document_autosave.status × result_revision_id` 상관 제약 미도입 — 이번 구현으로
+  "ACCEPTED만 result를 채운다"가 확정됐으므로 CC-160에서 CHECK 가능.
 
 ## 보류 항목 — 막히면 여기서 답을 찾고 먼저 의견을 낼 것
 
-2026-08-02 사용자 결정: **설계 원안대로 개발하는 데 혼선이 생길 수 있으니
-아래 3건은 그 다음으로 미룬다**(작업항목 34개 원안 유지, 신설 없음).
-다만 구현이 막히면 여기에 답이 있는지 검토해 **의견을 제시**한다.
+2026-08-02 사용자 결정: 설계 원안대로 개발하는 데 혼선이 생길 수 있으니 아래
+3건은 그 다음으로 미룬다(작업항목 34개 원안 유지, 신설 없음).
 
-1. **rhwp 결선** — `@rhwp/core`/`@rhwp/editor` 정확 버전 고정(2026-08-02
-   실측: npm 0.8.2 = git 태그 v0.8.2, MIT, **빌드된 WASM이라 Rust 툴체인
-   불필요**). 소스 벤더링은 패치가 실제로 필요하거나 납품 SBOM 생성 시에만 —
-   CC-140의 `validate:intake` 게이트가 그때 작동한다. **3건 중 유일하게 실질적
-   가치가 있으며 적기는 CC-150 착수 시점.**
-2. **ProcessGPT 패턴 평가** — Workflow/HITL/보상/감사. 단, 우리 SOP·Outbox·
-   Execution Log는 설계에 이미 상세 규정돼 있어 별도 항목으로서의 값어치는
-   낮다. **특정 문제(보상 의미론, HITL 재배정 엣지케이스)에 막혔을 때의 참조
-   카드**로 두는 것이 맞다. 데이터모델 대체는 금지(설계 D-05, 12 §4).
+1. **rhwp 결선** — 2026-08-02 사용자 결정: **선택지 A로 진행**(서버가 offset
+   계약을 소유. 이미 구현됨 — 엔진 공백 표 ↔ 도메인 계약 표의 동치를 계약
+   테스트가 고정하므로 rhwp 어댑터가 붙을 때 불일치가 즉시 드러난다).
+   **선택지 B(`@rhwp/core@0.8.2` devDependency 추가 후 실 코퍼스 적합성 프로브)는
+   "나중에"로 보류.** npm 0.8.2 = git v0.8.2, MIT, 빌드된 WASM이라 Rust 툴체인
+   불필요.
+2. **ProcessGPT 패턴 평가** — 별도 항목으로서의 값어치는 낮다. 특정 문제(보상
+   의미론, HITL 재배정 엣지케이스)에 막혔을 때의 참조 카드로 둔다. 데이터모델
+   대체 금지(설계 D-05, 12 §4).
 3. **외부 소스 분석 규약** — 포크 금지·임시 다운로드·원본 삭제. 대부분
    CLAUDE.md/hwpx.md와 중복이고 강제는 `validate:intake`가 이미 한다.
 
-**라이선스 실측(2026-08-02, 저장소 직접 확인 — 설계 문구보다 우선):**
-rhwp = **MIT**, process-gpt = **MIT**(설계 논의의 "라이선스 없음"과 다름),
+**라이선스 실측(저장소 직접 확인 — 설계 문구보다 우선)**: rhwp = **MIT**,
+process-gpt = **MIT**(설계 논의의 "라이선스 없음"과 다름),
 process-gpt-office-mcp = **없음 → 코드 복사 불가**(참고·재구현만).
-office-mcp는 HWPX→HTML 왕복 편집 모델이라 **보존형 요구와 양립하지 않는다** —
-쓸 수 있는 건 MCP 도구 계약의 형태뿐.
 
 ## Risks/blockers
 
-- **rhwp 미반입 상태에서 편집 표면이 없다.** 설계 07 §1.2/§6.4가 rhwp Editor를
-  편집 Surface로 배정했으므로, 프런트 편집 UI는 rhwp 없이는 진행 불가.
-  CC-150의 백엔드(Revision/ChangeSet)는 진행 가능.
-- 실문서 코퍼스 6종(<10종) — G15-1 부분 충족, 확대는 OB-07.
-- `FLATTEN_EXPORT_ONLY`는 실 코퍼스에 인스턴스가 없어 합성 전용 검증.
-- 성능 임계 게이트 미도입(G15-5는 CC-160), 한컴 Track B(OB-08/CC-420) 범위 밖.
-- 기존 이월분(OB-01/10/11 OPEN) 유지.
+- **편집 UI 없음** — 설계 07 §1.2/§6.4가 rhwp Editor를 편집 Surface로 배정했고
+  `apps/web`은 셸뿐이다. CC-150 서버 계약은 §1.8-4("시각 좌표는 계약에 들어오지
+  않는다") 덕분에 편집기와 독립이라 진행 가능했다.
+- 성능 임계 게이트 미도입(§1.12 편집 P95 300ms는 측정만).
+- 기존 이월분(OB-01/07/08/10/11 OPEN) 유지.
 
 ## Notes
 
-- 이 PC DATABASE_URL: superuser une @ localhost:**15432**
-  (infrastructure/.env 조합; WSL vmIdleTimeout으로 컨테이너가 내려갈 수 있음 —
-  `wsl -d Ubuntu` 깨우고 `docker start une-postgres`).
-- prettier를 docs/·contracts/에 실행하지 말 것(사고 2회) — 커밋 전
+- prettier를 **docs/·contracts/에 실행하지 말 것**(사고 2회) — 커밋 전
   `git status -- docs/design-markdown` 무변경 확인.
-- **설계 원문(docs/design-markdown)은 수정 금지.** 보완이 필요하면 ADR +
-  work-items로만 한다.
+- **설계 원문(docs/design-markdown)은 수정 금지.** 보완은 ADR + work-items로만.
 - 골든 스냅샷·증거 문서에 본문 텍스트·Preview/PrvText·BinData를 넣지 말 것
-  (`templete/` 6종은 실제 업무 양식 — security.md 개인정보 최소화).
-- gh CLI 2.97 설치·인증됨(PR 생성/CI 확인).
+  (`templete/` 6종은 실제 업무 양식 — security.md).
+- **JSON Schema 2020-12에서 `allOf` + `additionalProperties:false` 금지** — base
+  브랜치가 sibling의 property를 못 봐 전 인스턴스가 무효가 된다. ADR-24 D4에
+  기록됐는데 이 저장소에서 **두 번 재발**했다. 인라인 또는 `unevaluatedProperties`를
+  쓰고, 제약이 vacuous하지 않은지 **정상 케이스 수용 테스트**로 함께 고정할 것.
+- 게이트를 깨뜨린 뒤 재실행 없이 완료 선언하지 말 것(CC-140에서 실제로 발생 —
+  QA가 타임스탬프로 적발). 파일을 고쳤으면 단일 `pnpm test`로 전량 재현한 수치만
+  기재한다.

@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="UNE Platform Mock", version="1.0.0")
-DB: dict[str, dict[str, Any]] = {"plans": {}, "planSnapshots": {}, "tocVersions": {}, "jobs": {}, "blocks": {}, "situations": {}, "snapshots": {}, "sops": {}, "runs": {}, "tasks": {}, "journals": {}}
+DB: dict[str, dict[str, Any]] = {"plans": {}, "planSnapshots": {}, "tocVersions": {}, "jobs": {}, "blocks": {}, "situations": {}, "snapshots": {}, "sops": {}, "runs": {}, "tasks": {}, "journals": {}, "documents": {}, "revisions": {}, "changeSets": {}, "autosaves": {}}
 # Snapshot version counter per plan (UNE-PLAN-007 version_no = max+1).
 PLAN_SNAPSHOT_SEQ: dict[str, int] = {}
 # TOC version counter per plan (UNE-PLAN-014 version_no = max+1).
@@ -373,6 +373,192 @@ def get_toc(plan_id: str, toc_version_id: str):
     version=DB["tocVersions"].get(toc_version_id)
     if not version or version["planId"]!=plan_id: raise HTTPException(404,"TOC-404-001: TOC version not found")
     return envelope(version)
+
+# ---------------------------------------------------------------------------
+# CC-150 문서 편집(UNE-DOC-005~009)
+# ---------------------------------------------------------------------------
+# 목적은 프런트엔드가 API 없이 화면을 만들 수 있게 하는 것뿐이다. 엔진(ChangeSet
+# 실행기)은 흉내내지 않는다 — 여기서 편집을 실제로 계산하면 두 벌의 실행기가
+# 생기고, 그 순간 mock이 계약이 아니라 경쟁 구현이 된다. 대신 계약이 고정한
+# 관측 가능한 규약만 재현한다: ETag/If-Match, 428/400/409, revision 증가,
+# clientMutationId 멱등, dryRun 불변, 복원의 새 head 생성.
+EMPTY_IR = {"irVersion": "2", "documentId": "", "revision": None, "sourceHash": "0" * 64,
+            "sections": [], "styleIndex": {"paraPr": [], "charPr": [], "style": [],
+                                           "numbering": [], "bullet": [], "binData": []},
+            "unknownParts": [], "findings": []}
+
+def etag(revision_no: int) -> dict[str, str]:
+    return {"ETag": '"' + str(revision_no) + '"'}
+
+def get_document_or_404(document_id: str) -> dict[str, Any]:
+    """문서가 없으면 첫 조회에서 즉석 생성한다(mock은 업로드 API를 갖지 않는다)."""
+    doc = DB["documents"].get(document_id)
+    if doc: return doc
+    rid = str(uuid4())
+    ir = {**EMPTY_IR, "documentId": document_id}
+    DB["revisions"][rid] = {"revisionId": rid, "documentId": document_id, "revisionNo": 1,
+                            "parentRevisionId": None, "irHash": content_hash(ir),
+                            "changeSummary": "HWPX 가져오기", "origin": "IMPORT",
+                            "checkpointLabel": "생성전", "createdBy": MOCK_USER_ID,
+                            "createdAt": now(), "ir": ir}
+    doc = {"documentId": document_id, "headRevisionId": rid, "revisionIds": [rid]}
+    DB["documents"][document_id] = doc
+    return doc
+
+def head_revision(doc: dict[str, Any]) -> dict[str, Any]:
+    return DB["revisions"][doc["headRevisionId"]]
+
+def parse_if_match(value: str | None) -> int:
+    """부재 428 COM-0428 / 형식 오류 400 COM-0400 (계약과 동일한 관용구)."""
+    if not value or not value.strip(): raise HTTPException(428, "COM-0428: If-Match required")
+    token = value.strip().strip('"')
+    if not token.isdigit(): raise HTTPException(400, "COM-0400: If-Match must be a strong ETag")
+    return int(token)
+
+def revision_summary(rev: dict[str, Any], head_no: int) -> dict[str, Any]:
+    out = {k: v for k, v in rev.items() if k != "ir"}
+    out["isHead"] = rev["revisionNo"] == head_no
+    return out
+
+def append_revision(doc: dict[str, Any], ir: dict[str, Any], origin: str,
+                    summary: str | None, label: str | None) -> dict[str, Any]:
+    head = head_revision(doc)
+    rid = str(uuid4())
+    rev = {"revisionId": rid, "documentId": doc["documentId"], "revisionNo": head["revisionNo"] + 1,
+           "parentRevisionId": head["revisionId"], "irHash": content_hash([ir, rid]),
+           "changeSummary": summary, "origin": origin, "checkpointLabel": label,
+           "createdBy": MOCK_USER_ID, "createdAt": now(), "ir": ir}
+    DB["revisions"][rid] = rev
+    doc["revisionIds"].append(rid)
+    doc["headRevisionId"] = rid
+    return rev
+
+def conflict_response(head: dict[str, Any], code: str):
+    """409에 현재 ETag 헤더와 meta.conflict를 함께 싣는다(계약 RevisionConflict)."""
+    body = {"success": False,
+            "error": {"code": code, "message": "문서가 다른 사용자에 의해 변경되었습니다.",
+                      "detail": None, "recoverable": True},
+            "meta": {"requestId": f"req_{uuid4().hex[:12]}",
+                     "correlationId": f"corr_{uuid4().hex[:12]}",
+                     "timestamp": now(), "schemaVersion": "1.0",
+                     "conflict": {"currentRevisionId": head["revisionId"],
+                                  "currentRevisionNo": head["revisionNo"],
+                                  "headIrHash": head["irHash"]}}}
+    return JSONResponse(body, status_code=409, headers=etag(head["revisionNo"]))
+
+@app.get("/api/v1/documents/{document_id}/ir")
+def get_document_ir(document_id: str, revisionId: str | None = None):
+    doc = get_document_or_404(document_id)
+    head = head_revision(doc)
+    rev = DB["revisions"].get(revisionId) if revisionId else head
+    if not rev or rev["documentId"] != document_id:
+        raise HTTPException(404, "DOC-404-001: revision not found")
+    data = {"documentId": document_id, "revisionId": rev["revisionId"],
+            "revisionNo": rev["revisionNo"], "irHash": rev["irHash"], "origin": rev["origin"],
+            "checkpointLabel": rev["checkpointLabel"], "headRevisionId": head["revisionId"],
+            "headRevisionNo": head["revisionNo"], "irVersion": rev["ir"]["irVersion"],
+            "liftedFromV1": False, "ir": rev["ir"], "createdBy": rev["createdBy"],
+            "createdAt": rev["createdAt"]}
+    return JSONResponse(envelope(data), headers=etag(rev["revisionNo"]))
+
+@app.post("/api/v1/documents/{document_id}/changesets")
+def apply_change_set(document_id: str, body: dict[str, Any],
+                     if_match: str | None = Header(default=None, alias="If-Match")):
+    expected = parse_if_match(if_match)
+    doc = get_document_or_404(document_id)
+    head = head_revision(doc)
+    mutation = body.get("clientMutationId")
+    if not body.get("baseRevisionId") or not mutation or not body.get("operations"):
+        raise HTTPException(400, "COM-0400: baseRevisionId, clientMutationId, operations are required")
+    key = document_id + "/" + str(mutation)
+    if key in DB["changeSets"]:
+        prior = DB["changeSets"][key]
+        if prior["requestHash"] != content_hash(body.get("operations")):
+            raise HTTPException(409, "COM-0409: clientMutationId reused with a different payload")
+        replayed = dict(prior["result"]); replayed["replayed"] = True
+        return JSONResponse(envelope(replayed), headers=etag(head["revisionNo"]))
+    base = DB["revisions"].get(body["baseRevisionId"])
+    if not base or base["documentId"] != document_id:
+        raise HTTPException(422, "DOC-422-004: baseRevisionId is not a revision of this document")
+    if base["revisionNo"] != expected:
+        raise HTTPException(422, "DOC-422-004: If-Match and baseRevisionId disagree")
+    if head["revisionNo"] != expected:
+        return conflict_response(head, "DOC-409-001")
+    result = {"changeSetId": None, "documentId": document_id,
+              "baseRevisionId": body["baseRevisionId"], "dryRun": bool(body.get("dryRun")),
+              "applied": False, "replayed": False, "newRevisionId": None, "newRevisionNo": None,
+              "irHash": head["irHash"], "diff": [], "inverseOperations": [], "aliases": [],
+              "aliasRemovals": [], "warnings": [], "materialize": None}
+    if body.get("dryRun"):
+        return JSONResponse(envelope(result), headers=etag(head["revisionNo"]))
+    rev = append_revision(doc, head["ir"], "CHANGESET", body.get("changeSummary"),
+                          body.get("checkpointLabel"))
+    result.update({"changeSetId": str(uuid4()), "applied": True,
+                   "newRevisionId": rev["revisionId"], "newRevisionNo": rev["revisionNo"],
+                   "irHash": rev["irHash"]})
+    DB["changeSets"][key] = {"requestHash": content_hash(body.get("operations")), "result": result}
+    return JSONResponse(envelope(result), headers=etag(rev["revisionNo"]))
+
+@app.get("/api/v1/documents/{document_id}/revisions")
+def list_revisions(document_id: str, page: int = 1, size: int = 20):
+    doc = get_document_or_404(document_id)
+    head = head_revision(doc)
+    items = [DB["revisions"][r] for r in reversed(doc["revisionIds"])]
+    window = items[(page - 1) * size: (page - 1) * size + size]
+    data = {"items": [revision_summary(r, head["revisionNo"]) for r in window],
+            "page": page, "size": size, "totalElements": len(items),
+            "totalPages": max(1, -(-len(items) // size)),
+            "headRevisionId": head["revisionId"], "headRevisionNo": head["revisionNo"]}
+    return JSONResponse(envelope(data), headers=etag(head["revisionNo"]))
+
+@app.post("/api/v1/documents/{document_id}/revisions/{revision_id}/restore")
+def restore_revision(document_id: str, revision_id: str, body: dict[str, Any] | None = None,
+                     if_match: str | None = Header(default=None, alias="If-Match")):
+    expected = parse_if_match(if_match)
+    doc = get_document_or_404(document_id)
+    head = head_revision(doc)
+    if head["revisionNo"] != expected:
+        return conflict_response(head, "DOC-409-002")
+    source = DB["revisions"].get(revision_id)
+    if not source or source["documentId"] != document_id:
+        raise HTTPException(404, "DOC-404-001: revision not found")
+    if source["revisionId"] == head["revisionId"]:
+        raise HTTPException(422, "DOC-422-004: the head revision cannot be restored onto itself")
+    # 과거 revision은 그대로 두고 새 head를 만든다(US-PLAN-020 AC-01).
+    reason = (body or {}).get("reason") or ("Revision " + str(source["revisionNo"]) + " 복원")
+    rev = append_revision(doc, source["ir"], "RESTORE", reason, (body or {}).get("checkpointLabel"))
+    data = {"revision": revision_summary(rev, rev["revisionNo"]), "changeSetId": str(uuid4()),
+            "restoredFromRevisionId": source["revisionId"],
+            "restoredFromRevisionNo": source["revisionNo"]}
+    return JSONResponse(envelope(data), headers=etag(rev["revisionNo"]))
+
+@app.post("/api/v1/documents/{document_id}/autosaves")
+def autosave(document_id: str, body: dict[str, Any],
+             if_match: str | None = Header(default=None, alias="If-Match")):
+    expected = parse_if_match(if_match)
+    doc = get_document_or_404(document_id)
+    head = head_revision(doc)
+    mutation = body.get("clientMutationId")
+    delta = body.get("delta") or {}
+    if not body.get("baseRevisionId") or not mutation or not delta.get("operations"):
+        raise HTTPException(400, "COM-0400: baseRevisionId, clientMutationId, delta.operations are required")
+    key = document_id + "/" + str(mutation)
+    if key in DB["autosaves"]:
+        prior = DB["autosaves"][key]
+        if prior["deltaHash"] != content_hash(delta):
+            raise HTTPException(409, "COM-0409: clientMutationId reused with a different delta")
+        replayed = dict(prior["receipt"]); replayed["replayed"] = True
+        return JSONResponse(envelope(replayed), headers=etag(head["revisionNo"]))
+    seq = body.get("seq", len(DB["autosaves"]) + 1)
+    if body["baseRevisionId"] != head["revisionId"] or head["revisionNo"] != expected:
+        return conflict_response(head, "DOC-409-003")
+    rev = append_revision(doc, head["ir"], "AUTOSAVE", None, None)
+    receipt = {"autosaveId": str(uuid4()), "documentId": document_id, "clientMutationId": mutation,
+               "seq": str(seq), "status": "ACCEPTED", "baseRevisionId": body["baseRevisionId"],
+               "resultRevisionId": rev["revisionId"], "resultRevisionNo": rev["revisionNo"],
+               "irHash": rev["irHash"], "replayed": False, "receivedAt": now()}
+    DB["autosaves"][key] = {"deltaHash": content_hash(delta), "receipt": receipt}
+    return JSONResponse(envelope(receipt), headers=etag(rev["revisionNo"]))
 
 @app.post("/api/v1/situations")
 def create_situation(body: SituationCreate, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):

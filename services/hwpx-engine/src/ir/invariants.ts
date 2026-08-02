@@ -3,7 +3,7 @@ import { sha256Bytes } from '../package/zip-reader';
 import type { PackageAnalysisResult } from '../package/package-analysis';
 import { isModeledPart } from '../package/opc-package';
 import type { XmlElement } from '../package/xml';
-import { resolveAnchor } from './anchors';
+import { resolveAnchor, sourceAnchor } from './anchors';
 import type { DocumentIrBuildResult } from './ir-builder';
 import { checkBulletReference, findDanglingBinaryReferences } from './reference-check';
 
@@ -60,14 +60,14 @@ function collectAnchorsAndIds(ir: DocumentIR): {
     for (const block of walkBlocks(section.blocks)) {
       if (block.kind === 'PARAGRAPH') {
         ids.push(block.paragraphId);
-        anchors.push(block.rawXmlAnchor);
+        anchors.push(sourceAnchor(block, block.paragraphId));
         for (const run of block.runs) {
           ids.push(run.runId);
           anchors.push(...run.controls);
         }
       } else if (block.kind === 'TABLE') {
         ids.push(block.tableId);
-        anchors.push(block.rawXmlAnchor);
+        anchors.push(sourceAnchor(block, block.tableId));
         for (const row of block.rows) {
           ids.push(row.rowId);
           for (const cell of row.cells) ids.push(cell.cellId);
@@ -141,21 +141,22 @@ export function checkInvariants(input: CheckInvariantsInput): InvariantReport {
     for (const block of walkBlocks(section.blocks)) {
       if (block.kind !== 'PARAGRAPH') continue;
       const { paraPrId, charPrId, styleId, numberingId } = block.styleRef;
+      const locator = sourceAnchor(block, block.paragraphId);
       if (paraPrId !== null && !build.headerIndex.paraPr.has(paraPrId)) {
-        violations.push(violation('I3', block.rawXmlAnchor, `paraPrId=${paraPrId} 미존재`));
+        violations.push(violation('I3', locator, `paraPrId=${paraPrId} 미존재`));
       }
       if (charPrId !== null && !build.headerIndex.charPr.has(charPrId)) {
-        violations.push(violation('I3', block.rawXmlAnchor, `charPrId=${charPrId} 미존재`));
+        violations.push(violation('I3', locator, `charPrId=${charPrId} 미존재`));
       }
       if (styleId !== null && !build.headerIndex.styleIds.has(styleId)) {
-        violations.push(violation('I3', block.rawXmlAnchor, `styleId=${styleId} 미존재`));
+        violations.push(violation('I3', locator, `styleId=${styleId} 미존재`));
       }
       if (numberingId !== null && !build.headerIndex.numberingIds.has(numberingId)) {
-        violations.push(violation('I3', block.rawXmlAnchor, `numberingId=${numberingId} 미존재`));
+        violations.push(violation('I3', locator, `numberingId=${numberingId} 미존재`));
       }
       const bulletDetail = checkBulletReference(build.headerIndex, paraPrId);
       if (bulletDetail !== null) {
-        violations.push(violation('I3', block.rawXmlAnchor, bulletDetail));
+        violations.push(violation('I3', locator, bulletDetail));
       }
     }
   }
@@ -217,7 +218,7 @@ export function checkInvariants(input: CheckInvariantsInput): InvariantReport {
     if (root) {
       const paragraphAnchors = section.blocks
         .filter((block) => block.kind === 'PARAGRAPH')
-        .map((block) => block.rawXmlAnchor);
+        .map((block) => sourceAnchor(block, block.paragraphId));
       const sorted = [...paragraphAnchors].sort((a, b) => ordinalOf(a) - ordinalOf(b));
       if (paragraphAnchors.join('|') !== sorted.join('|')) {
         violations.push(violation('I6', section.partPath, '문단 블록 순서가 원문 순서와 다릅니다'));

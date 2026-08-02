@@ -35,6 +35,17 @@ const RLS_TABLES = [
   'plan_context_snapshot',
   // 0017 (CC-130): generation staging, isolated through EXISTS(plan) as well.
   'generated_block',
+  // 0018 (CC-150 선행조건, ADR-29 D9): 문서 계열 하위 테이블, EXISTS(document).
+  'document_revision',
+  'document_block',
+  'change_set',
+  'change_operation',
+  'template_profile',
+  'style_prototype',
+  'export_job',
+  'validation_report',
+  // 0019 (CC-150): 자동저장 명령 저널. 0018과 같은 EXISTS(document) 패턴.
+  'document_autosave',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -49,11 +60,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 17 baseline migrations', async () => {
+  it('applies all 19 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(17);
+    expect(applied.rows).toHaveLength(19);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -62,14 +73,19 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     expect(applied.rows[14].name).toBe('0015_generation_job_worker_and_toc');
     expect(applied.rows[15].name).toBe('0016_child_table_rls');
     expect(applied.rows[16].name).toBe('0017_generated_block');
+    expect(applied.rows[17].name).toBe('0018_document_child_table_rls');
+    expect(applied.rows[18].name).toBe('0019_document_edit_surface');
   });
 
-  // 60 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
-  // + generated_block (ADR-27). generated_block is not a new requirement: design
-  // 10 §3.3 UNE-PLAN-016, the §7 UFR trace table and the OpenAPI x-db-tables all
-  // name it, while §6.2's DDL table omits its columns — the same ADR-21 baseline
-  // defect class already resolved for plan and generation_job.
-  it('creates the 60-table baseline (+ generated_block, ADR-27 §6.2 defect resolved)', async () => {
+  // 61 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
+  // + generated_block (ADR-27) + document_autosave (0019). 0018 adds policies
+  // only, no tables. Neither generated_block nor document_autosave is a new
+  // requirement: for both, design 10's API table, its sequence "DB Write" lists,
+  // the §7 UFR trace table and the OpenAPI x-db-tables all name the table, while
+  // §6's DDL table omits its columns — the same ADR-21 baseline defect class
+  // already resolved for plan and generation_job. document_autosave is named by
+  // UNE-DOC-009 (design 10 §3.4) and by une_doc_009's x-db-tables.
+  it('creates the 61-table baseline (+ generated_block, document_autosave)', async () => {
     const tables = await withClient(db.url, (c) =>
       c.query(
         `SELECT count(*)::int AS n FROM information_schema.tables
@@ -77,7 +93,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
            AND table_name <> 'pgmigrations'`,
       ),
     );
-    expect(tables.rows[0].n).toBe(60);
+    expect(tables.rows[0].n).toBe(61);
   });
 
   it('enables and forces RLS on all tenant-isolated tables', async () => {
@@ -151,11 +167,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0017 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0019 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0017
+    await migrate(db.url); // remaining: 0011 ~ 0019
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -170,7 +186,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(17);
+    expect(applied.rows[0].n).toBe(19);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

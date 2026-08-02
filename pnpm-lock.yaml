@@ -143,6 +143,9 @@ importers:
       '@une/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@une/hwpx-engine':
+        specifier: workspace:*
+        version: link:../hwpx-engine
       ajv:
         specifier: ^8.20.0
         version: 8.20.0

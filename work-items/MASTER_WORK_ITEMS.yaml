@@ -307,7 +307,7 @@ work_items:
   dependencies:
   - CC-135
   - CC-140
-  status: NOT_STARTED
+  status: IN_PROGRESS
   acceptance_criteria:
   - ETag/version conflict
   - selection anchors

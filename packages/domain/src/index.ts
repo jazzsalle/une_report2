@@ -12,3 +12,5 @@ export * from './document/compatibility';
 export * from './document/document-ir';
 export * from './document/template-profile';
 export * from './document/ir-hash';
+export * from './document/selection';
+export * from './document/change-set';

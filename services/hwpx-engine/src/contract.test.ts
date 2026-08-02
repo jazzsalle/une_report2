@@ -11,7 +11,9 @@ describe('HwpxEngine — CC-140이 채운 경로', () => {
     const analysis = engine.analyzePackage({ bytes: synthHwpx('valid') });
     expect(analysis.mimetype).toBe('application/hwp+zip');
     const build = engine.buildIr(analysis);
-    expect(build.ir.irVersion).toBe('1');
+    // CC-150(ADR-30 D3)부터 읽기 경로가 v2를 **직접** 낸다. 표현이 두 벌이면
+    // 모든 소비자가 "언제 lift해야 하는지"를 알아야 한다.
+    expect(build.ir.irVersion).toBe('2');
     expect(build.ir.sourceHash).toBe(analysis.archiveSha256);
     const classification = engine.classify({ analysis, confidence: 0.9 });
     expect(classification.verdict).toBe('LIMITED');

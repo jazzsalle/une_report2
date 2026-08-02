@@ -17,8 +17,8 @@
   ],
   "properties": {
     "irVersion": {
-      "const": "1",
-      "description": "IR shape version — bumped when the shape changes so rows written by earlier code stay interpretable."
+      "enum": ["1", "2"],
+      "description": "IR shape version. v2 adds node provenance (CC-150, ADR-30 D3); v1 rows are lifted on read. Bumped when the shape changes so rows written by earlier code stay interpretable."
     },
     "documentId": { "type": "string", "minLength": 1 },
     "revision": {
@@ -40,6 +40,35 @@
       "type": "string",
       "pattern": "^[^#]+#.+$",
       "description": "partPath + '#' + element path with 1-based ordinals, e.g. 'Contents/section0.xml#p[17]' (ADR-29 D6). Structural position only — character offsets belong to the selection layer."
+    },
+    "provenanceConstraint": {
+      "description": "Origin decides which anchor evidence a node carries, exclusively (ADR-30 D3, invariant I9). Expressed with if/then rather than allOf-composition of property sets: under JSON Schema 2020-12 a branch carrying additionalProperties:false cannot see a sibling branch's properties — the defect ADR-24 D4 had to repair in the target-v2 contract and that CC-140 repeated once already.",
+      "allOf": [
+        {
+          "if": { "properties": { "origin": { "const": "SOURCE" } }, "required": ["origin"] },
+          "then": {
+            "required": ["rawXmlAnchor"],
+            "not": { "required": ["anchorHint"] }
+          }
+        },
+        {
+          "if": { "properties": { "origin": { "const": "AUTHORED" } }, "required": ["origin"] },
+          "then": {
+            "required": ["anchorHint"],
+            "not": { "required": ["rawXmlAnchor"] }
+          }
+        }
+      ]
+    },
+    "blockAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation", "ref"],
+      "description": "Placement of an authored node against a STABLE ID. CC-160's delta writer needs this because an authored node has no raw XML anchor; inferring placement from IR order later would turn §1.10-3 from data into trust in an algorithm.",
+      "properties": {
+        "relation": { "enum": ["BEFORE", "AFTER", "FIRST_CHILD", "LAST_CHILD"] },
+        "ref": { "type": "string", "minLength": 1 }
+      }
     },
     "styleRef": {
       "type": "object",
@@ -75,9 +104,12 @@
     "paragraphIr": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "paragraphId", "runs", "styleRef", "editState", "rawXmlAnchor"],
+      "required": ["kind", "paragraphId", "runs", "styleRef", "editState", "origin"],
+      "$ref": "#/$defs/provenanceConstraint",
       "properties": {
         "kind": { "const": "PARAGRAPH" },
+        "origin": { "enum": ["SOURCE", "AUTHORED"] },
+        "anchorHint": { "$ref": "#/$defs/blockAnchor" },
         "paragraphId": { "type": "string", "minLength": 1 },
         "runs": { "type": "array", "items": { "$ref": "#/$defs/runIr" } },
         "styleRef": { "$ref": "#/$defs/styleRef" },
@@ -116,9 +148,12 @@
     "tableIr": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "tableId", "rows", "rawXmlAnchor"],
+      "required": ["kind", "tableId", "rows", "origin"],
+      "$ref": "#/$defs/provenanceConstraint",
       "properties": {
         "kind": { "const": "TABLE" },
+        "origin": { "enum": ["SOURCE", "AUTHORED"] },
+        "anchorHint": { "$ref": "#/$defs/blockAnchor" },
         "tableId": { "type": "string", "minLength": 1 },
         "rows": { "type": "array", "items": { "$ref": "#/$defs/tableRowIr" } },
         "rawXmlAnchor": { "$ref": "#/$defs/rawXmlAnchor" },
@@ -128,10 +163,11 @@
     "preservedBlock": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "preservedId", "rawXmlAnchor", "classification"],
-      "description": "A construct modelled only as preserved XML. It keeps its place in block order so surrounding edits cannot reorder or drop it.",
+      "required": ["kind", "origin", "preservedId", "rawXmlAnchor", "classification"],
+      "description": "A construct modelled only as preserved XML. It keeps its place in block order so surrounding edits cannot reorder or drop it. It can never be AUTHORED — it stands for original bytes, and an editor cannot create one.",
       "properties": {
         "kind": { "const": "PRESERVED" },
+        "origin": { "const": "SOURCE" },
         "preservedId": { "type": "string", "minLength": 1 },
         "rawXmlAnchor": { "$ref": "#/$defs/rawXmlAnchor" },
         "classification": { "$ref": "#/$defs/objectClassification" }

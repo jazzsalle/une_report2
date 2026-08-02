@@ -11,6 +11,11 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 import { IdempotencyRepository } from './common/idempotency.repository';
 import { API_CONFIG, loadApiConfig, type ApiConfig } from './config/api-config';
 import { DatabaseService } from './db/database.service';
+import { ChangeSetService } from './document/change-set.service';
+import { DocumentController } from './document/document.controller';
+import { DocumentImportService } from './document/document-import.service';
+import { DocumentRepository } from './document/document.repository';
+import { DocumentService } from './document/document.service';
 import { HealthController } from './health/health.controller';
 import { OrganizationsController, RolesController, UsersController } from './iam/iam.controller';
 import { IamRepository } from './iam/iam.repository';
@@ -49,6 +54,7 @@ export class AppModule {
         ContentJobController,
         TocVersionController,
         PlanJobController,
+        DocumentController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -68,6 +74,12 @@ export class AppModule {
         ContentJobService,
         TocVersionService,
         JobSseService,
+        DocumentRepository,
+        DocumentService,
+        ChangeSetService,
+        // HTTP 표면이 없는 애플리케이션 서비스(업로드 API는 CC-160 소유).
+        // 테스트/E2E가 편집 대상 문서를 얻는 유일한 경로다.
+        DocumentImportService,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;
         // the idempotency interceptor runs after both guards.

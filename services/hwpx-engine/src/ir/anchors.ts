@@ -1,4 +1,4 @@
-import type { RawXmlAnchor } from '@une/domain';
+import type { NodeOrigin, RawXmlAnchor } from '@une/domain';
 import { elementsOf, type XmlElement } from '../package/xml';
 
 /**
@@ -45,6 +45,34 @@ export function anchorOf(element: XmlElement): RawXmlAnchor {
  */
 export function partAnchor(partPath: string, rootLocalName = 'sec'): RawXmlAnchor {
   return `${partPath}${ANCHOR_SEPARATOR}${rootLocalName}[1]`;
+}
+
+/**
+ * SOURCE 노드의 앵커를 좁혀서 꺼낸다 (CC-150, ADR-30 D3).
+ *
+ * `NodeProvenance`가 판별 유니온이 된 뒤로 `node.rawXmlAnchor`의 타입은
+ * `string | undefined`다. 분석 계층(`analysis/**`)과 불변식 검사는 **갓 빌드된
+ * IR**만 다루므로 그 안의 노드는 전부 SOURCE인데, 호출부마다 `?? ''`로 뭉개면
+ * 두 가지가 동시에 깨진다:
+ *
+ *   1. 빈 문자열 앵커는 계약 스키마의 `^[^#]+#.+$`를 위반하고,
+ *   2. `resolveAnchor('')`가 그냥 null을 돌려주므로 I2(앵커 역참조 100%)가
+ *      **거짓으로 통과**하거나 엉뚱한 자리를 지목한다.
+ *
+ * AUTHORED 노드가 여기 도달했다면 그것은 데이터 문제가 아니라 **계층 위반**
+ * (편집된 IR을 분석기에 넣었다)이므로 값을 만들어 내지 않고 던진다.
+ */
+export function sourceAnchor(
+  node: { readonly origin: NodeOrigin; readonly rawXmlAnchor?: RawXmlAnchor },
+  locator = '(unknown)',
+): RawXmlAnchor {
+  if (node.origin !== 'SOURCE' || node.rawXmlAnchor === undefined) {
+    throw new Error(
+      `SOURCE 노드가 아닌 곳에서 rawXmlAnchor를 요구했습니다 (origin=${node.origin}, at=${locator}). ` +
+        '분석 계층은 편집되지 않은 IR만 다룹니다.',
+    );
+  }
+  return node.rawXmlAnchor;
 }
 
 export interface ParsedAnchor {
