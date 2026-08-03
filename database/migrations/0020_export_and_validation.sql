@@ -153,6 +153,10 @@ GRANT SELECT, INSERT ON validation_report TO une_worker;  -- Track A 보고서
 GRANT SELECT, INSERT ON file_object       TO une_worker;  -- 산출물 등록
 GRANT SELECT ON document                  TO une_worker;  -- 원본 문서 메타
 GRANT SELECT ON document_revision         TO une_worker;  -- 대상 리비전 IR
+-- 호환성 판정(analysis_status)은 저장 차단 집행의 입력이다(ADR-29 D11).
+-- 워커가 이 값을 읽지 못하면 REJECT/FLATTEN_EXPORT_ONLY 문서의 저장을
+-- 막을 근거가 없어지고, 집행이 조용히 통과한다.
+GRANT SELECT ON template_profile          TO une_worker;
 
 -- 0015 §7과 같은 의미론이다. une_current_tenant_id()가 NULL이면 디스패치
 -- 모드이며, 그때만 아래 정책이 적용된다(PERMISSIVE OR).

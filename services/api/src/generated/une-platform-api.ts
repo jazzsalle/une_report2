@@ -3685,9 +3685,17 @@ export type components = {
         };
         ExportRequest: {
             /** @enum {string} */
-            format: "HWPX" | "PDF" | "DOCX" | "JSON";
+            format: "HWPX" | "PDF" | "DOCX";
             /** Format: uuid */
             revisionId?: string | null;
+            /** @description 저장 모드 등 산출 옵션 (설계 07 §1.10 저장 모드표) */
+            options?: {
+                /**
+                 * @default SAVE_AS
+                 * @enum {string}
+                 */
+                saveMode: "SAVE_AS" | "SAVE_REVISION" | "EXPORT_COPY";
+            };
         };
         SituationCreateRequest: {
             /** @enum {string} */
@@ -3790,8 +3798,61 @@ export type components = {
         Journal: {
             [key: string]: unknown;
         };
-        ExportJob: {
-            [key: string]: unknown;
+        ExportJobResource: {
+            /** Format: uuid */
+            exportId: string;
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            revisionId: string;
+            /** @enum {string} */
+            format: "HWPX" | "PDF" | "DOCX";
+            /** @enum {string} */
+            status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+            /**
+             * Format: uuid
+             * @description COMPLETED에서만 채워진다 (0020 ck_export_job_terminal_shape)
+             */
+            outputFileId?: string | null;
+            /** Format: uuid */
+            validationReportId?: string | null;
+            /** @description Track A 요약. UNE-DOC-013에서만 채워진다. */
+            validation?: components["schemas"]["ValidationReportSummary"] | null;
+            /** Format: uuid */
+            requestedBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            finishedAt?: string | null;
+        };
+        ValidationReportSummary: {
+            /** Format: uuid */
+            validationReportId: string;
+            /** @enum {string} */
+            track: "A_AUTO" | "B_HANCOM";
+            /** @enum {string} */
+            status: "PASS" | "LIMITED" | "FAIL";
+            checks: {
+                code: string;
+                /** @enum {string} */
+                layer: "PACKAGE" | "REFERENCE" | "SEMANTIC" | "STYLE" | "VISUAL" | "HANCOM" | "EDIT";
+                /** @enum {string} */
+                outcome: "PASS" | "WARN" | "FAIL" | "NOT_RUN";
+                detail: string;
+                locator?: string;
+            }[];
+            notRunLayers: {
+                /** @enum {string} */
+                layer: "VISUAL" | "HANCOM" | "EDIT";
+                reason: string;
+            }[];
+            outputSha256?: string;
+            sourceSha256?: string;
+        };
+        ExportJobResponse: {
+            success: boolean;
+            data: components["schemas"]["ExportJobResource"];
+            meta: Record<string, never>;
         };
     };
     responses: {
@@ -5245,7 +5306,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExportJob"];
+                    "application/json": components["schemas"]["ExportJobResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5276,7 +5337,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExportJob"];
+                    "application/json": components["schemas"]["ExportJobResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

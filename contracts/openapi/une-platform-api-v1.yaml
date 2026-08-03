@@ -2910,7 +2910,26 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExportJob'
+                $ref: '#/components/schemas/ExportJobResponse'
+              examples:
+                queued:
+                  summary: Export 접수 — 산출은 워커가 비동기로 수행한다
+                  value:
+                    success: true
+                    data:
+                      exportId: 6b1f0f2e-7c3a-4d5b-8e9f-0a1b2c3d4e5f
+                      documentId: 8f14e45f-ceea-467a-9a1c-2b3d4e5f6071
+                      revisionId: 3f1c1a52-2b0f-4a1e-9f2d-6c7b8a9d0e11
+                      format: HWPX
+                      status: QUEUED
+                      outputFileId: null
+                      validationReportId: null
+                      validation: null
+                      requestedBy: 5d2a7b91-3c4e-4f60-8a1b-2c3d4e5f6071
+                      createdAt: '2026-08-03T02:15:00Z'
+                      finishedAt: null
+                    meta:
+                      timestamp: '2026-08-03T02:15:00Z'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -2968,7 +2987,47 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExportJob'
+                $ref: '#/components/schemas/ExportJobResponse'
+              examples:
+                completed:
+                  summary: 완료 — Track A 4계층 통과, 미실행 3계층은 사유와 함께 남는다
+                  value:
+                    success: true
+                    data:
+                      exportId: 6b1f0f2e-7c3a-4d5b-8e9f-0a1b2c3d4e5f
+                      documentId: 8f14e45f-ceea-467a-9a1c-2b3d4e5f6071
+                      revisionId: 3f1c1a52-2b0f-4a1e-9f2d-6c7b8a9d0e11
+                      format: HWPX
+                      status: COMPLETED
+                      outputFileId: 9a8b7c6d-5e4f-4a3b-9c8d-7e6f5a4b3c2d
+                      validationReportId: 1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f
+                      validation:
+                        validationReportId: 1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f
+                        track: A_AUTO
+                        status: PASS
+                        checks:
+                        - code: RTA-PKG-001
+                          layer: PACKAGE
+                          outcome: PASS
+                          detail: 산출물이 ZIP으로 다시 읽힙니다 (14 엔트리)
+                        - code: RTA-SEM-004
+                          layer: SEMANTIC
+                          outcome: PASS
+                          detail: 보존 객체 3건의 원문이 문서 순서까지 그대로입니다
+                        notRunLayers:
+                        - layer: VISUAL
+                          reason: rhwp Core 미반입 — 렌더 비교 불가 (OB-12)
+                        - layer: HANCOM
+                          reason: Track B는 릴리스 게이트이며 런타임 요청 경로가 아니다 (OB-08)
+                        - layer: EDIT
+                          reason: 편집 E2E는 저장 시 검사가 아니라 시나리오 게이트다 (CC-170)
+                        outputSha256: 4f5b1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8
+                        sourceSha256: 4f5b1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8
+                      requestedBy: 5d2a7b91-3c4e-4f60-8a1b-2c3d4e5f6071
+                      createdAt: '2026-08-03T02:15:00Z'
+                      finishedAt: '2026-08-03T02:15:07Z'
+                    meta:
+                      timestamp: '2026-08-03T02:15:09Z'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -9189,6 +9248,10 @@ components:
                     type: integer
                   headIrHash:
                     type: string
+    # CC-160/ADR-31: enum에 있던 JSON을 제거했다. 설계 10 §6의 export_job.format
+    # 어휘는 HWPX/PDF/DOCX이고, 정본 우선순위상 설계(3)가 OpenAPI(4)보다 앞선다.
+    # PDF/DOCX는 어휘에는 있으나 변환기가 없어 서비스가 422로 거부한다 —
+    # 계약에서 지우지 않는 이유는 DB 어휘와 어긋나게 만들지 않기 위해서다.
     ExportRequest:
       type: object
       required:
@@ -9200,11 +9263,21 @@ components:
           - HWPX
           - PDF
           - DOCX
-          - JSON
         revisionId:
           type: string
           format: uuid
           nullable: true
+        options:
+          type: object
+          description: 저장 모드 등 산출 옵션 (설계 07 §1.10 저장 모드표)
+          properties:
+            saveMode:
+              type: string
+              enum:
+              - SAVE_AS
+              - SAVE_REVISION
+              - EXPORT_COPY
+              default: SAVE_AS
     SituationCreateRequest:
       type: object
       required:
@@ -9420,9 +9493,163 @@ components:
     Journal:
       type: object
       additionalProperties: true
-    ExportJob:
+    # CC-160/ADR-31: 자리표시자(additionalProperties: true)를 실제 형태로 채운다.
+    # 비어 있으면 어떤 응답이든 계약을 통과하므로 예제 게이트(ADR-24)가
+    # 아무것도 검증하지 못한다.
+    ExportJobResource:
       type: object
-      additionalProperties: true
+      required:
+      - exportId
+      - documentId
+      - revisionId
+      - format
+      - status
+      - requestedBy
+      - createdAt
+      properties:
+        exportId:
+          type: string
+          format: uuid
+        documentId:
+          type: string
+          format: uuid
+        revisionId:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum:
+          - HWPX
+          - PDF
+          - DOCX
+        status:
+          type: string
+          enum:
+          - QUEUED
+          - RUNNING
+          - COMPLETED
+          - FAILED
+        outputFileId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: COMPLETED에서만 채워진다 (0020 ck_export_job_terminal_shape)
+        validationReportId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        validation:
+          anyOf:
+          - $ref: '#/components/schemas/ValidationReportSummary'
+          - type: 'null'
+          description: Track A 요약. UNE-DOC-013에서만 채워진다.
+        requestedBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    # 설계 07 §1.11 검증계층표. 실행하지 않은 계층은 사유와 함께 남긴다 —
+    # 침묵하면 "검사해서 통과"와 구분되지 않는다.
+    ValidationReportSummary:
+      type: object
+      required:
+      - validationReportId
+      - track
+      - status
+      - checks
+      - notRunLayers
+      properties:
+        validationReportId:
+          type: string
+          format: uuid
+        track:
+          type: string
+          enum:
+          - A_AUTO
+          - B_HANCOM
+        status:
+          type: string
+          enum:
+          - PASS
+          - LIMITED
+          - FAIL
+        checks:
+          type: array
+          items:
+            type: object
+            required:
+            - code
+            - layer
+            - outcome
+            - detail
+            properties:
+              code:
+                type: string
+                pattern: '^RTA-[A-Z]{3}-\d{3}$'
+              layer:
+                type: string
+                enum:
+                - PACKAGE
+                - REFERENCE
+                - SEMANTIC
+                - STYLE
+                - VISUAL
+                - HANCOM
+                - EDIT
+              outcome:
+                type: string
+                enum:
+                - PASS
+                - WARN
+                - FAIL
+                - NOT_RUN
+              detail:
+                type: string
+              locator:
+                type: string
+        notRunLayers:
+          type: array
+          items:
+            type: object
+            required:
+            - layer
+            - reason
+            properties:
+              layer:
+                type: string
+                enum:
+                - VISUAL
+                - HANCOM
+                - EDIT
+              reason:
+                type: string
+        outputSha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        sourceSha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    ExportJobResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/ExportJobResource'
+        meta:
+          type: object
   responses:
     BadRequest:
       description: Bad Request

@@ -40,6 +40,7 @@ const EXPECTED_WORKER_GRANTS = [
   'plan:SELECT',
   'plan:UPDATE',
   'plan_context_snapshot:SELECT',
+  'template_profile:SELECT',
   'tenant:SELECT',
   'toc_node:INSERT',
   'toc_node:SELECT',

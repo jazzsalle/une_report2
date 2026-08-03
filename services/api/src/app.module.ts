@@ -13,9 +13,13 @@ import { API_CONFIG, loadApiConfig, type ApiConfig } from './config/api-config';
 import { DatabaseService } from './db/database.service';
 import { ChangeSetService } from './document/change-set.service';
 import { DocumentController } from './document/document.controller';
+import { DocumentExportController, ExportController } from './document/export.controller';
 import { DocumentImportService } from './document/document-import.service';
 import { DocumentRepository } from './document/document.repository';
 import { DocumentService } from './document/document.service';
+import { ExportRepository } from './document/export.repository';
+import { ExportService } from './document/export.service';
+import { objectStorageProvider } from './common/storage.provider';
 import { HealthController } from './health/health.controller';
 import { OrganizationsController, RolesController, UsersController } from './iam/iam.controller';
 import { IamRepository } from './iam/iam.repository';
@@ -55,6 +59,8 @@ export class AppModule {
         TocVersionController,
         PlanJobController,
         DocumentController,
+        DocumentExportController,
+        ExportController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -80,6 +86,10 @@ export class AppModule {
         // HTTP 표면이 없는 애플리케이션 서비스(업로드 API는 CC-160 소유).
         // 테스트/E2E가 편집 대상 문서를 얻는 유일한 경로다.
         DocumentImportService,
+        // CC-160: Export 접수·조회·다운로드. 되쓰기와 Track A는 워커가 한다.
+        ExportRepository,
+        ExportService,
+        objectStorageProvider,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;
         // the idempotency interceptor runs after both guards.

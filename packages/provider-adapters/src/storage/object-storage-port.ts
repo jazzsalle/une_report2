@@ -92,6 +92,28 @@ export function exportObjectKey(input: {
 }
 
 /**
+ * 원본 HWPX 키: `tenants/{tenantId}/sources/{sha256}.{ext}`.
+ *
+ * Export 산출물과 같은 규칙이되 `exports/` 대신 `sources/`다. 해시가 파일명
+ * 이므로 같은 파일을 여러 문서가 가져와도 객체는 하나이고, 재업로드가 자연히
+ * 멱등해진다(같은 키에 같은 바이트).
+ */
+export function sourceObjectKey(input: {
+  readonly tenantId: string;
+  readonly sha256: string;
+  readonly extension: string;
+}): string {
+  assertSafeSegment(input.tenantId, 'tenantId');
+  if (!/^[0-9a-f]{64}$/.test(input.sha256)) {
+    throw new ObjectStorageError('REJECTED', '(key)', `sha256 형식이 아닙니다: ${input.sha256}`);
+  }
+  if (!/^[a-z0-9]{1,8}$/.test(input.extension)) {
+    throw new ObjectStorageError('REJECTED', '(key)', `확장자 형식이 아닙니다: ${input.extension}`);
+  }
+  return `tenants/${input.tenantId}/sources/${input.sha256}.${input.extension}`;
+}
+
+/**
  * 키 세그먼트 검증. UUID만 통과시킨다.
  *
  * 저장소 키는 사용자 입력이 닿는 경로다. `../`나 `/`가 섞이면 테넌트 접두사를

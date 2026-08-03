@@ -645,6 +645,8 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
       // 대상 리비전의 IR을 읽어야 되쓰기를 할 수 있다. 읽기뿐이다.
       { table_name: 'document_revision', privs: 'SELECT' },
       { table_name: 'export_job', privs: 'SELECT,UPDATE' },
+      // 호환성 판정은 저장 차단 집행의 입력이다(ADR-29 D11). 읽기뿐이다.
+      { table_name: 'template_profile', privs: 'SELECT' },
       { table_name: 'validation_report', privs: 'INSERT,SELECT' },
     ]);
   });

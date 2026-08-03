@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import {
+  createObjectStorage,
   createT3qPlanProvider,
   describeRuntimeCapability,
   describeRuntimeFeature,
@@ -15,6 +16,7 @@ import { WorkerDatabase } from './db/worker-database.service';
 import { PlanJobPoller, type PlanJobRunner } from './plan-jobs/job.poller';
 import { TocJobRunner } from './plan-toc/toc-job.runner';
 import { ContentJobRunner } from './plan-content/content-job.runner';
+import { ExportJobRunner } from './document-export/export-job.runner';
 
 function factoryOptions(config: WorkerConfig): PlanProviderFactoryOptions {
   switch (config.planAdapter) {
@@ -52,6 +54,10 @@ async function bootstrap(): Promise<void> {
         `CONTENT jobs will remain QUEUED until a content-capable adapter is selected`,
     );
   }
+  // CC-160: HWPX 보존 Export. 저장소 설정이 없으면 **기동에서** 실패한다 —
+  // 러너 없이 뜨면 Export가 영원히 QUEUED로 남고 이유가 어디에도 남지 않는다.
+  runners.push(new ExportJobRunner(db, createObjectStorage(process.env), config));
+
   const poller = new PlanJobPoller(runners, config);
   poller.start();
 

@@ -238,6 +238,7 @@ export {
   ObjectStorageError,
   exportObjectKey,
   sha256Of,
+  sourceObjectKey,
   type FetchedObject,
   type ObjectStorageErrorKind,
   type ObjectStoragePort,

@@ -220,6 +220,9 @@ importers:
       '@une/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@une/hwpx-engine':
+        specifier: workspace:*
+        version: link:../hwpx-engine
       '@une/provider-adapters':
         specifier: workspace:*
         version: link:../../packages/provider-adapters
