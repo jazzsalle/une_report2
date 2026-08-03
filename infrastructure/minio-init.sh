@@ -45,10 +45,26 @@ fi
 # 'user add' on an existing key updates its secret, so re-runs stay in sync
 # with infrastructure/.env.
 mc admin user add local "$UNE_STORAGE_ACCESS_KEY" "$UNE_STORAGE_SECRET_KEY"
+
 # case instead of grep: the mc image has no coreutils.
-case "$(mc admin user info local "$UNE_STORAGE_ACCESS_KEY")" in
-  *une-app*) echo "policy une-app already attached" ;;
+#
+# CC-160 fix: the guard used to match `*une-app*` against the PLAIN-TEXT output,
+# but the access key itself is generated as `une-app-<random>` (see
+# .env.example), so the pattern matched the key name and the policy was NEVER
+# attached. Every request from the service account then failed with 403, which
+# only surfaced when CC-160 became the first code to actually use the bucket.
+# Match the JSON field instead — `--json` omits `policyName` entirely when no
+# policy is attached, so the pattern cannot be satisfied by the key name.
+case "$(mc --json admin user info local "$UNE_STORAGE_ACCESS_KEY")" in
+  *'"policyName":"une-app"'*) echo "policy une-app already attached" ;;
   *) mc admin policy attach local une-app --user "$UNE_STORAGE_ACCESS_KEY" ;;
+esac
+
+# Fail loudly if the attach did not take effect. A service account without a
+# policy looks healthy in `docker compose ps` and fails only at first use.
+case "$(mc --json admin user info local "$UNE_STORAGE_ACCESS_KEY")" in
+  *'"policyName":"une-app"'*) echo "policy attachment verified" ;;
+  *) echo "ERROR: policy une-app is not attached to $UNE_STORAGE_ACCESS_KEY" >&2; exit 1 ;;
 esac
 
 echo "bucket $UNE_MINIO_BUCKET and service account ready"

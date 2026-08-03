@@ -232,3 +232,23 @@ export {
   type T3qPlanAdapterKind,
   type T3qPlanTocAdapter,
 } from './t3q/plan/plan-provider-factory';
+
+// ── Object storage port + adapters (CC-160, ADR-31) ──
+export {
+  ObjectStorageError,
+  exportObjectKey,
+  sha256Of,
+  type FetchedObject,
+  type ObjectStorageErrorKind,
+  type ObjectStoragePort,
+  type PutObjectInput,
+  type StoredObject,
+} from './storage/object-storage-port';
+export { MemoryObjectStorage } from './storage/memory-object-storage';
+export { S3ObjectStorage, type S3ObjectStorageConfig } from './storage/s3-object-storage';
+export {
+  STORAGE_DRIVERS,
+  createObjectStorage,
+  type StorageDriver,
+  type StorageEnv,
+} from './storage/storage-factory';
