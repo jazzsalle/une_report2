@@ -1,6 +1,14 @@
 # Shell scripts must stay LF — CRLF breaks bash (SessionStart hook 포함)
 # Source/text files are LF everywhere: prettier(endOfLine:lf)와 Linux CI 기준.
 # core.autocrlf=true인 Windows PC에서도 아래 eol=lf가 우선한다.
+
+# 기본값: git이 텍스트로 판정한 모든 파일은 LF로 체크아웃한다.
+# 확장자 목록만 두면 목록에 없는 텍스트(.csv/.dot/.svg/.mmd/.txt/.ps1/.ini,
+# .env.example 같은 dotfile)가 Windows에서 CRLF로 떨어져
+# 바이트 해시 게이트(예: ADR-24 D3 transcript pin)를 깨뜨린다.
+* text=auto eol=lf
+
+# 아래 명시 목록은 판정에 의존하지 않고 확정한다(위 기본값의 보강).
 *.sh text eol=lf
 *.py text eol=lf
 *.yaml text eol=lf

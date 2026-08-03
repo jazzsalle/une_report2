@@ -40,6 +40,12 @@ WSL2 안에서 이 저장소는 `/mnt/d/vibecoding/report2`로 접근한다.
 > VM이 내려가 간헐 ECONNREFUSED가 난다(CC-100에서 확인). 그런 세션 동안은
 > `wsl -d Ubuntu -- sleep 3600 &` 같은 keepalive 프로세스를 띄워 두면
 > VM이 유지된다.
+>
+> keepalive는 **Windows 쪽 `wsl.exe` 프로세스가 살아 있어야** 효과가 있다.
+> `wsl -d Ubuntu -- bash -lc 'nohup sleep 3600 &'`처럼 WSL **안에서**
+> 백그라운드로 던지면 wsl.exe가 즉시 끝나 VM이 유지되지 않는다(2026-08-03 확인:
+> 이 형태로 띄운 뒤 컨테이너가 두 번 내려가 db-integration 9개 스위트가
+> ECONNREFUSED로 전멸했다). 위 형태를 그대로 쓴다.
 
 ## 기동
 
