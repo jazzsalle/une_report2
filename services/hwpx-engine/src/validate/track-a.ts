@@ -387,31 +387,56 @@ export function runTrackA(input: TrackAInput): TrackAReport {
   }
 
   // ---- STYLE ------------------------------------------------------------
+  //
+  // 비교 축은 **문서 순서**다. 문단 ID로 짝을 맞추면 안 된다 — 산출물의 IR은
+  // 새로 빌드되고 그 ID는 앵커에서 유도되므로(`stableIdForAnchor`), 문단을
+  // 하나 넣거나 지우면 뒤쪽 문단의 서수가 밀려 ID가 전부 바뀐다. 그러면
+  // 조회가 엉뚱한 문단끼리 짝지어 삽입·삭제가 항상 실패한다(ADR-30 D2가
+  // 지적한 것과 같은 결함이 검증기 쪽에서 재현된 것 — CC-160 리뷰에서 발견).
+  //
+  // 문단 수가 이미 어긋났다면(RTA-SEM-001이 FAIL) 순서 비교는 의미가 없으므로
+  // 건너뛴다 — 같은 원인으로 두 번 실패를 보고하면 진단이 흐려진다.
+  const expectedParagraphs = allParagraphs(editedIr);
+  const actualParagraphs = allParagraphs(outputIr);
+  const comparable = expectedParagraphs.length === actualParagraphs.length;
+
   const styleMismatch: string[] = [];
-  const editedById = new Map(allParagraphs(editedIr).map((p) => [p.paragraphId, p]));
-  for (const paragraph of allParagraphs(outputIr)) {
-    const expected = editedById.get(paragraph.paragraphId);
-    if (!expected) continue;
-    if (
-      expected.styleRef.paraPrId !== paragraph.styleRef.paraPrId ||
-      expected.styleRef.styleId !== paragraph.styleRef.styleId ||
-      expected.styleRef.charPrId !== paragraph.styleRef.charPrId
-    ) {
-      styleMismatch.push(paragraph.paragraphId);
+  if (comparable) {
+    for (let index = 0; index < actualParagraphs.length; index += 1) {
+      const expected = expectedParagraphs[index];
+      const actual = actualParagraphs[index];
+      if (
+        expected.styleRef.paraPrId !== actual.styleRef.paraPrId ||
+        expected.styleRef.styleId !== actual.styleRef.styleId ||
+        expected.styleRef.charPrId !== actual.styleRef.charPrId
+      ) {
+        styleMismatch.push(`#${index + 1}`);
+      }
     }
   }
   checks.push(
-    styleMismatch.length === 0
-      ? pass('RTA-STY-001', '문단 스타일 참조(paraPr/charPr/style)가 의도와 같습니다')
-      : fail('RTA-STY-001', `스타일 참조가 달라진 문단: ${styleMismatch.slice(0, 5).join(', ')}`),
+    !comparable
+      ? warn('RTA-STY-001', '문단 수가 달라 스타일 순서 비교를 건너뜁니다 (RTA-SEM-001 참조)')
+      : styleMismatch.length === 0
+        ? pass(
+            'RTA-STY-001',
+            '문단 스타일 참조(paraPr/charPr/style)가 문서 순서대로 의도와 같습니다',
+          )
+        : fail(
+            'RTA-STY-001',
+            `스타일 참조가 달라진 문단 위치: ${styleMismatch.slice(0, 5).join(', ')}`,
+          ),
   );
 
   const outlineMismatch: string[] = [];
-  for (const paragraph of allParagraphs(outputIr)) {
-    const expected = editedById.get(paragraph.paragraphId);
-    if (!expected) continue;
-    if ((expected.outlineLevel ?? null) !== (paragraph.outlineLevel ?? null)) {
-      outlineMismatch.push(paragraph.paragraphId);
+  if (comparable) {
+    for (let index = 0; index < actualParagraphs.length; index += 1) {
+      if (
+        (expectedParagraphs[index].outlineLevel ?? null) !==
+        (actualParagraphs[index].outlineLevel ?? null)
+      ) {
+        outlineMismatch.push(`#${index + 1}`);
+      }
     }
   }
   checks.push(
@@ -419,7 +444,7 @@ export function runTrackA(input: TrackAInput): TrackAReport {
       ? pass('RTA-STY-002', '개요 수준과 기호 앞 공백이 유지됐습니다')
       : warn(
           'RTA-STY-002',
-          `개요 수준이 달라진 문단: ${outlineMismatch.slice(0, 5).join(', ')}`,
+          `개요 수준이 달라진 문단 위치: ${outlineMismatch.slice(0, 5).join(', ')}`,
           outlineMismatch[0],
         ),
   );

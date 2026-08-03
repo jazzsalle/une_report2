@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- CC-160 (2026-08-03): HWPX preservation export, Track A validation, object
+  storage port, Export API and worker (ADR-31). The engine now writes: rewriting
+  is **byte-range splicing over the original XML**, never re-serialization of a
+  parsed tree, so untouched characters are preserved by definition (§1.10-3);
+  and ZIP entries that were not replaced are copied as their **stored bytes**,
+  never recompressed, so "what we did not touch equals the original" does not
+  become a zlib-version question. With no edits the output is byte-identical to
+  the input — proven on all six real corpus documents and again end-to-end
+  through the worker. Where a rewrite target is not unique the engine refuses
+  (HWPX-1103) instead of guessing: a real document turned out to carry
+  `[hp:t, hp:ctrl, hp:ctrl, hp:t]` runs where a form field splits the text in
+  two, and a wrong HWPX simply opens, so the user would learn about the damage
+  much later. Track A defines 16 `RTA-*` checks across four layers (design had
+  an intake code table but none for saving) and reports the three layers it does
+  NOT run with reasons — silence would read as "checked and passed". A FAIL
+  discards the bytes rather than shipping them with a flag. Migration 0020 gives
+  `export_job` the `tenant_id` that `generation_job` always had (without it the
+  tenant-less dispatch transaction can neither see the row nor know which tenant
+  to settle in), closes the export/validation vocabularies, makes
+  `validation_report` append-only, and settles the two constraints ADR-30
+  deferred. A new object-storage port with S3/MinIO and in-memory adapters keeps
+  the SDK behind the adapter boundary. Three defects surfaced by first real use:
+  the MinIO service account had **never** had its policy attached (the CC-002
+  init guard matched `une-app` against the access key name, which is literally
+  `une-app-<random>`, so every request was 403); `DocumentImportService` never
+  registered the source bytes, leaving `source_file_id` NULL and preservation
+  export structurally impossible; and existing fixtures were writing values the
+  real write paths never produce. Tests: hwpx-engine 410, api 257, db-integration
+  120, provider-adapters 128, worker 38, contract 188, domain 62 — all gates
+  green, real MinIO exercised in CI db-verify.
+
 - CC-150 (2026-08-02): document Revision/ChangeSet/Selection/Autosave server core
   (ADR-30). **Server side only** — the editing UI needs rhwp, which is still not
   imported (OB-12), and HWPX save/export is CC-160. Design 07 §1.8-4 ("visual

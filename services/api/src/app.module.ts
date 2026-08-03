@@ -83,8 +83,9 @@ export class AppModule {
         DocumentRepository,
         DocumentService,
         ChangeSetService,
-        // HTTP 표면이 없는 애플리케이션 서비스(업로드 API는 CC-160 소유).
-        // 테스트/E2E가 편집 대상 문서를 얻는 유일한 경로다.
+        // HTTP 표면이 없는 애플리케이션 서비스. 업로드 API(UNE-DOC-001~004)는
+        // ADR-31 D1이 CC-160 범위에서 제외했으므로 아직 주인이 없다. 이 서비스가
+        // 문서를 존재하게 만드는 유일한 경로이며, 원본을 저장소에 등록한다(D9).
         DocumentImportService,
         // CC-160: Export 접수·조회·다운로드. 되쓰기와 Track A는 워커가 한다.
         ExportRepository,

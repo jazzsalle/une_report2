@@ -15,10 +15,12 @@ import { DocumentRepository } from './document.repository';
  * DocumentImportService — HTTP 표면이 **없는** 애플리케이션 서비스.
  *
  * 업로드 API(UNE-DOC-001~004: 파일 사전등록, 업로드 완료, HWPX 분석 요청,
- * 분석결과 조회)는 CC-160 소유다. 그렇지만 CC-150의 편집 다섯 오퍼레이션은
- * 전부 "이미 존재하는 문서"를 전제로 하므로, 문서가 존재하게 만드는 경로가
- * 하나는 있어야 테스트와 E2E가 성립한다. 이 서비스가 그 경로다 — 컨트롤러에
- * 배선하지 않으며, 계약(OpenAPI)에도 나타나지 않는다.
+ * 분석결과 조회)는 **아직 아무 항목도 소유하지 않는다**(ADR-31 D1이 CC-160
+ * 범위에서 제외했다 — 별도 화면 흐름이다). 그렇지만 편집·Export는 전부
+ * "이미 존재하는 문서"를 전제로 하므로, 문서가 존재하게 만드는 경로가 하나는
+ * 있어야 한다. 이 서비스가 그 경로다 — 컨트롤러에 배선하지 않으며 계약
+ * (OpenAPI)에도 나타나지 않지만, CC-160부터는 **원본 바이트를 저장소에
+ * 등록하는 책임**을 함께 진다(ADR-31 D9).
  *
  * 쓰는 것은 세 가지다.
  *   * `document`               — 애그리거트 루트
@@ -41,8 +43,9 @@ export interface ImportResult {
 }
 
 /** TemplateProfile.compatibility.verdict → template_profile.analysis_status.
- * 어휘가 정본에서 닫혀 있지 않아 0019 §6이 CHECK를 걸지 않은 컬럼이므로,
- * 여기서는 ADR v1.1 §8.6 G15-1 판정 어휘를 그대로 쓴다(변환하지 않는다). */
+ * ADR-31 D12가 이 컬럼을 **판정 축**으로 확정했고(0020 §5가 CHECK를 건다)
+ * 판정 어휘를 그대로 쓴다 — 변환하지 않는다. 설계 09의 생명주기 어휘는
+ * 직교하는 다른 축이며 화면 구현 시점에 별도 컬럼으로 선다. */
 function analysisStatusOf(verdict: string): string {
   return verdict;
 }
@@ -190,10 +193,9 @@ export class DocumentImportService {
   /**
    * 원본 HWPX를 저장소에 올리고 file_object로 등록한다 (CC-160).
    *
-   * 키에 해시가 들어가므로 같은 파일을 다시 가져와도 같은 객체다. 그때
-   * file_object 행은 새로 만든다 — 같은 바이트라도 문서마다 등록 시각·
-   * 등록자가 다르고, storage_key 유니크 제약(0003 uk_file_object_storage_key)
-   * 때문에 재사용해야 한다. 그래서 먼저 조회하고 없을 때만 넣는다.
+   * 키에 해시가 들어가므로 같은 파일을 다시 가져와도 같은 객체다. 반면
+   * `storage_key`에는 유니크 제약이 있으므로(0003 uk_file_object_storage_key)
+   * file_object 행은 **재사용**해야 한다 — 먼저 조회하고 없을 때만 넣는다.
    */
   private async registerSource(
     auth: AuthContext,

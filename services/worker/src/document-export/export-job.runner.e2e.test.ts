@@ -326,4 +326,199 @@ describe.skipIf(!ADMIN_URL)('CC-160 export job runner e2e', () => {
     const summary = await newRunner().runOnce();
     expect(summary).toEqual({ claimed: 0, completed: 0, failed: 0, skipped: 0 });
   }, 60_000);
+
+  // -- 동시성·리스 (리뷰 필수-4) -------------------------------------------
+
+  it('두 러너가 동시에 돌아도 같은 Job을 두 번 처리하지 않는다 (SKIP LOCKED)', async () => {
+    const fx = await withClient(dbUrl, (c) => insertFixture(c, 'race'));
+    const exportId = await withClient(dbUrl, (c) => enqueue(c, fx));
+
+    const [s1, s2] = await Promise.all([newRunner().runOnce(), newRunner().runOnce()]);
+    expect(s1.claimed + s2.claimed).toBe(1);
+    expect(s1.completed + s2.completed).toBe(1);
+
+    await withClient(dbUrl, async (c) => {
+      // 결과 파일도 검증 보고서도 정확히 하나여야 한다. 중복 실행이 있었다면
+      // file_object가 둘이거나 storage_key 유니크 위반으로 터진다.
+      const files = await c.query(
+        `SELECT count(*)::int AS n FROM file_object
+          WHERE storage_key LIKE '%/exports/' || $1 || '/%'`,
+        [exportId],
+      );
+      expect(files.rows[0].n).toBe(1);
+      const reports = await c.query(
+        `SELECT count(*)::int AS n FROM validation_report WHERE target_id = $1`,
+        [exportId],
+      );
+      expect(reports.rows[0].n).toBe(1);
+    });
+  }, 180_000);
+
+  it('클레임은 started_at을 세우고, 만료된 리스만 회수한다 (created_at이 아니다)', async () => {
+    const fx = await withClient(dbUrl, (c) => insertFixture(c, 'lease'));
+    const exportId = await withClient(dbUrl, (c) => enqueue(c, fx));
+
+    // 큐에서 리스 시간보다 오래 대기한 Job을 만든다. created_at 기준 회수였다면
+    // 클레임 직후부터 stale이 되어 다른 워커가 즉시 재클레임한다(0021 §1).
+    await withClient(dbUrl, (c) =>
+      c.query(
+        `UPDATE export_job SET created_at = now() - interval '2 hours' WHERE export_id = $1`,
+        [exportId],
+      ),
+    );
+
+    const before = await withClient(dbUrl, (c) =>
+      c.query(`SELECT status, started_at FROM export_job WHERE export_id = $1`, [exportId]),
+    );
+    expect(before.rows[0].status).toBe('QUEUED');
+    expect(before.rows[0].started_at).toBeNull();
+
+    const summary = await newRunner().runOnce();
+    expect(summary).toMatchObject({ claimed: 1, completed: 1 });
+
+    await withClient(dbUrl, async (c) => {
+      const row = (
+        await c.query(`SELECT started_at, attempt_no FROM export_job WHERE export_id = $1`, [
+          exportId,
+        ])
+      ).rows[0];
+      expect(row.started_at).not.toBeNull();
+      expect(row.attempt_no).toBe(1);
+    });
+
+    // 완료된 Job은 다시 집히지 않는다.
+    const again = await newRunner().runOnce();
+    expect(again.claimed).toBe(0);
+  }, 180_000);
+
+  it('죽은 워커가 남긴 RUNNING을 회수하되 시도 상한을 넘기지 않는다', async () => {
+    const stale = await withClient(dbUrl, (c) => insertFixture(c, 'stale'));
+    const exhausted = await withClient(dbUrl, (c) => insertFixture(c, 'exhausted'));
+    const staleId = await withClient(dbUrl, (c) => enqueue(c, stale));
+    const exhaustedId = await withClient(dbUrl, (c) => enqueue(c, exhausted));
+
+    await withClient(dbUrl, (c) =>
+      c.query(
+        `UPDATE export_job
+            SET status = 'RUNNING', started_at = now() - interval '1 hour', attempt_no = 1
+          WHERE export_id = $1`,
+        [staleId],
+      ),
+    );
+    // 상한(maxAttempts 기본 3)에 닿은 Job은 회수 대상이 아니다 — 정산이 계속
+    // 실패하는 Job을 무한히 되집으면 워커가 그것만 붙들고 돈다.
+    await withClient(dbUrl, (c) =>
+      c.query(
+        `UPDATE export_job
+            SET status = 'RUNNING', started_at = now() - interval '1 hour', attempt_no = 99
+          WHERE export_id = $1`,
+        [exhaustedId],
+      ),
+    );
+
+    const summary = await newRunner().runOnce();
+    expect(summary.claimed).toBe(1);
+
+    await withClient(dbUrl, async (c) => {
+      const rows = await c.query(
+        `SELECT export_id, status FROM export_job WHERE export_id = ANY($1)`,
+        [[staleId, exhaustedId]],
+      );
+      const byId = new Map(
+        rows.rows.map((r: { export_id: string; status: string }) => [r.export_id, r.status]),
+      );
+      expect(byId.get(staleId)).toBe('COMPLETED');
+      expect(byId.get(exhaustedId)).toBe('RUNNING');
+    });
+  }, 180_000);
+
+  // -- 저장 차단·집행 입력 (리뷰 필수-2 / M-3) -----------------------------
+
+  it('REJECT 판정 문서는 저장이 차단되고 FAILED로 정산된다 (ADR-29 D11)', async () => {
+    const fx = await withClient(dbUrl, async (c) => {
+      const base = await insertFixture(c, 'blocked');
+      await c.query(
+        `UPDATE template_profile SET analysis_status = 'REJECT' WHERE document_id = $1`,
+        [base.documentId],
+      );
+      return base;
+    });
+    const exportId = await withClient(dbUrl, (c) => enqueue(c, fx));
+
+    const summary = await newRunner().runOnce();
+    expect(summary).toMatchObject({ claimed: 1, completed: 0, failed: 1 });
+
+    await withClient(dbUrl, async (c) => {
+      const job = (
+        await c.query(
+          `SELECT status, output_file_id, validation_report_id FROM export_job WHERE export_id = $1`,
+          [exportId],
+        )
+      ).rows[0];
+      expect(job.status).toBe('FAILED');
+      expect(job.output_file_id).toBeNull();
+
+      const report = (
+        await c.query(
+          `SELECT status, checks_json FROM validation_report WHERE validation_report_id = $1`,
+          [job.validation_report_id],
+        )
+      ).rows[0];
+      expect(report.status).toBe('FAIL');
+      // 차단 사유가 보고서에 남는다 — export_job에 error_json이 없으므로
+      // 사용자에게 "왜 실패했는지"를 보여줄 자리가 이것뿐이다.
+      const codes = (report.checks_json as { code: string }[]).map((check) => check.code);
+      expect(codes).toContain('HWPX-1104');
+    });
+
+    // 산출물이 저장소에 올라가지 않았다 — 차단은 되쓰기 전에 일어난다.
+    expect(storage.keys().some((key) => key.includes(`/exports/${exportId}/`))).toBe(false);
+  }, 180_000);
+
+  it('호환성 판정이 없으면 저장을 막는다 (집행 입력이 fail-open이면 안 된다)', async () => {
+    const fx = await withClient(dbUrl, async (c) => {
+      const base = await insertFixture(c, 'noverdict');
+      await c.query(`DELETE FROM template_profile WHERE document_id = $1`, [base.documentId]);
+      return base;
+    });
+    const exportId = await withClient(dbUrl, (c) => enqueue(c, fx));
+
+    const summary = await newRunner().runOnce();
+    expect(summary).toMatchObject({ claimed: 1, completed: 0, failed: 1 });
+
+    await withClient(dbUrl, async (c) => {
+      const job = (
+        await c.query(`SELECT status, output_file_id FROM export_job WHERE export_id = $1`, [
+          exportId,
+        ])
+      ).rows[0];
+      expect(job.status).toBe('FAILED');
+      expect(job.output_file_id).toBeNull();
+    });
+  }, 180_000);
+
+  it('원본 바이트가 등록된 해시와 다르면 되쓰지 않는다 (리뷰 M-6)', async () => {
+    const fx = await withClient(dbUrl, (c) => insertFixture(c, 'tampered'));
+    const exportId = await withClient(dbUrl, (c) => enqueue(c, fx));
+
+    // 저장소의 원본만 바꿔치기한다 — file_object.sha256은 그대로다.
+    await storage.put({
+      key: fx.sourceKey,
+      body: Buffer.from('not the registered source'),
+      contentType: 'application/hwp+zip',
+    });
+
+    const summary = await newRunner().runOnce();
+    expect(summary).toMatchObject({ claimed: 1, completed: 0, failed: 1 });
+
+    await withClient(dbUrl, async (c) => {
+      const job = (
+        await c.query(`SELECT status, output_file_id FROM export_job WHERE export_id = $1`, [
+          exportId,
+        ])
+      ).rows[0];
+      expect(job.status).toBe('FAILED');
+      expect(job.output_file_id).toBeNull();
+    });
+  }, 180_000);
 });

@@ -1,8 +1,13 @@
-import type { DocumentIR } from '@une/domain';
+import {
+  DOCUMENT_COMPATIBILITY_VERDICTS,
+  type DocumentCompatibilityVerdict,
+  type DocumentIR,
+} from '@une/domain';
 import { HwpxEngine, HwpxExportError, type PreservationSaveResult } from '@une/hwpx-engine';
 import {
   ObjectStorageError,
   exportObjectKey,
+  sha256Of,
   type ObjectStoragePort,
 } from '@une/provider-adapters';
 import type { WorkerConfig } from '../config/worker-config';
@@ -19,6 +24,15 @@ import {
   sweepStaleRunning,
   type ClaimedExport,
 } from './export-repositories';
+
+interface PreparedExport {
+  sourceBytes: Uint8Array;
+  baseIr: DocumentIR;
+  editedIr: DocumentIR;
+  verdict: DocumentCompatibilityVerdict;
+  unsupportedObjects: unknown;
+  actorId: string;
+}
 
 export interface ExportRunSummary {
   claimed: number;
@@ -60,6 +74,7 @@ export class ExportJobRunner {
         client,
         this.config.leaseTimeoutMs,
         this.config.batchSize,
+        this.config.maxAttempts,
       );
       // 같은 Job이 양쪽에 잡히지 않게 한다(방금 집은 것은 stale 조건에
       // 걸리지 않지만, 조건이 바뀌어도 중복 처리되지 않도록 좁힌다).
@@ -69,7 +84,18 @@ export class ExportJobRunner {
 
     summary.claimed = claimed.length;
     for (const job of claimed) {
-      const settled = await this.process(job);
+      // Job 단위 격리 (리뷰 M-2). 한 건의 예외가 밖으로 나가면 같은 배치의
+      // 나머지는 처리되지 않은 채 RUNNING으로 남고, 폴러는 백오프만 늘린다
+      // (content-job.runner.ts가 이미 쓰는 규약).
+      let settled: 'COMPLETED' | 'FAILED' | 'SKIPPED';
+      try {
+        settled = await this.process(job);
+      } catch (error) {
+        console.error(
+          `[une-worker] export ${job.exportId} 처리 실패: ${error instanceof Error ? error.message : error}`,
+        );
+        settled = 'FAILED';
+      }
       if (settled === 'COMPLETED') summary.completed += 1;
       else if (settled === 'FAILED') summary.failed += 1;
       else summary.skipped += 1;
@@ -78,13 +104,7 @@ export class ExportJobRunner {
   }
 
   private async process(job: ClaimedExport): Promise<'COMPLETED' | 'FAILED' | 'SKIPPED'> {
-    let prepared: {
-      sourceBytes: Uint8Array;
-      baseIr: DocumentIR;
-      editedIr: DocumentIR;
-      verdict: string;
-      actorId: string;
-    };
+    let prepared: PreparedExport;
 
     try {
       prepared = await this.load(job);
@@ -99,10 +119,14 @@ export class ExportJobRunner {
         baseIr: prepared.baseIr,
         editedIr: prepared.editedIr,
         mode: 'SAVE_AS',
-        verdict: prepared.verdict as never,
-        // 분류 결과가 FLATTEN_EXPORT_ONLY 객체를 담는지는 IR의 보존 블록
-        // 등급으로 판정한다. 판정이 불가능하면 막는 쪽으로 기운다.
-        hasFlattenExportOnlyObject: hasFlattenOnly(prepared.editedIr),
+        verdict: prepared.verdict,
+        // 권위 있는 분류 결과(template_profile.unsupported_objects_json)를
+        // 먼저 본다. IR의 보존 블록 등급만 보면 JSON 왕복에서 등급이 빠진
+        // 리비전이 조용히 "FLATTEN 없음"이 된다(리뷰 M-3). 둘 중 하나라도
+        // FLATTEN_EXPORT_ONLY를 말하면 막는다.
+        hasFlattenExportOnlyObject:
+          hasFlattenOnlyInClassification(prepared.unsupportedObjects) ||
+          hasFlattenOnly(prepared.editedIr),
       });
     } catch (error) {
       // 저장 차단(HWPX-1104)과 검증 실패(HWPX-1105)는 사용자에게 보여야 할
@@ -182,13 +206,7 @@ export class ExportJobRunner {
     });
   }
 
-  private async load(job: ClaimedExport): Promise<{
-    sourceBytes: Uint8Array;
-    baseIr: DocumentIR;
-    editedIr: DocumentIR;
-    verdict: string;
-    actorId: string;
-  }> {
+  private async load(job: ClaimedExport): Promise<PreparedExport> {
     const loaded = await this.db.withTenant(job.tenantId, async (client) => {
       const source = await loadExportSource(client, job.documentId, job.revisionId);
       const actorId = await requestedBy(client, job.exportId);
@@ -200,14 +218,33 @@ export class ExportJobRunner {
     }
     if (!loaded.actorId) throw new Error('Export 요청자를 찾을 수 없습니다');
 
+    // 호환성 판정이 없으면 **막는다**(리뷰 M-3). 기본값을 두면 저장 차단
+    // 집행(ADR-29 D11)의 입력이 "허용"이 되어, 판정을 못 얻은 문서가 조용히
+    // 통과한다. 어휘 밖의 값도 같다 — 모르는 등급은 통과시킬 근거가 없다.
+    const verdict = loaded.source.verdict;
+    if (verdict === null || !DOCUMENT_COMPATIBILITY_VERDICTS.includes(verdict as never)) {
+      throw new Error(
+        `호환성 판정을 확인할 수 없어 저장을 중단합니다 (analysis_status=${verdict ?? 'NULL'})`,
+      );
+    }
+
     const fetched = await this.storage.get(loaded.source.sourceStorageKey);
+
+    // 저장소에서 받은 바이트가 file_object에 등록된 그 바이트인가 (리뷰 M-6).
+    // 다운로드 경로는 이 비교를 이미 한다 — 사용자에게 내줄 때는 확인하고
+    // 되쓰기의 **기준**으로 삼을 때는 확인하지 않는 비대칭은 근거가 없다.
+    if (loaded.source.sourceSha256 && sha256Of(fetched.body) !== loaded.source.sourceSha256) {
+      throw new Error('원본 바이트가 등록된 해시와 다릅니다 (되쓰기 기준을 신뢰할 수 없음)');
+    }
+
     return {
       sourceBytes: fetched.body,
       // 원본 IMPORT 리비전이 없으면 대상 리비전을 기준으로 쓴다 —
       // 그 경우 되쓰기 계획이 비어 no-op 저장이 된다(손상보다 안전하다).
       baseIr: (loaded.source.baseIr ?? loaded.source.revisionIr) as DocumentIR,
       editedIr: loaded.source.revisionIr as DocumentIR,
-      verdict: loaded.source.verdict ?? 'LIMITED',
+      verdict: verdict as DocumentCompatibilityVerdict,
+      unsupportedObjects: loaded.source.unsupportedObjects,
       actorId: loaded.actorId,
     };
   }
@@ -300,7 +337,24 @@ function isExportError(error: unknown): error is HwpxExportError {
   );
 }
 
-/** IR의 보존 블록 중 FLATTEN_EXPORT_ONLY 등급이 있는가 (ADR-29 D11 집행 입력). */
+/**
+ * 분류기가 낸 미지원 객체 목록에 FLATTEN_EXPORT_ONLY가 있는가.
+ *
+ * `template_profile.unsupported_objects_json`은 import가 NATIVE_EDIT가 아닌
+ * 객체 전량을 넣은 배열이며, 각 항목이 `objectClass`를 갖는다. 이것이 집행의
+ * **권위 있는** 입력이다(리뷰 M-3).
+ */
+function hasFlattenOnlyInClassification(objects: unknown): boolean {
+  if (!Array.isArray(objects)) return false;
+  return objects.some(
+    (entry) =>
+      typeof entry === 'object' &&
+      entry !== null &&
+      (entry as { objectClass?: unknown }).objectClass === 'FLATTEN_EXPORT_ONLY',
+  );
+}
+
+/** IR의 보존 블록 중 FLATTEN_EXPORT_ONLY 등급이 있는가 (보조 입력). */
 function hasFlattenOnly(ir: DocumentIR): boolean {
   for (const section of ir.sections ?? []) {
     const stack = [...(section.blocks ?? [])];

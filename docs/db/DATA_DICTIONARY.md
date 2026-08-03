@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 61
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability
 
 ## api_idempotency
 
@@ -386,14 +386,16 @@
 ## export_job
 
 - 격리: RLS enforced (FORCE)
+- ck_export_job_attempt_no: CHECK ((attempt_no >= 0))
 - ck_export_job_format: CHECK (((format)::text = ANY ((ARRAY['HWPX'::character varying, 'PDF'::character varying, 'DOCX'::character varying])::text[])))
+- ck_export_job_started_shape: CHECK (((((status)::text = 'QUEUED'::text) AND (started_at IS NULL)) OR ((status)::text <> 'QUEUED'::text)))
 - ck_export_job_status: CHECK (((status)::text = ANY ((ARRAY['QUEUED'::character varying, 'RUNNING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying])::text[])))
 - ck_export_job_terminal_shape: CHECK (((((status)::text = 'COMPLETED'::text) AND (output_file_id IS NOT NULL) AND (validation_report_id IS NOT NULL) AND (finished_at IS NOT NULL)) OR (((status)::text = 'FAILED'::text) AND (finished_at IS NOT NULL)) OR (((status)::text = ANY ((ARRAY['QUEUED'::character varying, 'RUNNING'::character varying])::text[])) AND (output_file_id IS NULL) AND (finished_at IS NULL))))
 - export_job_pkey: PRIMARY KEY (export_id)
 - fk_export_job_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
 - fk_export_job_requested_by: FOREIGN KEY (requested_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_export_job_revision_id: FOREIGN KEY (revision_id) REFERENCES document_revision(revision_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: export_job_pkey, ix_export_job_dispatch, ix_export_job_document
+- 인덱스: export_job_pkey, ix_export_job_document, ix_export_job_queued, ix_export_job_running_lease
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -408,6 +410,8 @@
 | created_at | timestamp with time zone | NN | now() | 요청 |
 | finished_at | timestamp with time zone | - |  | 완료 |
 | tenant_id | uuid | NN |  | 기관 (CC-160: 워커 디스패치 근거) |
+| started_at | timestamp with time zone | - |  | 클레임 시각 (리스 회수 근거) |
+| attempt_no | integer | NN | 0 | 시도 횟수 (무한 재시도 방지) |
 
 ## fact_conflict
 

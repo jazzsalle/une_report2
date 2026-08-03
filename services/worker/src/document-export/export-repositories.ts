@@ -28,7 +28,8 @@ export async function claimExports(
   batchSize: number,
 ): Promise<ClaimedExport[]> {
   const res = await client.query(
-    `UPDATE export_job SET status = 'RUNNING'
+    `UPDATE export_job SET status = 'RUNNING', started_at = now(),
+                           attempt_no = attempt_no + 1
       WHERE export_id IN (
         SELECT export_id FROM export_job
          WHERE status = 'QUEUED'
@@ -49,28 +50,42 @@ export async function claimExports(
 }
 
 /**
- * 죽은 워커가 남긴 RUNNING을 회수한다.
+ * 죽은 워커가 남긴 RUNNING을 회수한다 (0021 §1).
  *
- * 리스가 없으면 워커가 죽는 순간 그 Job은 영원히 RUNNING으로 남는다.
- * 사용자에게는 "생성 중"이 끝나지 않는 화면이 된다.
+ * 리스가 없으면 워커가 죽는 순간 그 Job은 영원히 RUNNING으로 남고, 사용자
+ * 에게는 "생성 중"이 끝나지 않는 화면이 된다.
+ *
+ * **기준은 `started_at`(클레임 시각)이지 `created_at`(요청 시각)이 아니다.**
+ * 요청 시각을 보면 큐에 리스 시간보다 오래 머문 Job이 클레임 직후부터 stale
+ * 조건을 영구히 만족해, 워커가 둘 이상일 때 진행 중인 Job을 매 틱마다
+ * 재클레임한다(리뷰 M-1). generation_job이 쓰는 것과 같은 축이다(0015 §1).
+ *
+ * `attempt_no`가 상한에 닿은 Job은 회수하지 않는다 — 정산이 계속 실패하는
+ * Job을 무한히 되집으면 워커가 그것만 붙들고 돈다. 상한에 닿은 행은 RUNNING
+ * 으로 남고 운영이 본다(FAILED로 강제 정산하려면 테넌트 경계가 필요하므로
+ * 디스패치 범위에서 할 수 있는 일이 아니다).
  */
 export async function sweepStaleRunning(
   client: PoolClient,
   leaseTimeoutMs: number,
   batchSize: number,
+  maxAttempts: number,
 ): Promise<ClaimedExport[]> {
   const res = await client.query(
-    `UPDATE export_job SET status = 'RUNNING'
+    `UPDATE export_job SET status = 'RUNNING', started_at = now(),
+                           attempt_no = attempt_no + 1
       WHERE export_id IN (
         SELECT export_id FROM export_job
          WHERE status = 'RUNNING'
-           AND created_at < now() - ($1::int * interval '1 millisecond')
-         ORDER BY created_at
+           AND started_at IS NOT NULL
+           AND started_at < now() - ($1::bigint * interval '1 millisecond')
+           AND attempt_no < $3::int
+         ORDER BY started_at
          FOR UPDATE SKIP LOCKED
          LIMIT $2
       )
       RETURNING export_id, tenant_id, document_id, revision_id, format`,
-    [leaseTimeoutMs, batchSize],
+    [leaseTimeoutMs, batchSize, maxAttempts],
   );
   return (res.rows as Record<string, unknown>[]).map((row) => ({
     exportId: row.export_id as string,
@@ -89,6 +104,13 @@ export interface ExportSource {
   revisionIr: unknown;
   baseIr: unknown;
   verdict: string | null;
+  /**
+   * template_profile.unsupported_objects_json — 분류기가 낸 **권위 있는**
+   * 미지원 객체 목록(import가 NATIVE_EDIT가 아닌 객체 전량을 넣는다).
+   * IR의 보존 블록 등급만 보면 JSON 왕복에서 등급이 빠진 리비전이 조용히
+   * "FLATTEN 없음"이 된다(리뷰 M-3).
+   */
+  unsupportedObjects: unknown;
 }
 
 /** 테넌트 범위: 되쓰기에 필요한 원본과 두 IR을 한 번에 읽는다. */
@@ -102,7 +124,8 @@ export async function loadExportSource(
             f.storage_key AS source_storage_key, f.sha256 AS source_sha256,
             r.ir_json AS revision_ir,
             base.ir_json AS base_ir,
-            tp.analysis_status AS verdict
+            tp.analysis_status AS verdict,
+            tp.unsupported_objects_json AS unsupported_objects
        FROM document d
        LEFT JOIN file_object f ON f.file_id = d.source_file_id
        JOIN document_revision r ON r.revision_id = $2 AND r.document_id = d.document_id
@@ -112,7 +135,7 @@ export async function loadExportSource(
           ORDER BY revision_no LIMIT 1
        ) base ON true
        LEFT JOIN LATERAL (
-         SELECT analysis_status FROM template_profile
+         SELECT analysis_status, unsupported_objects_json FROM template_profile
           WHERE document_id = d.document_id
           ORDER BY profile_version DESC LIMIT 1
        ) tp ON true
@@ -129,6 +152,7 @@ export async function loadExportSource(
     revisionIr: row.revision_ir,
     baseIr: row.base_ir,
     verdict: (row.verdict as string | null) ?? null,
+    unsupportedObjects: row.unsupported_objects ?? null,
   };
 }
 
