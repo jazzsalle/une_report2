@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { HwpxEngine, NotYetImplementedHwpxEngine } from './contract';
+import { HwpxEngine } from './contract';
 import { describeRhwpIntake } from './intake/rhwp-status';
 import { synthHwpx } from './testing/synth-hwpx';
 
@@ -28,8 +28,20 @@ describe('HwpxEngine — CC-140이 채운 경로', () => {
     expect(summary.objectCounts.PRESERVE_ONLY).toBeGreaterThan(0);
   });
 
-  it('serialize는 CC-160까지 거부한다', async () => {
-    await expect(engine.serialize('doc', 'out.hwpx')).rejects.toThrow(/CC-160/);
+  it('serialize가 편집 없는 저장에서 원본과 바이트 동일한 산출물을 낸다 (AC1)', () => {
+    const bytes = synthHwpx('valid');
+    const analysis = engine.analyzeDocument({ bytes });
+    const result = engine.serialize({
+      sourceBytes: bytes,
+      baseIr: analysis.ir,
+      editedIr: analysis.ir,
+      mode: 'SAVE_AS',
+      verdict: analysis.template.compatibility.verdict,
+      hasFlattenExportOnlyObject: false,
+    });
+    expect(result.noOp).toBe(true);
+    expect(result.outputSha256).toBe(analysis.package.archiveSha256);
+    expect(result.report.status).not.toBe('FAIL');
   });
 
   it('IR 타입은 도메인 정본을 소비할 뿐 재정의하지 않는다(ADR-29 D4)', () => {
@@ -56,10 +68,9 @@ describe('HwpxEngine — CC-140이 채운 경로', () => {
   });
 });
 
-describe('NotYetImplementedHwpxEngine', () => {
-  it('rejects serialize until CC-160 (CC-140 은 분석까지만 소유한다)', async () => {
-    await expect(new NotYetImplementedHwpxEngine().serialize()).rejects.toThrow(/CC-140/);
-    await expect(new NotYetImplementedHwpxEngine().serialize()).rejects.toThrow(/CC-160/);
+describe('serialize (CC-160에서 구현됨)', () => {
+  it('엔진 계약이 보존 저장을 노출한다 — 더 이상 거부 스텁이 아니다', () => {
+    expect(typeof new HwpxEngine().serialize).toBe('function');
   });
 });
 

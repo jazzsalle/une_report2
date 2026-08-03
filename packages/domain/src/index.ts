@@ -14,3 +14,4 @@ export * from './document/template-profile';
 export * from './document/ir-hash';
 export * from './document/selection';
 export * from './document/change-set';
+export * from './document/export';

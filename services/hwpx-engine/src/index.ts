@@ -53,3 +53,10 @@ export * from './intake/rhwp-status';
 // 테스트 지원(합성 픽스처·코퍼스 로더). 운영 경로에서 호출하지 않는다.
 export * from './testing/synth-hwpx';
 export * from './testing/corpus';
+
+// CC-160 — 보존 저장(Package Writer/XML Delta)과 Track A 검증
+export * from './serialize/errors';
+export * from './serialize/zip-writer';
+export * from './serialize/xml-delta';
+export * from './serialize/preservation-save';
+export * from './validate/track-a';

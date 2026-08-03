@@ -1,0 +1,401 @@
+import type { BlockIR, DocumentIR, ParagraphIR, RunIR } from '@une/domain';
+import { parseAnchor, resolveAnchor } from '../ir/anchors';
+import {
+  elementsOf,
+  isElement,
+  parseXmlDocument,
+  type XmlElement,
+  type XmlNode,
+} from '../package/xml';
+import { HwpxExportError } from './errors';
+
+/**
+ * XML Delta Writer (설계 07 §1.10-1/-3).
+ *
+ * **되쓰기는 바이트 구간 교체로만 한다.** 트리를 다시 직렬화하지 않는다 —
+ * 재직렬화는 주석·처리명령·속성 순서·공백·엔터티 표기를 전부 우리 파서의
+ * 취향으로 바꾸고, 그 순간 "알 수 없는 요소는 원문 그대로"(§1.10-3)가
+ * 거짓이 된다. 대신 파서가 남긴 `sourceStart/innerStart/...` 구간만 갈아끼우고
+ * 나머지 문자는 손대지 않는다.
+ *
+ * **모르면 거부한다.** 되쓸 자리를 유일하게 지목할 수 없는 구조(공백 요소나
+ * 인라인 컨트롤이 섞인 run 등)는 추측해서 쓰지 않고 HWPX-1103으로 실패한다.
+ * 잘못 쓴 HWPX는 조용히 열리기 때문에, 여기서 틀리면 사용자는 한참 뒤에
+ * 손상된 문서로 알게 된다.
+ */
+
+export interface Splice {
+  /** 교체 시작(포함) — 디코딩된 Part 문자열 인덱스. */
+  readonly start: number;
+  /** 교체 끝(제외). */
+  readonly end: number;
+  readonly replacement: string;
+  /** 진단용 — 어떤 편집이 이 구간을 만들었는지. */
+  readonly reason: string;
+}
+
+export interface PartDelta {
+  readonly partPath: string;
+  readonly splices: readonly Splice[];
+  readonly bytes: Uint8Array;
+}
+
+export interface XmlDeltaResult {
+  /** partPath → 새 바이트. 변경이 없는 Part는 들어 있지 않다. */
+  readonly replacements: ReadonlyMap<string, Uint8Array>;
+  readonly parts: readonly PartDelta[];
+  readonly spliceCount: number;
+}
+
+const XML_ESCAPES: Readonly<Record<string, string>> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+};
+
+export function escapeXmlText(value: string): string {
+  return value.replace(/[&<>]/g, (character) => XML_ESCAPES[character]);
+}
+
+/**
+ * 구간 교체 적용. 겹치는 구간은 거부한다 — 겹치면 적용 순서가 결과를 바꾸고,
+ * 그 순간 같은 편집이 실행마다 다른 문서를 낸다.
+ */
+export function applySplices(text: string, splices: readonly Splice[]): string {
+  const ordered = [...splices].sort((a, b) => a.start - b.start || a.end - b.end);
+  for (let i = 1; i < ordered.length; i += 1) {
+    if (ordered[i].start < ordered[i - 1].end) {
+      throw new HwpxExportError(
+        'HWPX-1103',
+        `${ordered[i - 1].reason} / ${ordered[i].reason}`,
+        `되쓰기 구간이 겹칩니다 (${ordered[i - 1].start}..${ordered[i - 1].end} vs ${ordered[i].start}..${ordered[i].end})`,
+      );
+    }
+  }
+  let out = '';
+  let cursor = 0;
+  for (const splice of ordered) {
+    out += text.slice(cursor, splice.start) + splice.replacement;
+    cursor = splice.end;
+  }
+  return out + text.slice(cursor);
+}
+
+/**
+ * 텍스트 스트림에 기여하지 않아 되쓰기를 방해하지 않는 run 자식.
+ *
+ * `hp:linesegarray`는 줄 배치 캐시이고 `hp:secPr`는 구역 속성이다. 둘 다
+ * ir-builder가 텍스트로 세지 않고(§ir-builder 257행) 우리가 해석하지도
+ * 않으므로, `hp:t` 안쪽만 갈아끼우는 되쓰기와 자리가 겹치지 않는다.
+ * 실 코퍼스의 거의 모든 run이 `linesegarray`를 갖고 있어, 이것을 거부하면
+ * 되쓰기 가능한 문단이 사실상 사라진다.
+ *
+ * **수용 한계**: 텍스트가 바뀌면 `linesegarray`의 줄 좌표는 낡은 값이 된다.
+ * 우리는 배치를 계산하지 않는다(§1.1 비범위 — 렌더는 rhwp 몫). 편집기·한/글이
+ * 여는 시점에 다시 계산하는 값이므로 그대로 둔다. 지우는 선택지는 더 나쁘다:
+ * 지우면 원문에 있던 구조를 우리가 없앤 것이 되어 §1.10-3을 어긴다.
+ */
+const NON_TEXT_RUN_CHILDREN: ReadonlySet<string> = new Set(['linesegarray', 'secPr']);
+
+/**
+ * 되쓸 수 있는 run인가.
+ *
+ * 조건: 텍스트에 기여하는 요소가 정확히 하나의 `hp:t`뿐이고, 그 `hp:t` 안에
+ * 요소가 없다. 그래야 `RunIR.text`가 그 `hp:t`의 문자 데이터와 **정확히 같고**,
+ * 새 텍스트를 넣을 자리가 유일하게 결정된다. 탭·고정폭 빈칸·인라인 컨트롤이
+ * 섞이면 IR의 text 스트림이 여러 요소에서 합성된 값이라(ir-builder의
+ * `WHITESPACE_CHARACTERS`) 역매핑이 성립하지 않는다 — 그런 run은 거부한다.
+ */
+function simpleTextElement(runElement: XmlElement): XmlElement | null {
+  let textElement: XmlElement | null = null;
+  for (const child of elementsOf(runElement)) {
+    if (NON_TEXT_RUN_CHILDREN.has(child.localName)) continue;
+    if (child.localName !== 't') return null;
+    if (textElement) return null; // hp:t가 둘 이상이면 어느 쪽에 쓸지 모른다
+    if (elementsOf(child).length > 0) return null; // 인라인 컨트롤 포함
+    textElement = child;
+  }
+  return textElement;
+}
+
+function paragraphsOf(blocks: readonly BlockIR[]): ParagraphIR[] {
+  const out: ParagraphIR[] = [];
+  const visit = (list: readonly BlockIR[]): void => {
+    for (const block of list) {
+      if (block.kind === 'PARAGRAPH') {
+        out.push(block);
+        continue;
+      }
+      if (block.kind === 'TABLE') {
+        for (const row of block.rows) for (const cell of row.cells) visit(cell.blocks);
+      }
+    }
+  };
+  visit(blocks);
+  return out;
+}
+
+function textOfRuns(runs: readonly RunIR[]): string {
+  return runs.map((run) => run.text).join('');
+}
+
+interface PartContext {
+  readonly partPath: string;
+  readonly text: string;
+  readonly root: XmlElement;
+  readonly parts: ReadonlyMap<string, XmlElement>;
+}
+
+function locate(context: PartContext, anchor: string, reason: string): XmlElement {
+  const element = resolveAnchor(anchor, context.parts);
+  if (!element) {
+    throw new HwpxExportError(
+      'HWPX-1103',
+      anchor,
+      `${reason}: 앵커가 원본 XML을 가리키지 않습니다`,
+    );
+  }
+  return element;
+}
+
+/** 문단의 텍스트 변경을 run 단위 splice로 바꾼다. */
+function textSplices(context: PartContext, before: ParagraphIR, after: ParagraphIR): Splice[] {
+  const anchor = before.rawXmlAnchor;
+  if (anchor === undefined) return [];
+  const element = locate(context, anchor, '문단 텍스트 되쓰기');
+  const runElements = elementsOf(element).filter((child) => child.localName === 'run');
+
+  if (before.runs.length !== after.runs.length) {
+    throw new HwpxExportError(
+      'HWPX-1103',
+      anchor,
+      `run 개수가 달라진 문단은 되쓸 수 없습니다 (${before.runs.length} -> ${after.runs.length})`,
+    );
+  }
+  if (runElements.length !== before.runs.length) {
+    throw new HwpxExportError(
+      'HWPX-1103',
+      anchor,
+      `IR run 수와 원본 hp:run 수가 다릅니다 (${before.runs.length} != ${runElements.length})`,
+    );
+  }
+
+  const splices: Splice[] = [];
+  for (let index = 0; index < before.runs.length; index += 1) {
+    if (before.runs[index].text === after.runs[index].text) continue;
+    const runElement = runElements[index];
+    const textElement = simpleTextElement(runElement);
+    if (!textElement) {
+      throw new HwpxExportError(
+        'HWPX-1103',
+        `${anchor}/run[${index + 1}]`,
+        '탭·고정폭 빈칸·인라인 컨트롤이 섞인 run은 텍스트를 되쓸 수 없습니다',
+      );
+    }
+    splices.push({
+      start: textElement.innerStart,
+      end: textElement.innerEnd,
+      replacement: escapeXmlText(after.runs[index].text),
+      reason: `text ${before.paragraphId}`,
+    });
+  }
+  return splices;
+}
+
+/**
+ * 새 문단의 XML을 만든다 — **프로토타입 문단의 원문을 복제**하고 텍스트만
+ * 바꾼다(§1.7 Prototype Clone, §1.14 "기호 앞 공백·들여쓰기·ParaShape·
+ * 글자속성이 Prototype Clone으로 유지된다").
+ *
+ * 새로 조립하지 않는 이유는 명확하다. 문단 하나에는 paraPrIDRef·styleIDRef·
+ * charPrIDRef·linesegarray 등 우리가 해석하지 않는 속성이 붙어 있고, 그것을
+ * 우리가 만들어 내면 원본 서식과 다른 문단이 된다. 이미 문서 안에 있는
+ * 이웃 문단을 복제하면 그 서식이 그대로 승계된다.
+ */
+function clonedParagraphXml(
+  context: PartContext,
+  prototype: XmlElement,
+  paragraph: ParagraphIR,
+): string {
+  const runElements = elementsOf(prototype).filter((child) => child.localName === 'run');
+  if (runElements.length !== 1) {
+    throw new HwpxExportError(
+      'HWPX-1103',
+      paragraph.paragraphId,
+      `프로토타입 문단의 run이 하나가 아니어서 복제할 수 없습니다 (${runElements.length})`,
+    );
+  }
+  const textElement = simpleTextElement(runElements[0]);
+  if (!textElement) {
+    throw new HwpxExportError(
+      'HWPX-1103',
+      paragraph.paragraphId,
+      '프로토타입 run에 공백 요소·인라인 컨트롤이 있어 복제할 수 없습니다',
+    );
+  }
+  const source = context.text.slice(prototype.sourceStart, prototype.sourceEnd);
+  const relativeStart = textElement.innerStart - prototype.sourceStart;
+  const relativeEnd = textElement.innerEnd - prototype.sourceStart;
+  return (
+    source.slice(0, relativeStart) +
+    escapeXmlText(textOfRuns(paragraph.runs)) +
+    source.slice(relativeEnd)
+  );
+}
+
+/** 삽입 지점: 기준 노드의 앞/뒤. FIRST_CHILD/LAST_CHILD는 표 셀 편집용이다. */
+function insertionPoint(reference: XmlElement, relation: string, paragraphId: string): number {
+  switch (relation) {
+    case 'BEFORE':
+      return reference.sourceStart;
+    case 'AFTER':
+      return reference.sourceEnd;
+    case 'FIRST_CHILD':
+      return reference.innerStart;
+    case 'LAST_CHILD':
+      return reference.innerEnd;
+    default:
+      throw new HwpxExportError(
+        'HWPX-1103',
+        paragraphId,
+        `알 수 없는 anchorHint 관계입니다 (${relation})`,
+      );
+  }
+}
+
+/**
+ * 원본 IR과 편집된 IR을 비교해 Part별 되쓰기 계획을 만든다.
+ *
+ * ChangeSet이 아니라 **두 IR의 차이**를 본다. 실행기가 낸 연산 목록을 다시
+ * 해석하면 실행기와 되쓰기가 서로 다른 이해를 가질 수 있고, 그 어긋남은
+ * 산출물에서만 드러난다. IR은 실행기의 결과 그 자체다.
+ */
+export function buildXmlDelta(input: {
+  readonly baseIr: DocumentIR;
+  readonly editedIr: DocumentIR;
+  readonly partBytes: ReadonlyMap<string, Uint8Array>;
+}): XmlDeltaResult {
+  const { baseIr, editedIr, partBytes } = input;
+  const parts: PartDelta[] = [];
+  const replacements = new Map<string, Uint8Array>();
+  let spliceCount = 0;
+
+  for (const baseSection of baseIr.sections) {
+    const editedSection = editedIr.sections.find(
+      (section) => section.sectionId === baseSection.sectionId,
+    );
+    if (!editedSection) {
+      throw new HwpxExportError(
+        'HWPX-1102',
+        baseSection.partPath,
+        '섹션 삭제는 보존 저장 경로가 지원하지 않습니다',
+      );
+    }
+
+    const bytes = partBytes.get(baseSection.partPath);
+    if (!bytes) {
+      throw new HwpxExportError(
+        'HWPX-1102',
+        baseSection.partPath,
+        '원본 패키지에 섹션 Part가 없습니다',
+      );
+    }
+
+    const { root, text } = parseXmlDocument(baseSection.partPath, bytes);
+    const context: PartContext = {
+      partPath: baseSection.partPath,
+      text,
+      root,
+      parts: new Map([[baseSection.partPath, root]]),
+    };
+
+    const baseParagraphs = paragraphsOf(baseSection.blocks);
+    const editedParagraphs = paragraphsOf(editedSection.blocks);
+    const baseById = new Map(baseParagraphs.map((p) => [p.paragraphId, p]));
+    const editedById = new Map(editedParagraphs.map((p) => [p.paragraphId, p]));
+
+    const splices: Splice[] = [];
+
+    // 1) 텍스트 변경
+    for (const before of baseParagraphs) {
+      const after = editedById.get(before.paragraphId);
+      if (!after) continue;
+      if (textOfRuns(before.runs) === textOfRuns(after.runs)) continue;
+      splices.push(...textSplices(context, before, after));
+    }
+
+    // 2) 삭제된 문단
+    for (const before of baseParagraphs) {
+      if (editedById.has(before.paragraphId)) continue;
+      const anchor = before.rawXmlAnchor;
+      if (anchor === undefined) continue;
+      const element = locate(context, anchor, '문단 삭제');
+      splices.push({
+        start: element.sourceStart,
+        end: element.sourceEnd,
+        replacement: '',
+        reason: `delete ${before.paragraphId}`,
+      });
+    }
+
+    // 3) 새 문단 — anchorHint가 지목한 이웃을 복제해 넣는다
+    for (const after of editedParagraphs) {
+      if (baseById.has(after.paragraphId)) continue;
+      if (after.origin !== 'AUTHORED') {
+        throw new HwpxExportError(
+          'HWPX-1103',
+          after.paragraphId,
+          'SOURCE 문단이 원본에 없습니다 (IR이 원본과 어긋났습니다)',
+        );
+      }
+      const hint = after.anchorHint;
+      const reference = baseById.get(hint.ref) ?? editedById.get(hint.ref);
+      if (!reference || reference.rawXmlAnchor === undefined) {
+        throw new HwpxExportError(
+          'HWPX-1103',
+          after.paragraphId,
+          `anchorHint가 원본 문단을 지목하지 않습니다 (ref=${hint.ref})`,
+        );
+      }
+      const referenceElement = locate(context, reference.rawXmlAnchor, '문단 삽입 기준');
+      const at = insertionPoint(referenceElement, hint.relation, after.paragraphId);
+      splices.push({
+        start: at,
+        end: at,
+        replacement: clonedParagraphXml(context, referenceElement, after),
+        reason: `insert ${after.paragraphId}`,
+      });
+    }
+
+    if (splices.length === 0) continue;
+
+    // 되쓰기 전에 **왕복 안전성**을 확인한다. 디코딩된 문자열을 다시 UTF-8로
+    // 인코딩했을 때 원본 바이트와 다르면(깨진 UTF-8 등) 구간 교체가 손대지
+    // 않은 부분까지 바꿔 버린다. 그런 Part는 고치지 않고 거부한다.
+    if (Buffer.compare(Buffer.from(text, 'utf8'), Buffer.from(bytes)) !== 0) {
+      throw new HwpxExportError(
+        'HWPX-1103',
+        baseSection.partPath,
+        'Part를 UTF-8로 왕복할 수 없습니다 (되쓰면 손대지 않은 바이트가 바뀝니다)',
+      );
+    }
+
+    const updated = applySplices(text, splices);
+    const updatedBytes = Uint8Array.prototype.slice.call(Buffer.from(updated, 'utf8'), 0);
+    replacements.set(baseSection.partPath, updatedBytes);
+    parts.push({ partPath: baseSection.partPath, splices, bytes: updatedBytes });
+    spliceCount += splices.length;
+  }
+
+  return { replacements, parts, spliceCount };
+}
+
+/** 진단용 — 되쓰기가 손댄 요소 수를 세는 데 쓴다. */
+export function countElements(node: XmlNode): number {
+  if (!isElement(node)) return 0;
+  let total = 1;
+  for (const child of node.children) total += countElements(child);
+  return total;
+}
+
+export { parseAnchor };

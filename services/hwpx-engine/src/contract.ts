@@ -13,6 +13,11 @@ import {
 import { describeRhwpIntake, type RhwpIntakeReport } from './intake/rhwp-status';
 import { DEFAULT_HWPX_LIMITS, type HwpxLimits } from './package/limits';
 import { analyzePackage, type PackageAnalysisResult } from './package/package-analysis';
+import {
+  preservationSave,
+  type PreservationSaveInput,
+  type PreservationSaveResult,
+} from './serialize/preservation-save';
 
 /**
  * HWPX 분석/직렬화 경계의 안정 계약.
@@ -76,8 +81,16 @@ export interface HwpxEngineContract {
   classify(input: ClassifyInput): ClassificationResult;
   /** AC2~AC4 일괄 — 분석 API가 쓰는 진입점. */
   analyzeDocument(source: HwpxSource, options?: AnalyzeDocumentOptions): AnalyzeDocumentResult;
-  /** Preservation-serialize the current document state back to HWPX. */
-  serialize(documentId: string, outputPath: string): Promise<void>;
+  /**
+   * AC1~AC4 — 편집 결과를 원본 HWPX 구조 위에 되쓰고 Track A로 검증한다.
+   *
+   * CC-140이 남긴 서명은 `(documentId, outputPath) => Promise<void>`였다.
+   * CC-160에서 **바이트 입출력으로 바꾼다**(ADR-31): 엔진이 문서 ID를 알면
+   * DB를 알아야 하고, 파일 경로를 알면 저장소를 알아야 한다. 둘 다 엔진
+   * 경계 밖이며(.claude/rules/architecture.md), 저장 위치는 저장소 포트가
+   * 정한다. 엔진은 바이트를 받아 검증된 바이트를 돌려줄 뿐이다.
+   */
+  serialize(input: PreservationSaveInput): PreservationSaveResult;
 }
 
 export class HwpxEngine implements HwpxEngineContract {
@@ -132,23 +145,14 @@ export class HwpxEngine implements HwpxEngineContract {
     };
   }
 
-  serialize(_documentId: string, _outputPath: string): Promise<void> {
-    // CC-140은 분석·IR·분류까지다. 저장은 Package Writer/Track A 검증과 함께
-    // CC-160이 소유한다(ADR-29 D11).
-    return Promise.reject(new Error(SERIALIZE_NOT_IMPLEMENTED));
+  serialize(input: PreservationSaveInput): PreservationSaveResult {
+    return preservationSave(input);
   }
 }
 
-export const SERIALIZE_NOT_IMPLEMENTED =
-  'HWPX serialization arrives with CC-160; CC-140 delivers analysis/IR/classification only';
-
-/**
- * 의존성 주입 배선을 먼저 하기 위한 자리표시자. CC-140 이후로는 분석 경로가
- * 실제로 동작하므로 `HwpxEngine`을 쓰고, 이 클래스는 "아직 아무것도 안 되는
- * 상태"를 명시적으로 표현해야 하는 곳(예: Core 미반입 회귀 테스트)에만 남긴다.
+/*
+ * `NotYetImplementedHwpxEngine`과 `SERIALIZE_NOT_IMPLEMENTED`는 CC-160에서
+ * 제거했다. 직렬화가 실제로 구현된 뒤에도 "아직 안 됨" 스텁을 남겨 두면
+ * 그것을 주입한 코드가 조용히 실패하는 경로가 생긴다 — 미구현을 표현하던
+ * 자리표시자의 수명은 구현이 도착하는 시점까지다(ADR-31).
  */
-export class NotYetImplementedHwpxEngine implements Pick<HwpxEngineContract, 'serialize'> {
-  serialize(): Promise<void> {
-    return Promise.reject(new Error(SERIALIZE_NOT_IMPLEMENTED));
-  }
-}

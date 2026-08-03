@@ -74,6 +74,23 @@ export interface XmlElement {
   readonly parent: XmlElement | null;
   /** 이 요소가 속한 Part 경로. 앵커 발급의 좌변. */
   readonly partPath: string;
+  /**
+   * 원문에서 이 요소가 차지하는 범위 (CC-160 XML Delta Writer).
+   *
+   * 단위는 **디코딩된 문자열의 UTF-16 인덱스**이지 바이트 오프셋이 아니다.
+   * 파서가 문자열 위에서 동작하므로 그 좌표계를 그대로 노출하는 편이
+   * 정확하고, 바이트로 환산해 두면 두 좌표계를 오가며 계산 오류가 난다
+   * (ADR-29 D6이 앵커에서 바이트 오프셋을 거부한 것과 같은 이유).
+   *
+   * `sourceStart`는 시작 태그의 `<`, `sourceEnd`는 종료 태그(또는 `/>`)
+   * 바로 다음. `innerStart`/`innerEnd`는 자식 내용의 범위이며, 빈 요소는
+   * 두 값이 같다. 되쓰기는 이 구간만 갈아끼우고 **나머지 원문은 손대지
+   * 않는다** — 그것이 §1.10-3의 "알 수 없는 요소·속성은 원문 그대로"다.
+   */
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  readonly innerStart: number;
+  readonly innerEnd: number;
 }
 
 export interface XmlText {
@@ -198,6 +215,10 @@ interface MutableElement {
   ordinal: number;
   parent: XmlElement | null;
   partPath: string;
+  sourceStart: number;
+  sourceEnd: number;
+  innerStart: number;
+  innerEnd: number;
 }
 
 const NAME_START = /[A-Za-z_:]/;
@@ -210,13 +231,44 @@ const NAME_CHAR = /[-A-Za-z0-9_:.]/;
  * 깊이·요소 수 한도는 `limits`에서 온다(§1.4-2). 넘으면 HWPX-1002로 거부한다
  * — 후속 단계의 재귀 순회가 `RangeError`로 죽는 것을 막기 위해서다.
  */
+/**
+ * 파싱 결과 + 디코딩된 원문.
+ *
+ * 되쓰기(CC-160)는 요소의 `sourceStart/End`를 원문 문자열 위에서 잘라내야
+ * 하므로 둘을 함께 돌려주는 진입점이 필요하다. `parseXml`은 트리만 쓰는
+ * 기존 호출부를 위해 그대로 남긴다.
+ */
+export interface XmlDocument {
+  readonly root: XmlElement;
+  /** UTF-8로 디코딩한 Part 원문. 요소 span의 좌표계. */
+  readonly text: string;
+}
+
+export function parseXmlDocument(
+  partPath: string,
+  bytes: Uint8Array,
+  limits: HwpxLimits = DEFAULT_HWPX_LIMITS,
+): XmlDocument {
+  const text = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('utf8');
+  return { root: parseXmlText(partPath, bytes, text, limits), text };
+}
+
 export function parseXml(
   partPath: string,
   bytes: Uint8Array,
   limits: HwpxLimits = DEFAULT_HWPX_LIMITS,
 ): XmlElement {
-  assertNoDoctype(partPath, bytes);
   const text = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('utf8');
+  return parseXmlText(partPath, bytes, text, limits);
+}
+
+function parseXmlText(
+  partPath: string,
+  bytes: Uint8Array,
+  text: string,
+  limits: HwpxLimits,
+): XmlElement {
+  assertNoDoctype(partPath, bytes);
 
   let i = 0;
   let root: MutableElement | null = null;
@@ -283,6 +335,7 @@ export function parseXml(
     if (text.startsWith('<!', i)) fail(partPath, '선언(<!...)은 허용하지 않습니다');
 
     if (text.startsWith('</', i)) {
+      const closeTagStart = i;
       i += 2;
       const name = readName();
       skipSpace();
@@ -291,10 +344,13 @@ export function parseXml(
       const open = stack.pop();
       nsStack.pop();
       if (!open || open.qName !== name) fail(partPath, `태그 짝이 맞지 않습니다 (</${name}>)`);
+      open.innerEnd = closeTagStart;
+      open.sourceEnd = i;
       continue;
     }
 
     // 시작 태그
+    const startTagStart = i;
     i += 1;
     const qName = readName();
     const attributes: Record<string, string> = {};
@@ -355,6 +411,11 @@ export function parseXml(
       ordinal,
       parent: parent as XmlElement | null,
       partPath,
+      sourceStart: startTagStart,
+      // 자기닫힘이면 여기서 확정된다. 아니면 종료 태그를 만날 때 채운다.
+      sourceEnd: selfClosing ? i : -1,
+      innerStart: i,
+      innerEnd: selfClosing ? i : -1,
     };
     if (parent) parent.children.push(element as unknown as XmlElement);
     else if (root) fail(partPath, '루트 요소가 둘 이상입니다');
