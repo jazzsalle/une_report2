@@ -22,6 +22,14 @@ import {
 const EXPECTED_WORKER_GRANTS = [
   'audit_log:INSERT',
   'audit_log:SELECT',
+  // 0020 (CC-160): Export 러너. 원본 문서/리비전은 읽기만, 산출물과 검증
+  // 보고서는 INSERT만 — 둘 다 UPDATE/DELETE 없이 append-only다.
+  'document:SELECT',
+  'document_revision:SELECT',
+  'export_job:SELECT',
+  'export_job:UPDATE',
+  'file_object:INSERT',
+  'file_object:SELECT',
   'generated_block:INSERT',
   'generated_block:SELECT',
   'generated_block:UPDATE',
@@ -37,6 +45,8 @@ const EXPECTED_WORKER_GRANTS = [
   'toc_node:SELECT',
   'toc_version:INSERT',
   'toc_version:SELECT',
+  'validation_report:INSERT',
+  'validation_report:SELECT',
 ];
 
 interface PlanFixture extends Fixture {
