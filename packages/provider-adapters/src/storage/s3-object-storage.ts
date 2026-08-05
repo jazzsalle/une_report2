@@ -29,6 +29,14 @@ import {
 
 export interface S3ObjectStorageConfig {
   readonly endpoint: string;
+  /**
+   * presigned URL에 들어갈 주소 (CC-170). 생략하면 `endpoint`와 같다.
+   *
+   * 서버가 저장소를 보는 주소와 브라우저가 보는 주소가 다를 수 있다(컨테이너
+   * 네트워크 vs 호스트). SigV4는 Host를 서명에 포함하므로, 브라우저가 보낼
+   * Host로 서명해야 저장소가 그 요청을 받아들인다.
+   */
+  readonly publicEndpoint?: string;
   readonly region: string;
   readonly bucket: string;
   readonly accessKeyId: string;
@@ -69,6 +77,8 @@ async function collect(body: unknown): Promise<Uint8Array> {
 
 export class S3ObjectStorage implements ObjectStoragePort {
   private readonly client: S3Client;
+  /** presign 전용. 요청을 보내지 않고 **서명만** 한다 — 브라우저가 볼 주소로. */
+  private readonly signingClient: S3Client;
   private readonly bucket: string;
 
   constructor(config: S3ObjectStorageConfig) {
@@ -88,6 +98,10 @@ export class S3ObjectStorage implements ObjectStoragePort {
       },
     };
     this.client = new S3Client(options);
+    this.signingClient =
+      config.publicEndpoint && config.publicEndpoint !== config.endpoint
+        ? new S3Client({ ...options, endpoint: config.publicEndpoint })
+        : this.client;
     this.bucket = config.bucket;
   }
 
@@ -177,7 +191,7 @@ export class S3ObjectStorage implements ObjectStoragePort {
       ChecksumSHA256: checksum,
     });
     try {
-      const url = await getSignedUrl(this.client, command, {
+      const url = await getSignedUrl(this.signingClient, command, {
         expiresIn: input.expiresInSeconds,
         // 서명 대상 헤더를 고정한다. SDK가 임의로 더한 헤더까지 서명되면
         // 클라이언트가 재현할 수 없는 요청이 된다.

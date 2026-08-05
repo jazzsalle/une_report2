@@ -185,6 +185,43 @@ describe('createObjectStorage — 드라이버 선택', () => {
     );
   });
 
+  it('공개 엔드포인트를 주면 서명 주소가 그것으로 바뀐다 (브라우저가 볼 주소)', async () => {
+    const storage = createObjectStorage({
+      OBJECT_STORAGE_DRIVER: 's3',
+      OBJECT_STORAGE_ENDPOINT: 'http://minio:9000',
+      OBJECT_STORAGE_PUBLIC_ENDPOINT: 'http://localhost:9000',
+      OBJECT_STORAGE_BUCKET: 'une-documents',
+      OBJECT_STORAGE_ACCESS_KEY: 'key',
+      OBJECT_STORAGE_SECRET_KEY: 'secret',
+    });
+    const ticket = await storage.presignPut({
+      key: `tenants/${TENANT}/uploads/${TENANT}/${HASH}.hwpx`,
+      contentType: 'application/hwp+zip',
+      sha256: HASH,
+      expiresInSeconds: 900,
+    });
+    // 서버가 저장소를 보는 주소(minio:9000)가 아니라 브라우저가 볼 주소여야 한다.
+    expect(ticket!.url.startsWith('http://localhost:9000/')).toBe(true);
+    expect(ticket!.url).not.toContain('minio:9000');
+  });
+
+  it('공개 엔드포인트가 없으면 기본 엔드포인트로 서명한다', async () => {
+    const storage = createObjectStorage({
+      OBJECT_STORAGE_DRIVER: 's3',
+      OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:9000',
+      OBJECT_STORAGE_BUCKET: 'une-documents',
+      OBJECT_STORAGE_ACCESS_KEY: 'key',
+      OBJECT_STORAGE_SECRET_KEY: 'secret',
+    });
+    const ticket = await storage.presignPut({
+      key: `tenants/${TENANT}/uploads/${TENANT}/${HASH}.hwpx`,
+      contentType: 'application/hwp+zip',
+      sha256: HASH,
+      expiresInSeconds: 900,
+    });
+    expect(ticket!.url.startsWith('http://127.0.0.1:9000/')).toBe(true);
+  });
+
   it('s3 드라이버는 설정이 갖춰지면 만들어진다', () => {
     const storage = createObjectStorage({
       OBJECT_STORAGE_DRIVER: 's3',

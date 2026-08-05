@@ -20,6 +20,14 @@ const targets = [
     output: 'services/api/src/generated/une-platform-api.ts',
   },
   {
+    // CC-170: 운영 워크스페이스도 같은 계약에서 타입을 받는다. 화면이 응답 모양을
+    // 손으로 다시 적으면 계약이 바뀔 때 조용히 갈라지고, 그 드리프트는 사용자
+    // 화면에서만 드러난다. 같은 파일을 두 곳에 생성하는 것은 중복이지만,
+    // apps/web이 services/api를 의존하는 것보다 낫다(경계는 HTTP다).
+    contract: 'contracts/openapi/une-platform-api-v1.yaml',
+    output: 'apps/web/src/generated/une-platform-api.ts',
+  },
+  {
     contract: 'contracts/openapi/t3q-report-adapter-v0.8.5-une1.yaml',
     output: 'packages/provider-adapters/src/generated/t3q-report-adapter.ts',
   },
