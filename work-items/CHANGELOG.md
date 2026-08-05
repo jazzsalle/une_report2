@@ -2,6 +2,72 @@
 
 ## Unreleased
 
+- CC-170 (2026-08-05): Plan vertical slice E2E — **SSO mock to HWPX download**
+  (ADR-32). The item turned out to be an implementation item, not an integration
+  one: the path the acceptance criteria describe **could not be walked over
+  HTTP**. `UNE-DOC-001~004` sat in the contract as `GenericRequest/
+  GenericResponse` placeholders with no controllers (ADR-31 D1 pushed them out of
+  CC-160 and no item picked them up), `DocumentImportService` was only reachable
+  from tests, and `apps/web` was a four-file shell — and with no screen there is
+  no "screen capture" evidence either.
+  Uploads are now the designed three steps (pre-register → direct transfer →
+  complete) with **exactly one verification point**: UNE-DOC-002 reads the stored
+  bytes, recomputes size and SHA-256, and decides "is this HWPX?" from the ZIP
+  structure and the `mimetype` entry — never from the extension or Content-Type.
+  A mismatch ends the row at `ABORTED`, permanently. The presigned PUT carries the
+  declared hash **inside the signature** (`x-amz-checksum-sha256`), so the store
+  itself rejects different bytes and unverified content never reaches its place;
+  verified against real MinIO. An adapter that cannot presign answers `null`
+  rather than throwing, and the API substitutes its own signed single-use ticket
+  route — no Bearer token, exactly like a presigned URL, with the tenant read
+  from the signed claim so RLS still scopes the lookup.
+  Migration 0022 separates **upload verification from malware scanning**:
+  `upload_state`/`verified_at` are a new axis and `scan_status` stays PENDING,
+  because there is no AV scanner (OB-15) and promoting it to CLEAN would record a
+  check that never happened. `document.plan_id` was **not** created — `plan.
+  document_id` has existed since 0003 with an FK since 0007 and the plan
+  repository already reads it; only the writer was missing. Instead 0022 adds the
+  guarantee that was absent: one document cannot be claimed by two plans.
+  `malware_scan` was a contract pointing at a table that exists in no migration;
+  the table was not created, the contract was corrected, and a gate now checks
+  **every `x-db-tables` entry of every implemented API** against the data
+  dictionary (implemented-ness is derived from controller annotations, because a
+  hand-kept list goes stale).
+  The slice UI is six steps with zero new runtime dependencies, types generated
+  from the contract, and CORS as an explicit env allowlist (wildcards fail at
+  startup). There is no editor screen — rhwp is still not imported (OB-12).
+  A defect that had been dormant since CC-001 surfaced: `OBJECT_STORAGE_PUBLIC_
+  ENDPOINT` was documented as "the endpoint embedded in presigned URLs" but
+  nothing read it, so on any deployment where the API and the browser see the
+  store at different addresses the signed URL would not even connect. SigV4 signs
+  the Host, so presigning now uses a client bound to the browser-facing address.
+  The new `@une/e2e` workspace runs API and worker in one process and walks the
+  whole path; the edit step is **materialize**, since there is no editor. That
+  walk exposed three rewrite defects, all fixed in the engine with corpus
+  regressions: (1) when one ChangeSet inserts several paragraphs, the second
+  onward anchor at the previously inserted AUTHORED paragraph, which has no raw
+  XML anchor — so **a materialized document could never be exported at all**, and
+  CC-160 had only ever tested inserting one; (2) the writer cloned the anchor's
+  neighbour, discarding the prototype style the executor chose, which made Track
+  A's RTA-STY-001 fail on re-analysis — position decides where, **the IR decides
+  the style**; (3) the real OUTLINE_1 prototype has four runs and the last one is
+  empty, which the single-run cloner refused.
+  Performance baseline on a synthetic 50-page document (2,000 paragraphs, built
+  deterministically at test time from a real document so its pathologies survive;
+  40 paragraphs = 1 page is an assumption because we do not render): analysis p95
+  256ms against the 5,000ms target, upload+import p95 613ms, ChangeSet apply p95
+  162ms against the 300ms target, Export rewrite + Track A p95 352ms and download
+  p95 8ms registered as baselines. Development-PC numbers, 3–5 samples, and the
+  performance test is deliberately **not a gate** — making it one invites the next
+  person to lower the target.
+  Screen capture is a local script, not a CI gate (browser binary), and it earned
+  its place immediately by catching two UI defects the API tests could not see:
+  UNE-PLAN-007 takes the context at the body root (not wrapped), and UNE-PLAN-014
+  requires the outline tree to be resent on confirm.
+  Tests: hwpx-engine 426, api 283, provider-adapters 137, db-integration 127,
+  contract 195, e2e 13 (new), web 24, worker 44, domain 62, baseline pytest 14.
+  22 migrations, 61 tables unchanged, data dictionary 61/574.
+
 - CC-160 (2026-08-03): HWPX preservation export, Track A validation, object
   storage port, Export API and worker (ADR-31). The engine now writes: rewriting
   is **byte-range splicing over the original XML**, never re-serialization of a

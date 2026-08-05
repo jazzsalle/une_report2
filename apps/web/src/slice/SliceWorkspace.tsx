@@ -355,12 +355,20 @@ function PlanStep({ state, api, run, dispatch }: StepProps): JSX.Element {
 
 // ── 3. 기준정보 ──────────────────────────────────────────────────────────
 
+/**
+ * 기본 기준정보. `contracts/schemas/plan-context.schema.json`을 만족하는 값이다 —
+ * Snapshot 확정은 엄격 검증이고 `additionalProperties: false`이므로, 그럴싸한
+ * 임의 필드를 기본값으로 두면 사용자의 첫 시도가 422로 끝난다.
+ */
 const DEFAULT_CONTEXT = {
-  subject: '2026년 폭염 대응 계획',
-  organization: '재난안전본부',
-  targetPeriod: { from: '2026-06-01', to: '2026-09-30' },
-  hazardType: '폭염',
-  scope: '관내 전역',
+  subject: '2026년 폭염 대비 안전관리 계획',
+  backgroundInfo: { disasterType: '폭염', controlPhase: '대비' },
+  contentInstruction: { essentialFactors: ['무더위쉼터 운영', '취약계층 보호 대책'] },
+  purposeOfDocument: {
+    goalOfBusiness: '폭염 피해 최소화',
+    role: '재난안전 담당자',
+    targetAudiences: ['중앙정부'],
+  },
 };
 
 function ContextStep({ state, api, run, dispatch }: StepProps): JSX.Element {

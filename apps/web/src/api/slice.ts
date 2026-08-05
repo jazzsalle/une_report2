@@ -86,6 +86,11 @@ export class SliceApi {
     ).data;
   }
 
+  /**
+   * UNE-PLAN-007. 임시저장(006)과 달리 **기준정보를 본문 최상위로** 보낸다 —
+   * 계약이 그렇게 갈려 있다(006은 `{context}`, 007은 컨텍스트 자체). 감싸서
+   * 보내면 엄격 검증이 필수 필드를 못 찾아 422다.
+   */
   async confirmSnapshot(
     planId: string,
     context: Record<string, unknown>,
@@ -95,7 +100,7 @@ export class SliceApi {
         `/plans/${planId}/context-snapshots`,
         {
           method: 'POST',
-          body: { context },
+          body: context,
           idempotencyKey: newIdempotencyKey('snap'),
         },
       )
@@ -184,11 +189,26 @@ export class SliceApi {
     ).data;
   }
 
+  async tocVersion(planId: string, tocVersionId: string): Promise<TocVersion> {
+    return (await this.client.call<TocVersion>(`/plans/${planId}/toc-versions/${tocVersionId}`))
+      .data;
+  }
+
+  /**
+   * UNE-PLAN-014. **트리를 다시 실어야 한다** — 확정은 "이 트리를 확정한다"이지
+   * "그 버전을 확정한다"가 아니다. 그래서 사용자가 화면에서 고친 목차가 그대로
+   * 저장된다. 지금 화면은 목차를 고치지 않으므로 생성된 트리를 그대로 되싣는다.
+   */
   async confirmToc(planId: string, tocVersionId: string): Promise<TocVersion> {
+    const version = await this.tocVersion(planId, tocVersionId);
     return (
       await this.client.call<TocVersion>(`/plans/${planId}/toc-versions`, {
         method: 'POST',
-        body: { baseVersionId: tocVersionId, confirm: true },
+        body: {
+          baseVersionId: tocVersionId,
+          tocTree: toTocTree(version.nodes ?? []),
+          confirm: true,
+        },
         idempotencyKey: newIdempotencyKey('toc-confirm'),
       })
     ).data;
@@ -212,4 +232,15 @@ export class SliceApi {
   download(exportId: string): Promise<{ blob: Blob; fileName: string; sha256: string }> {
     return this.client.downloadExport(exportId);
   }
+}
+
+/** 목차 노드를 저장 요청(`TocTreeNodeInput`) 형태로 되돌린다. */
+function toTocTree(nodes: NonNullable<TocVersion['nodes']>): unknown[] {
+  return nodes.map((node) => ({
+    nodeKey: node.nodeKey,
+    title: node.title,
+    ...(node.children && node.children.length > 0
+      ? { children: toTocTree(node.children as NonNullable<TocVersion['nodes']>) }
+      : {}),
+  }));
 }
