@@ -1,34 +1,43 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Inject, Injectable } from '@nestjs/common';
-import { canonicalHash, documentIrHash, type DocumentIR } from '@une/domain';
+import { canonicalHash, documentIrHash, type DocumentIR, type TemplateProfile } from '@une/domain';
 import { HwpxEngine } from '@une/hwpx-engine';
-import { sha256Of, sourceObjectKey, type ObjectStoragePort } from '@une/provider-adapters';
+import {
+  ObjectStorageError,
+  sha256Of,
+  sourceObjectKey,
+  type ObjectStoragePort,
+} from '@une/provider-adapters';
 import { AuditRepository } from '../common/audit.repository';
 import { OBJECT_STORAGE } from '../common/storage.provider';
 import type { RequestMetaLike } from '../common/controller-utils';
 import type { AuthContext } from '../common/request-context';
 import { DatabaseService } from '../db/database.service';
+import { PlanRepository } from '../plan/plan.repository';
 import { DocumentRepository } from './document.repository';
+import { fileErrors } from './file-errors';
+import { FileRepository } from './file.repository';
 
 /**
- * DocumentImportService — HTTP 표면이 **없는** 애플리케이션 서비스.
+ * DocumentImportService — HWPX 반입 (UNE-DOC-003/004).
  *
- * 업로드 API(UNE-DOC-001~004: 파일 사전등록, 업로드 완료, HWPX 분석 요청,
- * 분석결과 조회)는 **아직 아무 항목도 소유하지 않는다**(ADR-31 D1이 CC-160
- * 범위에서 제외했다 — 별도 화면 흐름이다). 그렇지만 편집·Export는 전부
- * "이미 존재하는 문서"를 전제로 하므로, 문서가 존재하게 만드는 경로가 하나는
- * 있어야 한다. 이 서비스가 그 경로다 — 컨트롤러에 배선하지 않으며 계약
- * (OpenAPI)에도 나타나지 않지만, CC-160부터는 **원본 바이트를 저장소에
- * 등록하는 책임**을 함께 진다(ADR-31 D9).
+ * CC-160까지 이 서비스에는 HTTP 표면이 없었다(ADR-31 D1이 업로드 API를 범위
+ * 밖에 두었다). CC-170이 그 표면을 붙인다: 사전등록·전송·완료확정을 지난
+ * `file_object`를 받아 문서를 만들고, 분석 결과를 조회할 수 있게 한다.
  *
- * 쓰는 것은 세 가지다.
+ * 쓰는 것은 네 가지다.
  *   * `document`               — 애그리거트 루트
  *   * `document_revision` #1   — `origin = 'IMPORT'` (0019 §2.1)
  *   * `template_profile`       — 분석 결과. `style_prototype`은 그 하위 행이며,
  *                                UNE-DOC-004의 `x-db-tables`가 가리키는 실제
  *                                테이블 이름이다(설계의 `prototype_registry`는
  *                                구현에 존재하지 않는다 — 이름 드리프트 종결).
+ *   * `plan.document_id`       — 요청에 planId가 있을 때. 0003부터 있던 컬럼이고
+ *                                FK도 있었지만 **쓰는 코드가 없었다**(CC-170).
+ *
+ * 분석은 동기다. 실문서 6종이 수십 ms이므로 Job으로 만들면 관리 대상만
+ * 늘어나고 사용자가 기다리는 시간은 같다(ADR-32).
  */
 
 export interface ImportResult {
@@ -42,12 +51,78 @@ export interface ImportResult {
   elapsedMs: number;
 }
 
+/** 계약 DocumentAnalysisSummary. */
+export interface DocumentAnalysisSummary {
+  templateProfileId: string;
+  profileVersion: number;
+  verdict: string;
+  confidence: number;
+  objectCounts: Record<string, number>;
+  prototypeCount: number;
+  unsupportedObjectCount: number;
+  warnings: string[];
+  analysisHash: string;
+  elapsedMs?: number;
+}
+
+/** 계약 ImportedDocumentResource. */
+export interface ImportedDocumentResource {
+  documentId: string;
+  planId: string | null;
+  title: string;
+  documentType: string;
+  status: string;
+  sourceFileId: string;
+  revisionId: string;
+  revisionNo: number;
+  irHash: string;
+  analysis: DocumentAnalysisSummary;
+}
+
+/** 계약 DocumentAnalysisResource. */
+export interface DocumentAnalysisResource {
+  documentId: string;
+  analysis: DocumentAnalysisSummary;
+  unsupportedObjects: unknown[];
+  profile: unknown;
+  createdAt: string;
+}
+
 /** TemplateProfile.compatibility.verdict → template_profile.analysis_status.
  * ADR-31 D12가 이 컬럼을 **판정 축**으로 확정했고(0020 §5가 CHECK를 건다)
  * 판정 어휘를 그대로 쓴다 — 변환하지 않는다. 설계 09의 생명주기 어휘는
  * 직교하는 다른 축이며 화면 구현 시점에 별도 컬럼으로 선다. */
 function analysisStatusOf(verdict: string): string {
   return verdict;
+}
+
+/**
+ * 저장된 template_profile 행 → 계약 요약.
+ *
+ * 판정·신뢰도·객체 등급 집계는 `profile_json`의 compatibility에서 온다.
+ * `analysis_status` 컬럼과 `compatibility.verdict`는 같은 값이며(ADR-31 D12),
+ * 둘이 갈라졌다면 그것은 결함이므로 컬럼 쪽을 신고한다.
+ */
+function toAnalysisSummary(detail: {
+  templateProfileId: string;
+  profileVersion: number;
+  analysisStatus: string;
+  profile: TemplateProfile;
+  unsupportedObjects: unknown[];
+  analysisHash: string;
+}): DocumentAnalysisSummary {
+  const compatibility = detail.profile.compatibility;
+  return {
+    templateProfileId: detail.templateProfileId,
+    profileVersion: detail.profileVersion,
+    verdict: detail.analysisStatus,
+    confidence: compatibility.confidence,
+    objectCounts: { ...compatibility.objectCounts },
+    prototypeCount: detail.profile.prototypes.length,
+    unsupportedObjectCount: detail.unsupportedObjects.length,
+    warnings: [...detail.profile.warnings],
+    analysisHash: detail.analysisHash,
+  };
 }
 
 @Injectable()
@@ -59,6 +134,8 @@ export class DocumentImportService {
     @Inject(DocumentRepository) private readonly repo: DocumentRepository,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
     @Inject(OBJECT_STORAGE) private readonly storage: ObjectStoragePort,
+    @Inject(FileRepository) private readonly files: FileRepository,
+    @Inject(PlanRepository) private readonly plans: PlanRepository,
   ) {}
 
   async importFromFile(
@@ -71,6 +148,93 @@ export class DocumentImportService {
     return this.importFromBytes(auth, bytes, { fileName: filePath, ...options }, meta);
   }
 
+  /**
+   * UNE-DOC-003 — 검증된 `file_object`에서 문서를 만든다.
+   *
+   * 전제는 하나다: 파일이 UNE-DOC-002를 통과했다(`uploadState === 'VERIFIED'`).
+   * 검증되지 않은 바이트로 문서를 만들면 그 뒤의 모든 무결성 주장이 근거를
+   * 잃는다 — 되쓰기는 "원본과 같은 바이트"를 전제로 하고, 그 원본이 무엇인지
+   * 아무도 확인하지 않은 상태가 된다.
+   */
+  async importFromFileObject(
+    auth: AuthContext,
+    input: { fileId: string; planId?: string | null; title?: string },
+    meta: RequestMetaLike,
+  ): Promise<ImportedDocumentResource> {
+    const file = await this.db.withTenant(auth.tenantId, (c) =>
+      this.files.find(c, auth.tenantId, input.fileId),
+    );
+    if (!file) throw fileErrors.notFound();
+    if (file.uploadState !== 'VERIFIED') {
+      throw fileErrors.importRejected('업로드 검증을 통과하지 않은 파일입니다.', [
+        {
+          field: 'fileId',
+          reason: `uploadState=${file.uploadState} — UNE-DOC-002를 먼저 완료하십시오.`,
+        },
+      ]);
+    }
+
+    // 저장소 읽기는 트랜잭션 밖이다.
+    let bytes: Uint8Array;
+    try {
+      bytes = (await this.storage.get(file.storageKey)).body;
+    } catch (error) {
+      if (error instanceof ObjectStorageError && error.kind === 'NOT_FOUND') {
+        throw fileErrors.importRejected('업로드된 바이트를 찾을 수 없습니다.');
+      }
+      throw error instanceof ObjectStorageError
+        ? fileErrors.storageUnavailable()
+        : (error as Error);
+    }
+
+    const result = await this.importFromBytes(
+      auth,
+      bytes,
+      {
+        fileName: file.originalName,
+        title: input.title,
+        sourceFileId: file.fileId,
+        planId: input.planId ?? null,
+      },
+      meta,
+    );
+
+    const detail = await this.db.withTenant(auth.tenantId, (c) =>
+      this.repo.findTemplateProfileDetail(c, result.documentId),
+    );
+    if (!detail) throw fileErrors.analysisNotFound();
+
+    return {
+      documentId: result.documentId,
+      planId: input.planId ?? null,
+      title: input.title ?? file.originalName,
+      documentType: 'PLAN',
+      status: 'EDITING',
+      sourceFileId: file.fileId,
+      revisionId: result.revisionId,
+      revisionNo: result.revisionNo,
+      irHash: result.irHash,
+      analysis: { ...toAnalysisSummary(detail), elapsedMs: result.elapsedMs },
+    };
+  }
+
+  /** UNE-DOC-004 — 저장된 분석 결과. 다시 분석하지 않는다. */
+  async getAnalysis(auth: AuthContext, documentId: string): Promise<DocumentAnalysisResource> {
+    return this.db.withTenant(auth.tenantId, async (c) => {
+      const document = await this.repo.findDocument(c, auth.tenantId, documentId);
+      if (!document) throw fileErrors.analysisNotFound();
+      const detail = await this.repo.findTemplateProfileDetail(c, documentId);
+      if (!detail) throw fileErrors.analysisNotFound();
+      return {
+        documentId,
+        analysis: toAnalysisSummary(detail),
+        unsupportedObjects: detail.unsupportedObjects,
+        profile: detail.profile,
+        createdAt: detail.createdAt.toISOString(),
+      };
+    });
+  }
+
   async importFromBytes(
     auth: AuthContext,
     bytes: Uint8Array,
@@ -79,6 +243,8 @@ export class DocumentImportService {
       title?: string;
       documentType?: string;
       sourceFileId?: string | null;
+      /** 주면 같은 트랜잭션에서 `plan.document_id`에 붙인다. */
+      planId?: string | null;
     },
     meta: RequestMetaLike,
   ): Promise<ImportResult> {
@@ -94,6 +260,16 @@ export class DocumentImportService {
       options.sourceFileId ?? (await this.registerSource(auth, bytes, options.fileName));
 
     return this.db.withTenant(auth.tenantId, async (c) => {
+      // 계획서를 먼저 확인한다. 링크가 실패할 요청이라면 문서를 만들지 않는
+      // 것이 옳다 — 한 트랜잭션이므로 뒤에서 던져도 되돌아가지만, 문서 번호와
+      // 저장소 객체를 낭비하지 않는다.
+      if (options.planId) {
+        const plan = await this.plans.findPlan(c, auth.tenantId, options.planId, {
+          forUpdate: true,
+        });
+        if (!plan || plan.deletedAt) throw fileErrors.planNotFound();
+      }
+
       const document = await this.repo.insertDocument(c, {
         tenantId: auth.tenantId,
         documentType: options.documentType ?? 'PLAN',
@@ -102,6 +278,16 @@ export class DocumentImportService {
         status: 'EDITING',
         ownerId: auth.userId,
       });
+
+      if (options.planId) {
+        const attached = await this.plans.attachDocument(
+          c,
+          auth.tenantId,
+          options.planId,
+          document.documentId,
+        );
+        if (!attached) throw fileErrors.planAlreadyHasDocument();
+      }
 
       // IR의 documentId는 DB의 문서 식별자와 같아야 한다. 엔진은 DB를 모르므로
       // 여기서 한 번 묶는다 — 그리고 그 상태의 해시를 저장한다(값과 해시가
@@ -174,6 +360,8 @@ export class DocumentImportService {
           templateProfileId,
           verdict: analysis.profile.compatibility.verdict,
           sourceHash: analysis.profile.sourceHash,
+          sourceFileId,
+          planId: options.planId ?? null,
         },
       });
 

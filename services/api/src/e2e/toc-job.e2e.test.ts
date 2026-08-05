@@ -8,7 +8,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MOCK_FAIL_PREFIX, MockLegacyT3qPlanAdapter } from '@une/provider-adapters';
 import { createApp } from '../app.factory';
 import { buildMockExternalToken } from '../auth/mock-sso';
-import type { ApiConfig } from '../config/api-config';
 // The full-journey evidence drives the worker in-process (design 10 §7.9
 // 7-9단계). Relative source import on purpose: @une/worker is an app package
 // without a library entry; tests must judge worker SOURCE, not stale dist
@@ -17,6 +16,7 @@ import { loadWorkerConfig } from '../../../worker/src/config/worker-config';
 import { WorkerDatabase } from '../../../worker/src/db/worker-database.service';
 import { TocJobRunner } from '../../../worker/src/plan-toc/toc-job.runner';
 import { ContentJobRunner } from '../../../worker/src/plan-content/content-job.runner';
+import { e2eApiConfig } from './test-config';
 
 const ADMIN_URL = process.env.DATABASE_URL;
 const SECRET = 'e2e-signing-secret-e2e-signing-secret!!';
@@ -194,15 +194,7 @@ describe.skipIf(!ADMIN_URL)('CC-120 TOC job e2e (API + in-process worker)', () =
     });
     fx = await withClient(dbUrl, insertFixtures);
 
-    const config: ApiConfig = {
-      port: 0,
-      authMode: 'mock',
-      jwtSecret: SECRET,
-      accessTtlSec: 900,
-      refreshTtlSec: 3600,
-      databaseUrl: dbUrl,
-      runtimeRole: 'une_app',
-    };
+    const config = e2eApiConfig({ databaseUrl: dbUrl, jwtSecret: SECRET });
     app = await createApp(config);
     await app.listen(0);
     base = (await app.getUrl()).replace('[::1]', '127.0.0.1');

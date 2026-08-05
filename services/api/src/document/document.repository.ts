@@ -609,6 +609,46 @@ export class DocumentRepository {
     };
   }
 
+  /**
+   * UNE-DOC-004가 보는 전체 행 (CC-170).
+   *
+   * `findTemplateProfile`은 편집·materialize 경로가 프로파일 본문만 필요해서
+   * 두 컬럼만 읽는다. 분석 결과 조회는 판정·미지원 객체·해시·시각까지 봐야
+   * 하므로 별도 메서드를 둔다 — 기존 반환 모양을 넓히면 그 경로들이 쓰지 않는
+   * 값을 나르게 된다.
+   */
+  async findTemplateProfileDetail(
+    client: PoolClient,
+    documentId: string,
+  ): Promise<{
+    templateProfileId: string;
+    profileVersion: number;
+    analysisStatus: string;
+    profile: TemplateProfile;
+    unsupportedObjects: unknown[];
+    analysisHash: string;
+    createdAt: Date;
+  } | null> {
+    const res = await client.query(
+      `SELECT template_profile_id, profile_version, analysis_status, profile_json,
+              unsupported_objects_json, analysis_hash, created_at
+       FROM template_profile
+       WHERE document_id = $1 ORDER BY profile_version DESC LIMIT 1`,
+      [documentId],
+    );
+    const row = res.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      templateProfileId: row.template_profile_id as string,
+      profileVersion: row.profile_version as number,
+      analysisStatus: row.analysis_status as string,
+      profile: row.profile_json as TemplateProfile,
+      unsupportedObjects: (row.unsupported_objects_json as unknown[]) ?? [],
+      analysisHash: row.analysis_hash as string,
+      createdAt: row.created_at as Date,
+    };
+  }
+
   async insertTemplateProfile(
     client: PoolClient,
     input: {

@@ -14,7 +14,11 @@ import { DatabaseService } from './db/database.service';
 import { ChangeSetService } from './document/change-set.service';
 import { DocumentController } from './document/document.controller';
 import { DocumentExportController, ExportController } from './document/export.controller';
+import { DocumentImportController } from './document/document-import.controller';
 import { DocumentImportService } from './document/document-import.service';
+import { FileController } from './document/file.controller';
+import { FileRepository } from './document/file.repository';
+import { FileService } from './document/file.service';
 import { DocumentRepository } from './document/document.repository';
 import { DocumentService } from './document/document.service';
 import { ExportRepository } from './document/export.repository';
@@ -59,6 +63,8 @@ export class AppModule {
         TocVersionController,
         PlanJobController,
         DocumentController,
+        DocumentImportController,
+        FileController,
         DocumentExportController,
         ExportController,
       ],
@@ -83,9 +89,10 @@ export class AppModule {
         DocumentRepository,
         DocumentService,
         ChangeSetService,
-        // HTTP 표면이 없는 애플리케이션 서비스. 업로드 API(UNE-DOC-001~004)는
-        // ADR-31 D1이 CC-160 범위에서 제외했으므로 아직 주인이 없다. 이 서비스가
-        // 문서를 존재하게 만드는 유일한 경로이며, 원본을 저장소에 등록한다(D9).
+        // CC-170: 업로드 3단(UNE-DOC-001/002)과 반입·분석조회(UNE-DOC-003/004).
+        // CC-160까지 DocumentImportService에는 HTTP 표면이 없었다(ADR-31 D1).
+        FileRepository,
+        FileService,
         DocumentImportService,
         // CC-160: Export 접수·조회·다운로드. 되쓰기와 Track A는 워커가 한다.
         ExportRepository,

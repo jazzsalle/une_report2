@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 61
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link
 
 ## api_idempotency
 
@@ -453,10 +453,12 @@
 - ck_file_object_scan_status: CHECK (((scan_status)::text = ANY ((ARRAY['PENDING'::character varying, 'CLEAN'::character varying, 'INFECTED'::character varying])::text[])))
 - ck_file_object_sha256: CHECK ((sha256 ~ '^[0-9a-f]{64}$'::text))
 - ck_file_object_size: CHECK ((size_bytes >= 0))
+- ck_file_object_upload_state: CHECK (((upload_state)::text = ANY ((ARRAY['PENDING'::character varying, 'VERIFIED'::character varying, 'ABORTED'::character varying])::text[])))
+- ck_file_object_verified_shape: CHECK ((((upload_state)::text = 'VERIFIED'::text) = (verified_at IS NOT NULL)))
 - file_object_pkey: PRIMARY KEY (file_id)
 - fk_file_object_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
 - uk_file_object_storage_key: UNIQUE (storage_key)
-- 인덱스: file_object_pkey, uk_file_object_storage_key
+- 인덱스: file_object_pkey, ix_file_object_pending_upload, uk_file_object_storage_key
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -470,6 +472,8 @@
 | scan_status | character varying(20) | NN |  | PENDING/CLEAN/INFECTED |
 | created_by | uuid | NN |  | 등록자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+| upload_state | character varying(20) | NN | 'PENDING'::character varying | PENDING/VERIFIED/ABORTED (업로드 검증 축) |
+| verified_at | timestamp with time zone | - |  | 검증 확정 시각 |
 
 ## generated_block
 
@@ -751,7 +755,7 @@
 - fk_plan_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
 - fk_plan_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
 - plan_pkey: PRIMARY KEY (plan_id)
-- 인덱스: ix_plan_tenant_status_updated, plan_pkey
+- 인덱스: ix_plan_tenant_status_updated, plan_pkey, uk_plan_document
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -761,7 +765,7 @@
 | hazard_type | character varying(50) | NN |  | 재난유형 |
 | management_phase | character varying(20) | NN |  | 예방/대비 |
 | status | character varying(30) | NN |  | 상태 |
-| document_id | uuid | - |  | 편집문서 |
+| document_id | uuid | - |  | 계획서 본문 문서 (UNE-DOC-003이 채운다) |
 | current_context_snapshot_id | uuid | - |  | 현재 기준정보 |
 | current_toc_version_id | uuid | - |  | 현재 목차 |
 | owner_id | uuid | NN |  | 소유자 |

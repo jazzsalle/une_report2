@@ -239,9 +239,12 @@ export {
   exportObjectKey,
   sha256Of,
   sourceObjectKey,
+  uploadObjectKey,
   type FetchedObject,
   type ObjectStorageErrorKind,
   type ObjectStoragePort,
+  type PresignPutInput,
+  type PresignedPut,
   type PutObjectInput,
   type StoredObject,
 } from './storage/object-storage-port';

@@ -9,8 +9,8 @@ import { MemoryObjectStorage, exportObjectKey } from '@une/provider-adapters';
 import { createApp } from '../app.factory';
 import { buildMockExternalToken } from '../auth/mock-sso';
 import { OBJECT_STORAGE } from '../common/storage.provider';
-import type { ApiConfig } from '../config/api-config';
 import { DocumentImportService } from '../document/document-import.service';
+import { e2eApiConfig } from './test-config';
 
 /**
  * CC-160 UNE-DOC-012/013/014 e2e.
@@ -227,15 +227,7 @@ describe.skipIf(!ADMIN_URL || !existsSync(TEMPLATE))('CC-160 Export e2e (UNE-DOC
     });
     fx = await withClient(dbUrl, insertFixtures);
 
-    const config: ApiConfig = {
-      port: 0,
-      authMode: 'mock',
-      jwtSecret: SECRET,
-      accessTtlSec: 900,
-      refreshTtlSec: 3600,
-      databaseUrl: dbUrl,
-      runtimeRole: 'une_app',
-    };
+    const config = e2eApiConfig({ databaseUrl: dbUrl, jwtSecret: SECRET });
     // 운영 배선을 그대로 탄다: 팩토리가 드라이버를 고르고 앱이 그것을 주입한다
     // (드라이버 기본값은 vitest.setup.ts가 memory로 둔다). 테스트가 인스턴스를
     // 직접 밀어 넣으면 팩토리·토큰 배선이 검증되지 않는다.

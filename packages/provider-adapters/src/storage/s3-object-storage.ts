@@ -6,11 +6,14 @@ import {
   S3Client,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
   ObjectStorageError,
   sha256Of,
   type FetchedObject,
   type ObjectStoragePort,
+  type PresignPutInput,
+  type PresignedPut,
   type PutObjectInput,
   type StoredObject,
 } from './object-storage-port';
@@ -151,6 +154,45 @@ export class S3ObjectStorage implements ObjectStoragePort {
       await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
     } catch {
       // 정리 경로다. 실패해도 호출자의 트랜잭션을 되돌릴 이유가 없다.
+    }
+  }
+
+  /**
+   * 업로드용 presigned PUT.
+   *
+   * 선언 해시를 **서명에 넣는다**(`x-amz-checksum-sha256`). 그러면 다른 바이트는
+   * 저장소가 직접 거부하므로, 검증되지 않은 바이트가 애초에 자리에 놓이지 않는다.
+   * 클라이언트는 돌려준 헤더를 그대로 붙이기만 하면 된다 — 헤더를 하나 빼면
+   * 서명이 깨지므로 "체크섬을 안 보내고 통과"하는 경로가 없다.
+   */
+  async presignPut(input: PresignPutInput): Promise<PresignedPut> {
+    if (!/^[0-9a-f]{64}$/.test(input.sha256)) {
+      throw new ObjectStorageError('REJECTED', input.key, 'sha256 형식이 아닙니다');
+    }
+    const checksum = Buffer.from(input.sha256, 'hex').toString('base64');
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: input.key,
+      ContentType: input.contentType,
+      ChecksumSHA256: checksum,
+    });
+    try {
+      const url = await getSignedUrl(this.client, command, {
+        expiresIn: input.expiresInSeconds,
+        // 서명 대상 헤더를 고정한다. SDK가 임의로 더한 헤더까지 서명되면
+        // 클라이언트가 재현할 수 없는 요청이 된다.
+        signableHeaders: new Set(['content-type', 'x-amz-checksum-sha256']),
+      });
+      return {
+        url,
+        headers: {
+          'Content-Type': input.contentType,
+          'x-amz-checksum-sha256': checksum,
+        },
+        expiresAt: new Date(Date.now() + input.expiresInSeconds * 1000).toISOString(),
+      };
+    } catch (error) {
+      throw toStorageError(input.key, error);
     }
   }
 }

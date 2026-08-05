@@ -683,6 +683,14 @@ export type paths = {
          *     핵심 응답: FileObject+uploadUrl
          *
          *     오류: FILE-422-001
+         *
+         *     3단 업로드(설계 10 §2 "사전등록→직접 업로드→완료확정")의 1단이다. 서버는 `file_object` 행을 `uploadState=PENDING`으로 만들고 **바이트가 놓일 자리**와 그 자리에 쓸 티켓만 돌려준다. 바이트는 이 API를 지나가지 않는다.
+         *
+         *     선언값은 아직 사실이 아니다. `sha256`·`sizeBytes`는 클라이언트의 주장이며 UNE-DOC-002가 **저장된 바이트에서 다시 계산해** 대조한다. 그래서 저장 키에는 선언 해시를 쓰지 않고 `fileId`로 격리한다(ADR-32) — 검증되지 않은 바이트가 내용 주소 키를 차지하면 "키가 곧 내용"이라는 전제가 깨진다.
+         *
+         *     `upload.driver`는 진단·증거용이다. 클라이언트는 `url`/`method`/`headers`만 쓰고 driver로 분기하지 않는다. presign이 불가능한 드라이버(로컬·테스트의 인메모리 저장소)에서는 API 자신의 전송 라우트를 가리킨다.
+         *
+         *     멱등: Idempotency-Key. 같은 키 재전송은 같은 fileId와 **새 티켓**을 돌려준다 (티켓은 만료되므로 원본을 그대로 재생하면 쓸 수 없는 URL을 준다).
          */
         post: operations["une_doc_001"];
         delete?: never;
@@ -709,8 +717,42 @@ export type paths = {
          *     핵심 응답: FileObject
          *
          *     오류: FILE-422-002
+         *
+         *     3단 업로드의 3단이며 **검증 지점**이다. 서버는 저장된 객체를 읽어 (1) 크기, (2) SHA-256 재계산값, (3) **내용 기반 형식**을 사전등록 선언과 대조한다. 하나라도 어긋나면 422 FILE-422-002이고 행은 `uploadState=ABORTED`로 끝난다 — 이후 어떤 경로도 이 파일을 쓸 수 없다.
+         *
+         *     형식 판정은 확장자·`Content-Type`을 신뢰하지 않는다(`.claude/rules/security.md`). HWPX는 ZIP 매직과 `mimetype` 엔트리(`application/hwp+zip`)를 실제 바이트에서 확인한다. `etag`는 전송 계층이 준 값이며 **참고**로만 기록한다: 멀티파트 업로드의 ETag는 MD5가 아니고, 드라이버마다 다르므로 이것을 무결성 근거로 쓸 수 없다. 근거는 우리가 다시 계산한 SHA-256이다.
+         *
+         *     `scanStatus`는 이 단계에서도 PENDING이다. AV 스캐너는 아직 없다(OB-15) — 상태를 CLEAN으로 올리면 검사하지 않은 파일이 감사에서 검사된 것으로 보인다. `malware_scan` 테이블도 만들지 않았으므로 x-db-tables에 적지 않는다(ADR-32).
+         *
+         *     멱등: 같은 파일에 대한 재확정은 이미 VERIFIED인 행을 그대로 돌려준다. ABORTED 행의 재확정은 다시 422다(재조회로 고쳐지지 않는다).
          */
         post: operations["une_doc_002"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/{fileId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 업로드 전송(presign 불가 드라이버 전용)
+         * @description `Authorization` 헤더를 쓰지 않는다 — UNE-DOC-001이 발급한 **1회용 티켓
+         *     토큰**(`upload.url`의 쿼리)만으로 인가한다. presign URL이 그렇게 동작하기
+         *     때문이며, 두 드라이버가 같은 클라이언트 코드로 동작해야 하기 때문이다.
+         *
+         *     토큰은 fileId·테넌트·만료·선언 크기에 묶인다. 만료 후에는 403이고,
+         *     이미 확정(VERIFIED/ABORTED)된 파일에는 409다. 여기서는 바이트를 저장만
+         *     하며 **검증은 하지 않는다** — 검증 지점은 UNE-DOC-002 하나뿐이어야 한다.
+         */
+        put: operations["une_doc_001_transport"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -735,6 +777,16 @@ export type paths = {
          *     핵심 응답: Document+AnalysisJob
          *
          *     오류: HWPX-422-001
+         *
+         *     분석은 **동기**다. 설계의 "Document+AnalysisJob"에서 Job 형태를 취하지 않는 이유는 측정 결과다 — 실문서 6종 분석이 수십 ms이고(CC-140), Job으로 만들면 상태 폴링·리스·재시도를 관리할 대상이 하나 늘어나는 대신 사용자가 기다리는 시간은 같다. 이 결정과 되돌릴 조건(대용량에서 목표 초과)은 ADR-32에 적었다. 응답의 `analysis`가 곧 결과이며 UNE-DOC-004로 다시 읽는다.
+         *
+         *     전제: `fileId`는 UNE-DOC-002를 통과한(`uploadState=VERIFIED`) 파일이어야 한다. PENDING/ABORTED면 422 HWPX-422-001이다 — 검증되지 않은 바이트를 문서로 만들면 그 뒤의 모든 무결성 주장이 근거를 잃는다.
+         *
+         *     `planId`를 주면 `document.plan_id`로 저장된다(0022). 계약에 있는 필드가 어디에도 남지 않으면 클라이언트는 연결됐다고 믿고 서버는 모르는 상태가 된다. 다른 테넌트·삭제된 계획서는 404다.
+         *
+         *     판정: 분석 결과 `verdict=REJECT`인 문서도 **가져온다**. 문서는 만들되 저장(Export)을 차단하는 것이 ADR-29 D11/ADR-31 D7의 집행 지점이므로, 반입 단계에서 문서를 만들지 않으면 사용자는 왜 거부됐는지 볼 화면이 없다. `analysis.verdict`와 `analysis.unsupportedObjects`가 그 근거다.
+         *
+         *     멱등: Idempotency-Key. 같은 키 재전송은 처음 만든 문서를 그대로 돌려준다 (같은 파일을 다시 반입하면 **새 문서**가 된다 — 파일 재사용은 반입 중복이 아니다).
          */
         post: operations["une_doc_003"];
         delete?: never;
@@ -759,6 +811,10 @@ export type paths = {
          *     핵심 응답: TemplateProfile,Warnings
          *
          *     오류: HWPX-404-001
+         *
+         *     요약(`analysis`)과 **전체 프로파일**(`profile`)을 함께 낸다. 전체 형태의 정본은 `contracts/schemas/template-profile.schema.json`이며 여기서는 `additionalProperties: true`로 통과시킨다 — 같은 어휘를 두 벌로 적으면 반드시 갈라진다(UNE-DOC-006이 change-set 스키마를 다루는 방식과 같다).
+         *
+         *     `unsupportedObjects`는 NATIVE_EDIT가 아닌 객체의 분류 결과이며, 어떤 것이 Export를 차단하는지(REJECT/FLATTEN_EXPORT_ONLY)를 화면이 판단하는 근거다. 분석 이력이 없는 문서는 404 HWPX-404-001이다.
          */
         get: operations["une_doc_004"];
         put?: never;
@@ -3395,11 +3451,186 @@ export type components = {
             /** @description 현재(supersede되지 않은) generated_block id 목록. 지정 시 해당 블록은 protection_state=USER_LOCKED로 영속 기록되어 이후 모든 재생성에서 보호된다 (범위 지정 재생성 여부와 무관). 알 수 없는 id는 422 PLAN-422-002. */
             protectedBlockIds?: string[];
         };
-        HwpImportRequest: {
+        /**
+         * @description 용도. 허용 MIME·크기 상한이 여기서 갈린다. CC-170이 실제로 처리하는 것은
+         *     HWPX_IMPORT 하나이며 나머지는 각 항목(CC-220 등)에서 열린다 — 지금 보내면
+         *     422 FILE-422-001이다. 어휘를 미리 두는 이유는 용도별 상한이 나중에 생기는
+         *     분기가 아니라 처음부터 있어야 하는 축이기 때문이다.
+         * @enum {string}
+         */
+        FileUploadPurpose: "HWPX_IMPORT" | "KNOWLEDGE_DOCUMENT" | "ATTACHMENT";
+        /**
+         * @description 사전등록(PENDING) → UNE-DOC-002 검증 성공(VERIFIED) 또는 실패(ABORTED).
+         *     전송 완료를 별도 상태로 두지 않는다 — 검증하지 않은 "올라옴"은 이후 어떤
+         *     결정의 근거도 되지 못하므로 도달 가능한 상태를 늘리기만 한다.
+         * @enum {string}
+         */
+        FileUploadState: "PENDING" | "VERIFIED" | "ABORTED";
+        /**
+         * @description 악성코드 검사 상태. **AV 스캐너가 없으므로 현재 구현은 항상 PENDING이다**
+         *     (OB-15). 검증을 통과한 파일도 "검사되지 않음"이 사실이며, 여기를 CLEAN으로
+         *     올리면 감사 기록이 하지 않은 검사를 했다고 말한다.
+         * @enum {string}
+         */
+        FileScanStatus: "PENDING" | "CLEAN" | "INFECTED";
+        FileObjectResource: {
             /** Format: uuid */
             fileId: string;
+            originalName: string;
+            mimeType: string;
+            /** Format: int64 */
+            sizeBytes: number;
+            /** @description PENDING에서는 클라이언트의 **선언값**, VERIFIED에서는 저장 바이트에서 재계산한 값이다. */
+            sha256: string;
+            uploadState: components["schemas"]["FileUploadState"];
+            scanStatus: components["schemas"]["FileScanStatus"];
+            /** Format: date-time */
+            verifiedAt?: string | null;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        FileUploadTicket: {
+            /** @description 바이트를 그대로 PUT할 절대 URL. 서명이나 티켓이 쿼리에 실린다. */
+            url: string;
+            /** @enum {string} */
+            method: "PUT";
+            /** @description 전송 시 그대로 붙여야 하는 헤더. 서명 대상이므로 임의로 더하거나 빼면 실패한다. */
+            headers: {
+                [key: string]: string;
+            };
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: int64 */
+            maxSizeBytes: number;
+            /**
+             * @description 진단·증거용이다. **클라이언트는 이 값으로 분기하지 않는다** — 그래야
+             *     로컬(인메모리)과 MinIO/S3가 같은 화면 코드로 동작한다.
+             * @enum {string}
+             */
+            driver: "PRESIGNED_S3" | "API_DIRECT";
+        };
+        FileRegistrationResource: {
+            file: components["schemas"]["FileObjectResource"];
+            upload: components["schemas"]["FileUploadTicket"];
+        };
+        FileRegisterRequest: {
+            fileName: string;
+            /** Format: int64 */
+            sizeBytes: number;
+            mimeType: string;
+            sha256: string;
+            purpose?: components["schemas"]["FileUploadPurpose"];
+        };
+        FileCompleteRequest: {
+            /**
+             * @description 전송 계층이 돌려준 ETag. **참고 기록일 뿐 무결성 근거가 아니다** —
+             *     멀티파트 업로드의 ETag는 MD5가 아니고 드라이버마다 다르다. 근거는
+             *     서버가 저장 바이트에서 다시 계산한 SHA-256이다.
+             */
+            etag?: string;
+        };
+        FileRegistrationResponse: {
+            success: boolean;
+            data: components["schemas"]["FileRegistrationResource"];
+            meta: components["schemas"]["Meta"];
+        };
+        FileObjectResponse: {
+            success: boolean;
+            data: components["schemas"]["FileObjectResource"];
+            meta: components["schemas"]["Meta"];
+        };
+        DocumentAnalysisSummary: {
+            /** Format: uuid */
+            templateProfileId: string;
+            profileVersion: number;
+            /**
+             * @description 문서 단위 판정(ADR v1.1 §8.6 G15-1, 롤업 규칙은 ADR-29 D2).
+             *     `template_profile.analysis_status`에 그대로 저장된다 — ADR-31 D12가
+             *     이 컬럼을 판정 축으로 확정했으므로 변환하지 않는다.
+             * @enum {string}
+             */
+            verdict: "AUTO" | "CONFIRM" | "LIMITED" | "REJECT";
+            confidence: number;
+            objectCounts: {
+                NATIVE_EDIT: number;
+                PRESERVE_ONLY: number;
+                FLATTEN_EXPORT_ONLY: number;
+                REJECT: number;
+            };
+            prototypeCount: number;
+            unsupportedObjectCount: number;
+            warnings: string[];
+            analysisHash: string;
+            /** @description 분석 소요 시간. 성능 기준선(ADR G15-5) 관측점이다. */
+            elapsedMs?: number;
+        };
+        ImportedDocumentResource: {
+            /** Format: uuid */
+            documentId: string;
             /** Format: uuid */
             planId?: string | null;
+            title: string;
+            /** @enum {string} */
+            documentType: "PLAN" | "JOURNAL";
+            /** @enum {string} */
+            status: "EDITING" | "REVIEW" | "APPROVED";
+            /** Format: uuid */
+            sourceFileId: string;
+            /** Format: uuid */
+            revisionId: string;
+            revisionNo: number;
+            irHash: string;
+            analysis: components["schemas"]["DocumentAnalysisSummary"];
+        };
+        HwpImportResponse: {
+            success: boolean;
+            data: components["schemas"]["ImportedDocumentResource"];
+            meta: components["schemas"]["Meta"];
+        };
+        DocumentAnalysisResource: {
+            /** Format: uuid */
+            documentId: string;
+            analysis: components["schemas"]["DocumentAnalysisSummary"];
+            /** @description NATIVE_EDIT가 아닌 객체의 분류 결과. 어떤 객체가 저장을 차단하는지의 근거다(ADR-29 D4, ADR-31 D7). */
+            unsupportedObjects: ({
+                /** @enum {string} */
+                objectClass: "PRESERVE_ONLY" | "FLATTEN_EXPORT_ONLY" | "REJECT";
+                elementName: string;
+                locator?: string;
+                reason?: string;
+            } & {
+                [key: string]: unknown;
+            })[];
+            /**
+             * @description TemplateProfile 전문. 정본 스키마는
+             *     `contracts/schemas/template-profile.schema.json`이며 여기서는 통과시킨다.
+             */
+            profile: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DocumentAnalysisResponse: {
+            success: boolean;
+            data: components["schemas"]["DocumentAnalysisResource"];
+            meta: components["schemas"]["Meta"];
+        };
+        HwpImportRequest: {
+            /**
+             * Format: uuid
+             * @description UNE-DOC-002를 통과한(uploadState=VERIFIED) 파일이어야 한다.
+             */
+            fileId: string;
+            /**
+             * Format: uuid
+             * @description 주면 document.plan_id로 저장된다(0022). 다른 테넌트·삭제된 계획서는 404다.
+             */
+            planId?: string | null;
+            /** @description 생략하면 원본 파일명을 쓴다. */
+            title?: string;
         };
         /**
          * @description 일반 편집은 `operations`가 필수다. **Undo/Redo는 반대로 `operations`를 싣지
@@ -3688,14 +3919,6 @@ export type components = {
             format: "HWPX" | "PDF" | "DOCX";
             /** Format: uuid */
             revisionId?: string | null;
-            /** @description 저장 모드 등 산출 옵션 (설계 07 §1.10 저장 모드표) */
-            options?: {
-                /**
-                 * @default SAVE_AS
-                 * @enum {string}
-                 */
-                saveMode: "SAVE_AS" | "SAVE_REVISION" | "EXPORT_COPY";
-            };
         };
         SituationCreateRequest: {
             /** @enum {string} */
@@ -3835,7 +4058,7 @@ export type components = {
             checks: {
                 code: string;
                 /** @enum {string} */
-                layer: "PACKAGE" | "REFERENCE" | "SEMANTIC" | "STYLE" | "VISUAL" | "HANCOM" | "EDIT";
+                layer?: "PACKAGE" | "REFERENCE" | "SEMANTIC" | "STYLE" | "VISUAL" | "HANCOM" | "EDIT";
                 /** @enum {string} */
                 outcome: "PASS" | "WARN" | "FAIL" | "NOT_RUN";
                 detail: string;
@@ -3885,6 +4108,15 @@ export type components = {
         };
         /** @description Not Found */
         NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Gone — 자원이 있었으나 더 이상 존재하지 않는다 */
+        Gone: {
             headers: {
                 [name: string]: unknown;
             };
@@ -4898,9 +5130,9 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["FileRegisterRequest"];
             };
         };
         responses: {
@@ -4910,7 +5142,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["FileRegistrationResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4936,7 +5168,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["FileCompleteRequest"];
             };
         };
         responses: {
@@ -4946,7 +5178,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["FileObjectResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4955,6 +5187,49 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
+            503: components["responses"]["ProviderError"];
+        };
+    };
+    une_doc_001_transport: {
+        parameters: {
+            query: {
+                /** @description UNE-DOC-001이 발급한 1회용 업로드 티켓 */
+                token: string;
+            };
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+            };
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description 저장 완료 (본문 없음) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description 선언 크기를 넘는 본문 */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             503: components["responses"]["ProviderError"];
         };
     };
@@ -4968,19 +5243,19 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["HwpImportRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["HwpImportResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5011,7 +5286,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["DocumentAnalysisResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5368,6 +5643,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/hwp+zip": string;
                     "application/octet-stream": string;
                 };
             };
@@ -5376,6 +5652,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            410: components["responses"]["Gone"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryObjectStorage } from './memory-object-storage';
-import { ObjectStorageError, exportObjectKey, sha256Of } from './object-storage-port';
+import {
+  ObjectStorageError,
+  exportObjectKey,
+  sha256Of,
+  uploadObjectKey,
+} from './object-storage-port';
 import { createObjectStorage } from './storage-factory';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -51,7 +56,52 @@ describe('exportObjectKey — 테넌트 접두사와 키 위생', () => {
   });
 });
 
+describe('uploadObjectKey — 검증 전 바이트는 내용 주소를 차지하지 않는다', () => {
+  const FILE = '33333333-3333-4333-8333-333333333333';
+
+  it('fileId로 격리한다 (sources/{sha256}과 섞이지 않는다)', () => {
+    expect(
+      uploadObjectKey({ tenantId: TENANT, fileId: FILE, sha256: HASH, extension: 'hwpx' }),
+    ).toBe(`tenants/${TENANT}/uploads/${FILE}/${HASH}.hwpx`);
+  });
+
+  it('같은 해시를 선언한 두 등록이 서로 다른 키를 받는다', () => {
+    const other = '44444444-4444-4444-8444-444444444444';
+    expect(
+      uploadObjectKey({ tenantId: TENANT, fileId: FILE, sha256: HASH, extension: 'hwpx' }),
+    ).not.toBe(
+      uploadObjectKey({ tenantId: TENANT, fileId: other, sha256: HASH, extension: 'hwpx' }),
+    );
+  });
+
+  it('경로 탈출과 형식 위반을 거부한다', () => {
+    for (const evil of ['../../etc', '', 'not-a-uuid']) {
+      expect(() =>
+        uploadObjectKey({ tenantId: evil, fileId: FILE, sha256: HASH, extension: 'hwpx' }),
+      ).toThrowError(ObjectStorageError);
+      expect(() =>
+        uploadObjectKey({ tenantId: TENANT, fileId: evil, sha256: HASH, extension: 'hwpx' }),
+      ).toThrowError(ObjectStorageError);
+    }
+    expect(() =>
+      uploadObjectKey({ tenantId: TENANT, fileId: FILE, sha256: 'nope', extension: 'hwpx' }),
+    ).toThrowError(/sha256/);
+  });
+});
+
 describe('MemoryObjectStorage — 포트 계약', () => {
+  it('presign 능력이 없으면 null이다 (흉내낸 URL을 주지 않는다)', async () => {
+    const storage = new MemoryObjectStorage();
+    expect(
+      await storage.presignPut({
+        key: 'k',
+        contentType: 'application/hwp+zip',
+        sha256: HASH,
+        expiresInSeconds: 900,
+      }),
+    ).toBeNull();
+  });
+
   it('넣은 바이트를 그대로 돌려주고 해시를 계산한다', async () => {
     const storage = new MemoryObjectStorage();
     const body = Buffer.from('UNE 산출물');

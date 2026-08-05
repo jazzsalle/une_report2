@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../app.factory';
 import { buildMockExternalToken } from '../auth/mock-sso';
 import { IdempotencyRepository, type IdempotencyRequest } from '../common/idempotency.repository';
-import type { ApiConfig } from '../config/api-config';
+import { e2eApiConfig } from './test-config';
 
 /**
  * HTTP-level acceptance evidence for CC-110 (UNE-PLAN-001~008) against a real
@@ -183,15 +183,7 @@ describe.skipIf(!ADMIN_URL)('CC-110 plan/context-snapshot e2e', () => {
     });
     fx = await withClient(dbUrl, insertFixtures);
 
-    const config: ApiConfig = {
-      port: 0,
-      authMode: 'mock',
-      jwtSecret: SECRET,
-      accessTtlSec: 900,
-      refreshTtlSec: 3600,
-      databaseUrl: dbUrl,
-      runtimeRole: 'une_app',
-    };
+    const config = e2eApiConfig({ databaseUrl: dbUrl, jwtSecret: SECRET });
     app = await createApp(config);
     await app.listen(0);
     base = (await app.getUrl()).replace('[::1]', '127.0.0.1');

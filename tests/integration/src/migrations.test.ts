@@ -60,11 +60,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 21 baseline migrations', async () => {
+  it('applies all 22 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(21);
+    expect(applied.rows).toHaveLength(22);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -77,6 +77,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     expect(applied.rows[18].name).toBe('0019_document_edit_surface');
     expect(applied.rows[19].name).toBe('0020_export_and_validation');
     expect(applied.rows[20].name).toBe('0021_export_lease_and_file_immutability');
+    expect(applied.rows[21].name).toBe('0022_upload_state_and_plan_document_link');
   });
 
   // 61 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
@@ -169,11 +170,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0021 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0022 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0021
+    await migrate(db.url); // remaining: 0011 ~ 0022
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -188,7 +189,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(21);
+    expect(applied.rows[0].n).toBe(22);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

@@ -7,11 +7,16 @@ import { createHash } from 'node:crypto';
  * 나가지 않는다(`.claude/rules/architecture.md`: "Domain services depend on
  * ports/interfaces, never directly on ... storage SDKs").
  *
- * 표면을 넷으로 좁힌 이유. 지금 필요한 것은 "산출물을 넣고, 다운로드로 내주고,
- * 있는지 확인한다"뿐이다. presigned URL·멀티파트·수명주기 정책은 각각 결정이
- * 필요한 주제이고(설계 §7502의 Presigned URL은 UNE-DOC-014가 바이너리
- * 스트리밍으로 계약돼 있어 지금 경로가 아니다), 쓰지도 않을 표면을 열어 두면
- * 어댑터마다 구현하지 않은 메서드가 생긴다.
+ * 표면을 좁게 유지한다. 멀티파트·수명주기 정책은 각각 결정이 필요한 주제이고,
+ * 쓰지도 않을 표면을 열어 두면 어댑터마다 구현하지 않은 메서드가 생긴다.
+ * 다운로드(UNE-DOC-014)는 계약이 바이너리 스트리밍이므로 presign 경로가
+ * 아니다 — 감사와 해시 대조를 서버가 해야 하기 때문이다(ADR-31).
+ *
+ * CC-170이 `presignPut`을 더했다. 업로드는 그 반대다: 설계 10 §2가 "사전등록→
+ * **직접 업로드**→완료확정"이고, 바이트를 API가 중계하면 큰 파일에서 API가
+ * 병목이 된다. presign을 할 수 없는 어댑터(인메모리)는 예외를 던지지 않고
+ * `null`을 돌려준다 — 능력 질문에 능력으로 답하게 하고, 대체 경로(API 전송
+ * 라우트)를 고르는 일은 자기 URL을 아는 호출자에게 남긴다(ADR-32).
  */
 
 export interface PutObjectInput {
@@ -34,12 +39,32 @@ export interface FetchedObject extends StoredObject {
   readonly contentType: string;
 }
 
+export interface PresignPutInput {
+  readonly key: string;
+  readonly contentType: string;
+  /**
+   * 클라이언트가 선언한 SHA-256(hex). 서명에 포함되므로 저장소 **자신이**
+   * 다른 바이트를 거부한다 — UNE-DOC-002의 재계산은 그와 독립된 두 번째 검사다.
+   */
+  readonly sha256: string;
+  readonly expiresInSeconds: number;
+}
+
+export interface PresignedPut {
+  readonly url: string;
+  /** 서명 대상 헤더. 그대로 붙여야 하며 더하거나 빼면 서명이 깨진다. */
+  readonly headers: Readonly<Record<string, string>>;
+  readonly expiresAt: string;
+}
+
 export interface ObjectStoragePort {
   put(input: PutObjectInput): Promise<StoredObject>;
   get(key: string): Promise<FetchedObject>;
   head(key: string): Promise<StoredObject | null>;
   /** 보존기간 만료·정리 경로에서만 쓴다. 실패해도 예외를 던지지 않는다. */
   remove(key: string): Promise<void>;
+  /** presign을 지원하지 않는 어댑터는 `null`을 돌려준다(예외가 아니다). */
+  presignPut(input: PresignPutInput): Promise<PresignedPut | null>;
 }
 
 /**
@@ -111,6 +136,32 @@ export function sourceObjectKey(input: {
     throw new ObjectStorageError('REJECTED', '(key)', `확장자 형식이 아닙니다: ${input.extension}`);
   }
   return `tenants/${input.tenantId}/sources/${input.sha256}.${input.extension}`;
+}
+
+/**
+ * 업로드 스테이징 키: `tenants/{tenantId}/uploads/{fileId}/{sha256}.{ext}`.
+ *
+ * `sources/`와 달리 **fileId로 격리한다**. 이 시점의 해시는 클라이언트의 선언일
+ * 뿐 검증되지 않았고, 검증되지 않은 바이트를 내용 주소 키(`sources/{sha256}`)에
+ * 올리면 "키가 곧 내용"이라는 전제가 깨진다 — 다른 흐름이 같은 해시를 선언했을
+ * 때 서로의 바이트를 보게 된다. 파일명에 선언 해시를 남기는 것은 진단용이며,
+ * 불일치는 UNE-DOC-002가 잡는다(ADR-32).
+ */
+export function uploadObjectKey(input: {
+  readonly tenantId: string;
+  readonly fileId: string;
+  readonly sha256: string;
+  readonly extension: string;
+}): string {
+  assertSafeSegment(input.tenantId, 'tenantId');
+  assertSafeSegment(input.fileId, 'fileId');
+  if (!/^[0-9a-f]{64}$/.test(input.sha256)) {
+    throw new ObjectStorageError('REJECTED', '(key)', `sha256 형식이 아닙니다: ${input.sha256}`);
+  }
+  if (!/^[a-z0-9]{1,8}$/.test(input.extension)) {
+    throw new ObjectStorageError('REJECTED', '(key)', `확장자 형식이 아닙니다: ${input.extension}`);
+  }
+  return `tenants/${input.tenantId}/uploads/${input.fileId}/${input.sha256}.${input.extension}`;
 }
 
 /**
