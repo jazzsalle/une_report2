@@ -152,9 +152,11 @@ describe('ApiClient.uploadBytes', () => {
     // 실으면 외부 제공자 원문을 렌더하는 것이 된다(`.claude/rules/frontend.md`).
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response('<Error><Code>SignatureDoesNotMatch</Code></Error>', { status: 403 }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('<Error><Code>SignatureDoesNotMatch</Code></Error>', { status: 403 }),
+        ),
     );
     const client = new ApiClient('http://api.test/api/v1');
     try {
