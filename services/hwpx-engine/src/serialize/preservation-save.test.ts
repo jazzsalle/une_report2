@@ -352,6 +352,152 @@ describe('보존 저장 — 문단 삽입·삭제 (ADR-31 D4 범위)', () => {
     // 어느 검사가 막았는지가 사유에 남는다.
     expect((thrown as HwpxExportError).detail).toMatch(/RTA-SEM-001/);
   });
+
+  // ── CC-170: 본문 실체화가 실제로 밟은 경로 ────────────────────────────
+  //
+  // 아래 셋은 슬라이스 E2E(SSO→다운로드)가 처음 드러낸 결함들이다. CC-160은
+  // 문단을 **하나** 넣는 경우만 시험했고, 실체화는 한 번에 여럿을 넣는다.
+
+  it('한 ChangeSet이 문단을 여럿 넣으면 문서 순서대로 들어간다 (앵커 체인)', () => {
+    const file = corpus.files[0];
+    const { bytes, analysis, partBytes } = analyze(file);
+    const reference = findAnchorParagraph(analysis.ir, partBytes);
+    expect(reference).not.toBeNull();
+
+    // 두 번째부터의 anchorHint는 **바로 앞에 넣은 AUTHORED 문단**을 가리킨다 —
+    // 실행기가 넣은 순서대로 이웃을 잡기 때문이다. 되쓰기는 그 체인을 거슬러
+    // 원본 문단까지 따라가야 한다.
+    const first = authoredParagraph(reference!, 'AFTER', '실체화 1');
+    const second = {
+      ...authoredParagraph(reference!, 'AFTER', '실체화 2'),
+      paragraphId: 'P-authored-cc170-2',
+      anchorHint: { relation: 'AFTER', ref: 'P-authored-cc160' },
+    } as BlockIR;
+    const third = {
+      ...authoredParagraph(reference!, 'AFTER', '실체화 3'),
+      paragraphId: 'P-authored-cc170-3',
+      anchorHint: { relation: 'AFTER', ref: 'P-authored-cc170-2' },
+    } as BlockIR;
+
+    const editedIr = clone(analysis.ir);
+    const index = editedIr.sections[0].blocks.findIndex(
+      (block) => block.kind === 'PARAGRAPH' && block.paragraphId === reference!.paragraphId,
+    );
+    editedIr.sections[0].blocks.splice(index + 1, 0, first, second, third);
+
+    const result = preservationSave({
+      sourceBytes: bytes,
+      baseIr: analysis.ir,
+      editedIr,
+      mode: 'SAVE_AS',
+      verdict: analysis.template.compatibility.verdict,
+      hasFlattenExportOnlyObject: false,
+    });
+    expect(result.report.status).not.toBe('FAIL');
+
+    const reanalyzed = engine.analyzeDocument({ bytes: result.outputBytes });
+    const texts: string[] = [];
+    for (const section of reanalyzed.ir.sections) {
+      eachParagraph(section.blocks, (paragraph) => {
+        texts.push(paragraph.runs.map((run) => run.text).join(''));
+      });
+    }
+    const positions = ['실체화 1', '실체화 2', '실체화 3'].map((text) => texts.indexOf(text));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    // 순서가 뒤집히면 사용자가 쓴 목차 순서와 다른 문서가 나간다.
+    expect(positions[0]).toBeLessThan(positions[1]);
+    expect(positions[1]).toBeLessThan(positions[2]);
+  });
+
+  it('순환하는 anchorHint는 거부한다 (조용히 고치지 않는다)', () => {
+    const file = corpus.files[0];
+    const { analysis, partBytes } = analyze(file);
+    const reference = findAnchorParagraph(analysis.ir, partBytes);
+    const a = {
+      ...authoredParagraph(reference!, 'AFTER', '순환 A'),
+      anchorHint: { relation: 'AFTER', ref: 'P-authored-cycle-b' },
+    } as BlockIR;
+    const b = {
+      ...authoredParagraph(reference!, 'AFTER', '순환 B'),
+      paragraphId: 'P-authored-cycle-b',
+      anchorHint: { relation: 'AFTER', ref: 'P-authored-cc160' },
+    } as BlockIR;
+
+    const editedIr = clone(analysis.ir);
+    const index = editedIr.sections[0].blocks.findIndex(
+      (block) => block.kind === 'PARAGRAPH' && block.paragraphId === reference!.paragraphId,
+    );
+    editedIr.sections[0].blocks.splice(index + 1, 0, a, b);
+
+    expect(() => buildXmlDelta({ baseIr: analysis.ir, editedIr, partBytes })).toThrowError(/순환/);
+  });
+
+  it('의도한 서식이 앵커와 다르면 그 서식의 문단을 복제한다', () => {
+    // 자리는 앵커가, **서식은 IR이** 정한다. 앵커를 그대로 복제하면 실행기가
+    // 고른 프로토타입(§1.7)이 무시되고, 산출물을 다시 읽었을 때 IR과 달라
+    // RTA-STY-001이 FAIL한다.
+    const file = corpus.files[0];
+    const { bytes, analysis, partBytes } = analyze(file);
+    const reference = findAnchorParagraph(analysis.ir, partBytes);
+    expect(reference).not.toBeNull();
+
+    // 앵커와 **다른** 서식을 가진 원본 문단을 찾는다.
+    let other: ParagraphIR | undefined;
+    for (const section of analysis.ir.sections) {
+      eachParagraph(section.blocks, (paragraph) => {
+        if (other) return;
+        if (paragraph.paragraphId === reference!.paragraphId) return;
+        if (paragraph.styleRef.paraPrId === reference!.styleRef.paraPrId) return;
+        if (paragraph.runs.length === 0) return;
+        other = paragraph;
+      });
+    }
+    expect(other, '서식이 다른 문단이 코퍼스에 있어야 한다').toBeDefined();
+    const otherParagraph = other as unknown as ParagraphIR;
+
+    const authored = {
+      ...authoredParagraph(reference!, 'AFTER', '다른 서식 문단'),
+      styleRef: clone(otherParagraph.styleRef),
+    } as BlockIR;
+
+    const editedIr = clone(analysis.ir);
+    const index = editedIr.sections[0].blocks.findIndex(
+      (block) => block.kind === 'PARAGRAPH' && block.paragraphId === reference!.paragraphId,
+    );
+    editedIr.sections[0].blocks.splice(index + 1, 0, authored);
+
+    let outputStyle: unknown = null;
+    let error: unknown = null;
+    try {
+      const result = preservationSave({
+        sourceBytes: bytes,
+        baseIr: analysis.ir,
+        editedIr,
+        mode: 'SAVE_AS',
+        verdict: analysis.template.compatibility.verdict,
+        hasFlattenExportOnlyObject: false,
+      });
+      const reanalyzed = engine.analyzeDocument({ bytes: result.outputBytes });
+      for (const section of reanalyzed.ir.sections) {
+        eachParagraph(section.blocks, (paragraph) => {
+          if (paragraph.runs.map((run) => run.text).join('') === '다른 서식 문단') {
+            outputStyle = paragraph.styleRef;
+          }
+        });
+      }
+    } catch (thrownError) {
+      error = thrownError;
+    }
+
+    if (error) {
+      // 그 서식의 복제 가능한 문단이 없으면 **거부**가 옳다 — 서식을 지어내지
+      // 않는다. 그 경우에도 조용한 성공은 없어야 한다.
+      expect(error).toBeInstanceOf(HwpxExportError);
+      expect((error as HwpxExportError).detail).toMatch(/서식|복제/);
+      return;
+    }
+    expect(outputStyle).toEqual(otherParagraph.styleRef);
+  });
 });
 
 describe('보존 저장 — 저장 차단 집행 (ADR-29 D11)', () => {

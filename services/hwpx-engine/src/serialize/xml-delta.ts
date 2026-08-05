@@ -1,4 +1,4 @@
-import type { BlockIR, DocumentIR, ParagraphIR, RunIR } from '@une/domain';
+import type { BlockAnchor, BlockIR, DocumentIR, ParagraphIR, RunIR } from '@une/domain';
 import { parseAnchor, resolveAnchor } from '../ir/anchors';
 import {
   elementsOf,
@@ -106,6 +106,30 @@ const NON_TEXT_RUN_CHILDREN: ReadonlySet<string> = new Set(['linesegarray', 'sec
  * 섞이면 IR의 text 스트림이 여러 요소에서 합성된 값이라(ir-builder의
  * `WHITESPACE_CHARACTERS`) 역매핑이 성립하지 않는다 — 그런 run은 거부한다.
  */
+/**
+ * run의 되쓰기 적합성 (CC-170).
+ *
+ * `simpleTextElement`는 "단순 텍스트"와 "hp:t가 아예 없음"을 똑같이 null로
+ * 답한다. 복제에서는 둘을 구분해야 한다 — 실문서의 프로토타입 문단은 마지막에
+ * **빈 run**(글자속성만 있고 hp:t가 없는 run)을 달고 있는 경우가 흔하고,
+ * 그것을 "복제 불가"로 읽으면 개요 프로토타입 전체가 거부된다.
+ * 빈 run은 텍스트에 기여하지 않으므로 **손대지 않고 그대로 복제**하면 된다.
+ */
+type RunShape =
+  { kind: 'SIMPLE'; textElement: XmlElement } | { kind: 'EMPTY' } | { kind: 'COMPLEX' };
+
+function classifyRun(runElement: XmlElement): RunShape {
+  let textElement: XmlElement | null = null;
+  for (const child of elementsOf(runElement)) {
+    if (NON_TEXT_RUN_CHILDREN.has(child.localName)) continue;
+    if (child.localName !== 't') return { kind: 'COMPLEX' };
+    if (textElement) return { kind: 'COMPLEX' };
+    if (elementsOf(child).length > 0) return { kind: 'COMPLEX' };
+    textElement = child;
+  }
+  return textElement ? { kind: 'SIMPLE', textElement } : { kind: 'EMPTY' };
+}
+
 function simpleTextElement(runElement: XmlElement): XmlElement | null {
   let textElement: XmlElement | null = null;
   for (const child of elementsOf(runElement)) {
@@ -211,6 +235,15 @@ function textSplices(context: PartContext, before: ParagraphIR, after: Paragraph
  * charPrIDRef·linesegarray 등 우리가 해석하지 않는 속성이 붙어 있고, 그것을
  * 우리가 만들어 내면 원본 서식과 다른 문단이 된다. 이미 문서 안에 있는
  * 이웃 문단을 복제하면 그 서식이 그대로 승계된다.
+ *
+ * **run이 여럿인 프로토타입**(CC-170): 실문서의 개요 프로토타입은 글자속성이
+ * 갈려 run이 여러 개인 경우가 흔하다(코퍼스의 OUTLINE_1은 4개다). run 하나만
+ * 받으면 그런 문서에서는 본문 실체화가 통째로 Export되지 못한다. 그래서 텍스트를
+ * **첫 run에 모으고 나머지 run은 비운다**. 첫 run의 글자속성이 새 문단 전체에
+ * 적용되는 것이 프로토타입 복제의 의도에 가장 가깝고, 빈 run은 원본 문서에도
+ * 흔한 정상 구조다. 대신 조건을 좁힌다: **모든 run이 되쓰기 가능한 단순 텍스트**
+ * 여야 한다. 탭·인라인 컨트롤이 섞인 run을 비우면 우리가 해석하지 않는 구조를
+ * 없애는 것이 되어 §1.10-3을 어긴다.
  */
 function clonedParagraphXml(
   context: PartContext,
@@ -218,29 +251,163 @@ function clonedParagraphXml(
   paragraph: ParagraphIR,
 ): string {
   const runElements = elementsOf(prototype).filter((child) => child.localName === 'run');
-  if (runElements.length !== 1) {
+  if (runElements.length === 0) {
     throw new HwpxExportError(
       'HWPX-1103',
       paragraph.paragraphId,
-      `프로토타입 문단의 run이 하나가 아니어서 복제할 수 없습니다 (${runElements.length})`,
+      '프로토타입 문단에 run이 없어 복제할 수 없습니다',
     );
   }
-  const textElement = simpleTextElement(runElements[0]);
-  if (!textElement) {
+  const shapes = runElements.map((run) => classifyRun(run));
+  if (shapes.some((shape) => shape.kind === 'COMPLEX')) {
     throw new HwpxExportError(
       'HWPX-1103',
       paragraph.paragraphId,
       '프로토타입 run에 공백 요소·인라인 컨트롤이 있어 복제할 수 없습니다',
     );
   }
+  const textElements = shapes
+    .filter(
+      (shape): shape is { kind: 'SIMPLE'; textElement: XmlElement } => shape.kind === 'SIMPLE',
+    )
+    .map((shape) => shape.textElement);
+  if (textElements.length === 0) {
+    throw new HwpxExportError(
+      'HWPX-1103',
+      paragraph.paragraphId,
+      '프로토타입 문단에 텍스트를 넣을 run이 없어 복제할 수 없습니다',
+    );
+  }
+
+  // 첫 텍스트 run에 전체 텍스트, 나머지 텍스트 run은 비운다. 빈 run은 손대지
+  // 않는다. 구간 교체이므로 앞에서부터 자르고 이어 붙인다.
   const source = context.text.slice(prototype.sourceStart, prototype.sourceEnd);
-  const relativeStart = textElement.innerStart - prototype.sourceStart;
-  const relativeEnd = textElement.innerEnd - prototype.sourceStart;
-  return (
-    source.slice(0, relativeStart) +
-    escapeXmlText(textOfRuns(paragraph.runs)) +
-    source.slice(relativeEnd)
+  const replacements = textElements.map((element, index) => ({
+    start: element.innerStart - prototype.sourceStart,
+    end: element.innerEnd - prototype.sourceStart,
+    text: index === 0 ? escapeXmlText(textOfRuns(paragraph.runs)) : '',
+  }));
+  replacements.sort((a, b) => a.start - b.start);
+
+  let out = '';
+  let cursor = 0;
+  for (const replacement of replacements) {
+    out += source.slice(cursor, replacement.start) + replacement.text;
+    cursor = replacement.end;
+  }
+  return out + source.slice(cursor);
+}
+
+/**
+ * 삽입 기준을 **원본 문단까지** 따라간다 (CC-170).
+ *
+ * 한 ChangeSet이 문단을 여럿 넣으면 두 번째부터의 `anchorHint`는 바로 앞에
+ * 넣은 **AUTHORED 문단**을 가리킨다(실행기가 넣은 순서대로 이웃을 잡기
+ * 때문이다). 그 문단은 원본에 없으므로 `rawXmlAnchor`도 없고, 그대로 두면
+ * 되쓰기가 HWPX-1103으로 거절한다 — 즉 **본문 실체화(materialize)가 통째로
+ * Export되지 못한다**. CC-160은 문단 하나를 넣는 경우만 시험했기 때문에
+ * 드러나지 않았고, CC-170의 슬라이스 E2E가 처음 밟았다.
+ *
+ * 해법은 체인을 거슬러 올라가 원본 문단을 찾는 것이다. 그 지점은 모든 형제가
+ * 공유하는 같은 삽입 위치이고, 형제들 사이의 순서는 **문서 순서**가 정한다:
+ * `editedParagraphs`를 문서 순서로 돌며 splice를 쌓고, `applySplices`의 정렬이
+ * 안정 정렬이므로 같은 위치의 삽입은 쌓은 순서를 유지한다.
+ *
+ * 순환은 방문 집합으로 막는다. IR이 순환 힌트를 담는 것은 결함이므로 조용히
+ * 고치지 않고 거절한다.
+ */
+function resolveInsertionAnchor(
+  paragraph: ParagraphIR & { origin: 'AUTHORED'; anchorHint: BlockAnchor },
+  baseById: ReadonlyMap<string, ParagraphIR>,
+  editedById: ReadonlyMap<string, ParagraphIR>,
+): { anchor: string; relation: string } {
+  const seen = new Set<string>([paragraph.paragraphId]);
+  let hint: BlockAnchor = paragraph.anchorHint;
+  for (;;) {
+    const base = baseById.get(hint.ref);
+    if (base?.rawXmlAnchor !== undefined) {
+      // 원본 문단에 닿았다. 관계는 **체인 첫 힌트**의 것이 아니라 여기서
+      // 원본을 만난 관계다 — 형제들은 모두 같은 자리에 놓이고 순서는 문서
+      // 순서가 정한다.
+      return { anchor: base.rawXmlAnchor, relation: hint.relation };
+    }
+    const authored = editedById.get(hint.ref);
+    if (!authored || authored.origin !== 'AUTHORED') {
+      throw new HwpxExportError(
+        'HWPX-1103',
+        paragraph.paragraphId,
+        `anchorHint가 원본 문단을 지목하지 않습니다 (ref=${hint.ref})`,
+      );
+    }
+    if (seen.has(authored.paragraphId)) {
+      throw new HwpxExportError(
+        'HWPX-1103',
+        paragraph.paragraphId,
+        `anchorHint가 순환합니다 (${[...seen].join(' -> ')} -> ${authored.paragraphId})`,
+      );
+    }
+    seen.add(authored.paragraphId);
+    hint = authored.anchorHint;
+  }
+}
+
+function sameStyle(a: ParagraphIR['styleRef'], b: ParagraphIR['styleRef']): boolean {
+  return a.paraPrId === b.paraPrId && a.styleId === b.styleId && a.charPrId === b.charPrId;
+}
+
+/**
+ * 복제할 원본 문단을 고른다 — **IR이 지정한 서식과 같은 것으로** (CC-170).
+ *
+ * 자리는 `anchorHint`가 정하지만 서식은 IR이 정한다. 실행기는 Template
+ * Profile의 프로토타입(§1.7 Prototype Clone)에서 새 문단의 `styleRef`를
+ * 결정하는데, 되쓰기가 **앵커 이웃**을 복제하면 그 결정이 무시되고 이웃의
+ * 서식이 들어간다. 그러면 산출물을 다시 읽었을 때 IR이 말한 서식과 달라
+ * Track A의 RTA-STY-001이 FAIL한다 — 실제로 CC-170 슬라이스 E2E가 이 경로를
+ * 처음 밟아 드러났다(본문 실체화가 여러 문단을 한 번에 넣는다).
+ *
+ * 순서: ① 앵커가 이미 같은 서식이면 그대로 쓴다(가장 가까운 이웃이 최선이다).
+ * ② 아니면 원본에서 같은 서식의 복제 가능한 문단을 찾는다. ③ 없으면 거부한다 —
+ * 서식을 지어내지 않는다.
+ */
+function pickCloneSource(
+  context: PartContext,
+  paragraph: ParagraphIR,
+  anchorElement: XmlElement,
+  baseParagraphs: readonly ParagraphIR[],
+): XmlElement {
+  const anchorParagraph = baseParagraphs.find(
+    (candidate) =>
+      candidate.rawXmlAnchor !== undefined && isSameElement(context, candidate, anchorElement),
   );
+  if (anchorParagraph && sameStyle(anchorParagraph.styleRef, paragraph.styleRef)) {
+    return anchorElement;
+  }
+  for (const candidate of baseParagraphs) {
+    if (candidate.rawXmlAnchor === undefined) continue;
+    if (!sameStyle(candidate.styleRef, paragraph.styleRef)) continue;
+    const element = resolveAnchor(candidate.rawXmlAnchor, context.parts);
+    if (!element) continue;
+    // 복제 가능한 모양인지 여기서 확인한다. 뒤에서 실패하면 "어느 문단을
+    // 고르다 실패했는지"가 오류에 남지 않는다.
+    const runElements = elementsOf(element).filter((child) => child.localName === 'run');
+    const shapes = runElements.map((run) => classifyRun(run));
+    if (shapes.some((shape) => shape.kind === 'COMPLEX')) continue;
+    if (!shapes.some((shape) => shape.kind === 'SIMPLE')) continue;
+    return element;
+  }
+  throw new HwpxExportError(
+    'HWPX-1103',
+    paragraph.paragraphId,
+    `의도한 서식(paraPr=${paragraph.styleRef.paraPrId ?? '-'}, style=${
+      paragraph.styleRef.styleId ?? '-'
+    }, charPr=${paragraph.styleRef.charPrId ?? '-'})과 같은 복제 가능한 문단이 원본에 없습니다`,
+  );
+}
+
+function isSameElement(context: PartContext, paragraph: ParagraphIR, element: XmlElement): boolean {
+  if (paragraph.rawXmlAnchor === undefined) return false;
+  const resolved = resolveAnchor(paragraph.rawXmlAnchor, context.parts);
+  return resolved === element;
 }
 
 /** 삽입 지점: 기준 노드의 앞/뒤. FIRST_CHILD/LAST_CHILD는 표 셀 편집용이다. */
@@ -338,7 +505,7 @@ export function buildXmlDelta(input: {
       });
     }
 
-    // 3) 새 문단 — anchorHint가 지목한 이웃을 복제해 넣는다
+    // 3) 새 문단 — 자리는 anchorHint가, **서식은 IR이** 정한다
     for (const after of editedParagraphs) {
       if (baseById.has(after.paragraphId)) continue;
       if (after.origin !== 'AUTHORED') {
@@ -348,21 +515,14 @@ export function buildXmlDelta(input: {
           'SOURCE 문단이 원본에 없습니다 (IR이 원본과 어긋났습니다)',
         );
       }
-      const hint = after.anchorHint;
-      const reference = baseById.get(hint.ref) ?? editedById.get(hint.ref);
-      if (!reference || reference.rawXmlAnchor === undefined) {
-        throw new HwpxExportError(
-          'HWPX-1103',
-          after.paragraphId,
-          `anchorHint가 원본 문단을 지목하지 않습니다 (ref=${hint.ref})`,
-        );
-      }
-      const referenceElement = locate(context, reference.rawXmlAnchor, '문단 삽입 기준');
-      const at = insertionPoint(referenceElement, hint.relation, after.paragraphId);
+      const resolved = resolveInsertionAnchor(after, baseById, editedById);
+      const referenceElement = locate(context, resolved.anchor, '문단 삽입 기준');
+      const at = insertionPoint(referenceElement, resolved.relation, after.paragraphId);
+      const prototypeElement = pickCloneSource(context, after, referenceElement, baseParagraphs);
       splices.push({
         start: at,
         end: at,
-        replacement: clonedParagraphXml(context, referenceElement, after),
+        replacement: clonedParagraphXml(context, prototypeElement, after),
         reason: `insert ${after.paragraphId}`,
       });
     }

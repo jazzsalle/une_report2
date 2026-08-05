@@ -1,0 +1,28 @@
+{
+  "name": "@une/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CC-170 Plan vertical slice E2E: SSO mock to HWPX download, in one process (API + worker runners). Skipped unless DATABASE_URL (superuser) is set.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "perf": "vitest run --testNamePattern=성능",
+    "screens": "node scripts/capture-screens.mjs"
+  },
+  "dependencies": {
+    "@une/api": "workspace:*",
+    "@une/domain": "workspace:*",
+    "@une/hwpx-engine": "workspace:*",
+    "@une/provider-adapters": "workspace:*",
+    "@une/worker": "workspace:*"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^11.1.28",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.15.0",
+    "node-pg-migrate": "^9.0.0",
+    "pg": "^8.22.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.0"
+  }
+}
