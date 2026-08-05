@@ -28,7 +28,6 @@ export async function createApp(config: ApiConfig = loadApiConfig()): Promise<IN
         'Idempotency-Key',
         'X-Correlation-Id',
         'Last-Event-ID',
-        'x-amz-checksum-sha256',
       ],
       exposedHeaders: ['ETag', 'X-Correlation-Id', 'X-Content-Sha256', 'Content-Disposition'],
       credentials: false,

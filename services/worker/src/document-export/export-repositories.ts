@@ -169,9 +169,14 @@ export async function insertFileObject(
   },
 ): Promise<string> {
   const res = await client.query(
+    // upload_state는 VERIFIED다 — 산출물 바이트를 워커가 직접 만들고 해시를
+    // 계산했으므로 검증된 것이 사실이며, 0022의 백필이 기존 행에 내린 판단과
+    // 같다. 기본값(PENDING)에 맡기면 모든 신규 산출물이 "미완료 업로드"로
+    // 남아 정리 인덱스에 걸린다(CC-170 리뷰 M-5).
     `INSERT INTO file_object
-       (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256, scan_status, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7)
+       (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256,
+        scan_status, upload_state, verified_at, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', 'VERIFIED', now(), $7)
      RETURNING file_id`,
     [
       input.tenantId,

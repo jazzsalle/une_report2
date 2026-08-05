@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { pickAnchorParagraph } from '../api/slice';
 import { buildMockExternalToken } from './mock-sso';
 import { STEPS, blockedReason, initialState, isJobOpen, reducer, type SliceState } from './state';
 
@@ -108,5 +109,45 @@ describe('buildMockExternalToken', () => {
       loginId: '??>>??',
     });
     expect(token.slice(5)).not.toMatch(/[+/=]/);
+  });
+});
+
+describe('pickAnchorParagraph', () => {
+  const ir = (blocks: unknown[]): Parameters<typeof pickAnchorParagraph>[0] =>
+    ({ ir: { sections: [{ blocks }] } }) as unknown as Parameters<typeof pickAnchorParagraph>[0];
+  const para = (id: string, text: string, extra: Record<string, unknown> = {}) => ({
+    kind: 'PARAGRAPH',
+    paragraphId: id,
+    runs: [{ text }],
+    ...extra,
+  });
+
+  it('정적영역 밖의 **마지막** 문단을 고른다', () => {
+    expect(
+      pickAnchorParagraph(ir([para('P-1', '가'), para('P-2', '나'), para('P-3', '다')]), []),
+    ).toBe('P-3');
+  });
+
+  it('정적영역 문단은 건너뛴다 (결재란을 밀어내면 양식이 깨진다)', () => {
+    const blocks = [
+      para('P-1', '본문'),
+      para('P-2', '결재란', { rawXmlAnchor: 'Contents/section0.xml#p[9]' }),
+    ];
+    expect(pickAnchorParagraph(ir(blocks), ['Contents/section0.xml#p[9]'])).toBe('P-1');
+  });
+
+  it('빈 문단·잠긴 문단·표는 후보가 아니다', () => {
+    const blocks = [
+      para('P-1', '본문'),
+      para('P-2', '   '),
+      para('P-3', '잠김', { editState: { locked: true } }),
+      { kind: 'TABLE', tableId: 'TBL-1' },
+    ];
+    expect(pickAnchorParagraph(ir(blocks), [])).toBe('P-1');
+  });
+
+  it('후보가 없으면 null이다 (화면이 이유를 말해야 한다)', () => {
+    expect(pickAnchorParagraph(ir([{ kind: 'TABLE' }]), [])).toBeNull();
+    expect(pickAnchorParagraph(ir([]), [])).toBeNull();
   });
 });

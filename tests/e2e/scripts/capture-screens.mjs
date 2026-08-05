@@ -286,16 +286,21 @@ async function main() {
     await page.waitForTimeout(6000);
     await shot('09-content-job');
 
+    // 5-3. 본문 실체화 — 이 단계를 건너뛰면 내려받는 HWPX는 원본 그대로다.
+    await page.getByTestId('materialize').click();
+    await page.waitForTimeout(4000);
+    await shot('10-materialized');
+
     // 6. Export·다운로드
     await page.getByTestId('step-export').click();
     await page.getByTestId('request-export').click();
     await page.waitForTimeout(6000);
-    await shot('10-export-validation');
+    await shot('11-export-validation');
     const download = page.waitForEvent('download', { timeout: 20_000 }).catch(() => null);
     await page.getByTestId('download-export').click();
     const downloaded = await download;
     await page.waitForTimeout(1500);
-    await shot('11-downloaded');
+    await shot('12-downloaded');
 
     if (downloaded) {
       const path = await downloaded.path();

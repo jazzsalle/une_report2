@@ -62,7 +62,20 @@ describe('uploadObjectKey — 검증 전 바이트는 내용 주소를 차지하
   it('fileId로 격리한다 (sources/{sha256}과 섞이지 않는다)', () => {
     expect(
       uploadObjectKey({ tenantId: TENANT, fileId: FILE, sha256: HASH, extension: 'hwpx' }),
-    ).toBe(`tenants/${TENANT}/uploads/${FILE}/${HASH}.hwpx`);
+    ).toBe(`tenants/${TENANT}/sources/${FILE}/${HASH}.hwpx`);
+  });
+
+  it('접두사가 sources/다 — 검증을 통과하면 이 객체가 문서의 영구 원본이다', () => {
+    // `uploads/`는 수명주기 규칙·정리 배치에 스테이징으로 읽혀 문서의 유일한
+    // 원본이 지워질 수 있다(리뷰 M-4).
+    const key = uploadObjectKey({
+      tenantId: TENANT,
+      fileId: FILE,
+      sha256: HASH,
+      extension: 'hwpx',
+    });
+    expect(key).not.toContain('/uploads/');
+    expect(key).toContain('/sources/');
   });
 
   it('같은 해시를 선언한 두 등록이 서로 다른 키를 받는다', () => {
@@ -195,7 +208,7 @@ describe('createObjectStorage — 드라이버 선택', () => {
       OBJECT_STORAGE_SECRET_KEY: 'secret',
     });
     const ticket = await storage.presignPut({
-      key: `tenants/${TENANT}/uploads/${TENANT}/${HASH}.hwpx`,
+      key: `tenants/${TENANT}/sources/${TENANT}/${HASH}.hwpx`,
       contentType: 'application/hwp+zip',
       sha256: HASH,
       expiresInSeconds: 900,
@@ -214,7 +227,7 @@ describe('createObjectStorage — 드라이버 선택', () => {
       OBJECT_STORAGE_SECRET_KEY: 'secret',
     });
     const ticket = await storage.presignPut({
-      key: `tenants/${TENANT}/uploads/${TENANT}/${HASH}.hwpx`,
+      key: `tenants/${TENANT}/sources/${TENANT}/${HASH}.hwpx`,
       contentType: 'application/hwp+zip',
       sha256: HASH,
       expiresInSeconds: 900,

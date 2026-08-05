@@ -3,7 +3,7 @@
 - 일자: 2026-08-05 (회사 PC)
 - 브랜치: feature/CC-170 (base: feature/CC-160 — CC-160이 main에 머지되기 전이라
   그 위에 쌓았다. CC-170은 CC-160의 Export 경로에 의존한다)
-- 결정 기록: **ADR-32** (D1~D16 + 수용 한계)
+- 결정 기록: **ADR-32** (D1~D17 + 수용 한계)
 - 측정 환경: Windows 11 + WSL2 Docker(PostgreSQL 16, MinIO), Node 22, 인메모리 저장소
 - 대전제: **한/글에서 열린다는 증거는 여전히 없다.** Track B 환경 미확정(OB-08),
   rhwp 미반입(OB-12). CC-160의 한계를 그대로 이월한다.
@@ -23,9 +23,9 @@
 
 | AC | 구현 | 증거 |
 |---|---|---|
-| **SSO mock to HWPX download** | 한 프로세스에서 API와 워커를 돌려 전 구간을 지난다: 로그인 → 계획서 → 기준정보 Snapshot → 업로드 3단 → 반입·분석 → 목차 Job(워커) → 목차 확정 → 본문 Job(워커) → materialize → Export(워커) → 다운로드 | `tests/e2e/src/plan-slice.e2e.test.ts` "정상 경로". **받은 바이트의 SHA-256 == 검증 보고서의 `outputSha256`**, 응답 헤더 `X-Content-Sha256`도 같은 값, 산출물이 여전히 ZIP(HWPX). `plan.document_id == documentId`, `document_revision` 2건(반입 + materialize) |
-| **normal/alternate/error paths** | 권한 403(읽기 전용) · 다른 기관 404(문서·Export·다운로드) · 미완료 다운로드 409 · 없는 Export 404 · PDF/DOCX 422 · 무편집 Export 바이트 동일 · 본문 생성 중지 후 재시도 · 멱등 재전송 동일 응답 | 같은 파일 7건 + `services/api/src/e2e/upload-import.e2e.test.ts` 18건(사전등록 거부 3종, 해시 불일치 → ABORTED 종단, HWPX 아닌 내용 거부, 티켓 1회성·위조·만료·교차사용, 413, 계획서 중복 링크 409) |
-| **screen evidence** | `apps/web` 여섯 화면 스테퍼. 각 화면이 호출한 API ID와 서버가 준 식별자를 그대로 보여 준다 | `pnpm --filter @une/e2e screens` → `docs/evidence/CC-170/screens/`. **CI 게이트가 아니다**(ADR-32 D13) — UI 로직은 `apps/web` vitest 24건, 경로는 API E2E가 덮는다. **편집기 화면은 없다**(rhwp 미반입) |
+| **SSO mock to HWPX download** | 한 프로세스에서 API와 워커를 돌려 전 구간을 지난다. 화면도 같은 경로를 걷는다(5-3 실체화 단계 포함): 로그인 → 계획서 → 기준정보 Snapshot → 업로드 3단 → 반입·분석 → 목차 Job(워커) → 목차 확정 → 본문 Job(워커) → materialize → Export(워커) → 다운로드 | `tests/e2e/src/plan-slice.e2e.test.ts` "정상 경로". **받은 바이트의 SHA-256 == 검증 보고서의 `outputSha256`**, 응답 헤더 `X-Content-Sha256`도 같은 값, 산출물이 여전히 ZIP(HWPX). `plan.document_id == documentId`, `document_revision` 2건(반입 + materialize) |
+| **normal/alternate/error paths** | 권한 403(읽기 전용) · 다른 기관 404(문서·Export·다운로드) · 미완료 다운로드 409 · 없는 Export 404 · PDF/DOCX 422 · 무편집 Export 바이트 동일 · 본문 생성 중지 후 재시도 · 멱등 재전송 동일 응답 | 같은 파일 7건 + `services/api/src/e2e/upload-import.e2e.test.ts` 18건(사전등록 거부 3종, 해시 불일치 → ABORTED 종단, HWPX 아닌 내용 거부, 티켓 재전송·위조·만료·교차사용, 413, 계획서 중복 링크 409, **완료확정 동시 요청 2건**) |
+| **screen evidence** | `apps/web` 여섯 화면 스테퍼(5-3 실체화 포함). 각 화면이 호출한 API ID와 서버가 준 식별자를 그대로 보여 준다 | `pnpm --filter @une/e2e screens` → `docs/evidence/CC-170/screens/` **12장**. 마지막 캡처(`11-export-validation.png`)가 담은 것: 로그인부터 다운로드까지 **16개 호출**, `UNE-DOC-006 본문 실체화 — 9개 블록 삽입 → revision 2`, 문단 수 44 → 53, Track A **LIMITED**(RTA-STY-002 WARN), 산출물 SHA-256 `edb8d16c…` **"원본과 다름 — 편집이 반영됐다"**. **CI 게이트가 아니다**(ADR-32 D13) — UI 로직은 `apps/web` vitest 28건, 경로는 API E2E가 덮는다. **편집기 화면은 없다**(rhwp 미반입) |
 | **performance baseline** | 실문서를 늘린 합성 50쪽(2,000문단)으로 측정 | `tests/e2e/src/perf-baseline.e2e.test.ts` — 아래 표 |
 
 ## 성능 기준선 (ADR v1.1 G15-5)
@@ -125,12 +125,12 @@ CORS·업로드 설정을 `ApiConfig`에 더하자 다섯 e2e가 런타임에 �
 | 워크스페이스 | 결과 | CC-160 대비 |
 |---|---|---|
 | `@une/hwpx-engine` | **426** / 23 files | 423 → +3 (되쓰기 결함 3건 회귀) |
-| `@une/api` | **283** / 24 files | 257 → +26 (업로드·반입 e2e 18, 티켓 단위 8) |
-| `@une/provider-adapters` | **137** / 13 files | 128 → +9 (presign 실 MinIO 3, 키·공개엔드포인트 6) |
+| `@une/api` | **285** / 24 files | 257 → +28 (업로드·반입 e2e 20 — 동시성 2 포함, 티켓 단위 8) |
+| `@une/provider-adapters` | **138** / 13 files | 128 → +10 (presign 실 MinIO 3, 키·공개엔드포인트 7) |
 | `@une/db-integration` | **127** / 11 files | 120 → +7 (0022 표면 + 백필) |
 | `@une/contract-tests` | **195** / 12 files | 188 → +7 (DOC-001~004 표면 + x-db-tables 게이트) |
 | `@une/e2e` | **13** / 2 files | 신규 (슬라이스 8 + 성능 5) |
-| `@une/web` | **24** / 3 files | 1 → +23 (클라이언트 12, 상태·토큰 12) |
+| `@une/web` | **28** / 3 files | 1 → +27 (클라이언트 12, 상태·토큰 12, 앵커 선택 4) |
 | `@une/worker` | **44** / 5 files | 변경 없음 |
 | `@une/domain` | **62** / 10 files | 변경 없음 |
 | `@une/field-web` | 1 / 1 | 셸 |
@@ -142,6 +142,37 @@ CORS·업로드 설정을 `ApiConfig`에 더하자 다섯 e2e가 런타임에 �
 
 DB 상태: 마이그레이션 **22개**, 테이블 **61 유지**, 데이터 사전 61/574
 (+`upload_state`, +`verified_at`).
+
+## 이중 리뷰
+
+`architecture-guardian`(**BLOCKER 0 / MAJOR 8 / MINOR 11**)과 `qa-gate-reviewer`
+(**PASS WITH CONDITIONS**, 필수 3)를 병렬로 돌렸다. QA는 이 문서의 수치를 전건
+독립 재현했고 값이 일치했다(성능은 표본 3~5회 수준의 편차 안에서 판정 동일).
+
+두 리뷰가 **같은 두 가지**를 지적했다.
+
+1. **이 항목의 대표 증거인 슬라이스 E2E가 CI에서 한 번도 실행되지 않았다.**
+   `verify` 잡은 `DATABASE_URL`이 없어 `describe.skipIf`로 전건 침묵 스킵되고,
+   `db-verify` 잡은 워크스페이스를 명시적으로 나열하는데 `@une/e2e`가 없었다.
+   CC-140이 겪은 실패 유형(로더 결함으로 코퍼스 회귀가 조용히 꺼져 있었다)과
+   같은 구조다. `db-verify`에 추가했다.
+2. **계약이 존재하지 않는 컬럼 `document.plan_id`를 진실로 선언했다** — ADR-32 D4가
+   `malware_scan`으로 닫은 결함 유형이 컬럼 층위에서 재발했고, 이 항목이 세운
+   `x-db-tables` 게이트는 테이블 이름만 보므로 잡지 못한다. 계약을 고치고 타입을
+   재생성했다.
+
+QA의 세 번째 필수는 더 아팠다: **화면으로 내려받은 HWPX에 생성 본문이 한 글자도
+없었다.** `apps/web`에 materialize 호출이 없어 목차·본문 생성 다음이 곧장 Export였고,
+캡처의 Track A가 "원본과 바이트 동일"을 그대로 보여 주고 있었다. 문서에 한계로
+적는 대신 **UI에 실체화 단계(5-3)를 만들었다** — 인수기준이 "SSO부터 HWPX
+다운로드까지"인데 그 다운로드가 원본 그대로라면 증거가 인수기준보다 약하다.
+
+아키텍처 리뷰의 나머지 MAJOR 다섯도 전부 반영했다(ADR-32 D17 표). 요지:
+반입이 저장소 바이트의 해시를 다시 확인하지 않았고(워커는 이미 한다),
+티켓 서명 키가 빈 비밀에서 파생될 수 있었고, 서버가 만든 `file_object`가 0022의
+백필 판단과 반대로 영구 PENDING이었고, 복제 원본이 `hp:secPr`를 품은 문단을 고를
+수 있었고(구역 속성이 둘인 HWPX는 조용히 열린다), 업로드 키의 `uploads/` 접두사가
+영구 원본의 수명을 거짓으로 말했다.
 
 ## 남는 한계
 

@@ -424,7 +424,7 @@ describe.skipIf(!ADMIN_URL || !existsSync(TEMPLATE))(
 
     // --- 티켓의 성질 ---------------------------------------------------------
 
-    it('티켓은 1회용이며 다른 파일·위조·만료는 403이다', async () => {
+    it('티켓은 확정 전에만 쓸 수 있고 다른 파일·위조·만료는 403이다', async () => {
       const ticket = await register();
       expect((await upload(ticket)).status).toBe(204);
       // 같은 티켓 재사용: 파일이 이미 PENDING을 벗어나지 않았어도 확정 전에는
@@ -560,6 +560,52 @@ describe.skipIf(!ADMIN_URL || !existsSync(TEMPLATE))(
         }),
       });
       expect(res.status).toBe(400);
+    }, 120_000);
+
+    // --- 동시성 -------------------------------------------------------------
+
+    it('같은 파일에 완료확정이 동시에 들어와도 확정은 한 번만 일어난다', async () => {
+      const ticket = await register();
+      expect((await upload(ticket)).status).toBe(204);
+
+      // 저장소 읽기가 트랜잭션 밖이므로 잠금을 들고 있을 수 없다. 방어는
+      // `upload_state='PENDING'` 조건부 UPDATE이고, 진 쪽은 옮겨진 상태를 본다.
+      const [a, b] = await Promise.all([complete(ticket.fileId), complete(ticket.fileId)]);
+      expect([a.status, b.status].sort()).toEqual([200, 200]);
+
+      const rows = await withClient(dbUrl, (c) =>
+        c.query(
+          `SELECT upload_state, verified_at,
+                (SELECT count(*)::int FROM audit_log
+                  WHERE resource_id = $1 AND action = 'FILE_UPLOAD_VERIFIED') AS audited
+           FROM file_object WHERE file_id = $1`,
+          [ticket.fileId],
+        ),
+      );
+      expect(rows.rows[0].upload_state).toBe('VERIFIED');
+      // 감사도 한 번만 남는다 — 두 번 남으면 "언제 검증됐나"에 두 답이 생긴다.
+      expect(rows.rows[0].audited).toBe(1);
+    }, 120_000);
+
+    it('검증 실패와 성공이 동시에 경쟁해도 감사가 일어나지 않은 일을 말하지 않는다', async () => {
+      // 선언 해시가 틀린 파일을 두 번 동시에 확정한다. 둘 다 검증에 실패하므로
+      // ABORTED가 되어야 하고, 거절 감사는 한 번만 남아야 한다.
+      const ticket = await register(tokenA, { sha256: 'e'.repeat(64) });
+      expect((await upload(ticket)).status).toBe(204);
+      const results = await Promise.all([complete(ticket.fileId), complete(ticket.fileId)]);
+      expect(results.every((res) => res.status === 422)).toBe(true);
+
+      const rows = await withClient(dbUrl, (c) =>
+        c.query(
+          `SELECT upload_state,
+                (SELECT count(*)::int FROM audit_log
+                  WHERE resource_id = $1 AND action = 'FILE_UPLOAD_REJECTED') AS audited
+           FROM file_object WHERE file_id = $1`,
+          [ticket.fileId],
+        ),
+      );
+      expect(rows.rows[0].upload_state).toBe('ABORTED');
+      expect(rows.rows[0].audited).toBe(1);
     }, 120_000);
 
     // --- 분석 조회 -----------------------------------------------------------

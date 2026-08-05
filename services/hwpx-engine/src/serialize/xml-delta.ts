@@ -369,21 +369,48 @@ function sameStyle(a: ParagraphIR['styleRef'], b: ParagraphIR['styleRef']): bool
  * ② 아니면 원본에서 같은 서식의 복제 가능한 문단을 찾는다. ③ 없으면 거부한다 —
  * 서식을 지어내지 않는다.
  */
+/**
+ * 구역 속성을 품은 문단인가.
+ *
+ * `hp:secPr`는 텍스트에 기여하지 않아 run 분류에서 EMPTY로 통과하고, "빈 run은
+ * 손대지 않는다"는 복제 정책 때문에 **원문 그대로 복제**된다. 그러면 한 섹션에
+ * 구역 속성이 둘 생긴다 — 잘못 쓴 HWPX는 조용히 열리므로 사용자는 한참 뒤에
+ * 안다(리뷰 M-7). 복제 원본에서 배제한다.
+ */
+function hasSectionProperties(element: XmlElement): boolean {
+  for (const run of elementsOf(element)) {
+    if (run.localName !== 'run') continue;
+    for (const child of elementsOf(run)) {
+      if (child.localName === 'secPr') return true;
+    }
+  }
+  return false;
+}
+
 function pickCloneSource(
   context: PartContext,
   paragraph: ParagraphIR,
   anchorElement: XmlElement,
   baseParagraphs: readonly ParagraphIR[],
+  topLevelParagraphIds: readonly string[],
 ): XmlElement {
+  // 후보는 최상위 블록 문단으로 좁힌다(표 셀 안 문단 제외).
+  const topLevelIds = new Set(topLevelParagraphIds);
   const anchorParagraph = baseParagraphs.find(
     (candidate) =>
       candidate.rawXmlAnchor !== undefined && isSameElement(context, candidate, anchorElement),
   );
-  if (anchorParagraph && sameStyle(anchorParagraph.styleRef, paragraph.styleRef)) {
+  if (
+    anchorParagraph &&
+    sameStyle(anchorParagraph.styleRef, paragraph.styleRef) &&
+    !hasSectionProperties(anchorElement)
+  ) {
     return anchorElement;
   }
   for (const candidate of baseParagraphs) {
     if (candidate.rawXmlAnchor === undefined) continue;
+    // 표 셀 안 문단은 복제 원본이 아니다 — 표 되쓰기는 열려 있지 않다(m-9).
+    if (!topLevelIds.has(candidate.paragraphId)) continue;
     if (!sameStyle(candidate.styleRef, paragraph.styleRef)) continue;
     const element = resolveAnchor(candidate.rawXmlAnchor, context.parts);
     if (!element) continue;
@@ -393,6 +420,8 @@ function pickCloneSource(
     const shapes = runElements.map((run) => classifyRun(run));
     if (shapes.some((shape) => shape.kind === 'COMPLEX')) continue;
     if (!shapes.some((shape) => shape.kind === 'SIMPLE')) continue;
+    // 구역 속성을 복제하면 섹션에 secPr가 둘이 된다(M-7).
+    if (hasSectionProperties(element)) continue;
     return element;
   }
   throw new HwpxExportError(
@@ -477,6 +506,10 @@ export function buildXmlDelta(input: {
     };
 
     const baseParagraphs = paragraphsOf(baseSection.blocks);
+    const topLevelParagraphIds: string[] = [];
+    for (const block of baseSection.blocks) {
+      if (block.kind === 'PARAGRAPH') topLevelParagraphIds.push(block.paragraphId);
+    }
     const editedParagraphs = paragraphsOf(editedSection.blocks);
     const baseById = new Map(baseParagraphs.map((p) => [p.paragraphId, p]));
     const editedById = new Map(editedParagraphs.map((p) => [p.paragraphId, p]));
@@ -518,7 +551,13 @@ export function buildXmlDelta(input: {
       const resolved = resolveInsertionAnchor(after, baseById, editedById);
       const referenceElement = locate(context, resolved.anchor, '문단 삽입 기준');
       const at = insertionPoint(referenceElement, resolved.relation, after.paragraphId);
-      const prototypeElement = pickCloneSource(context, after, referenceElement, baseParagraphs);
+      const prototypeElement = pickCloneSource(
+        context,
+        after,
+        referenceElement,
+        baseParagraphs,
+        topLevelParagraphIds,
+      );
       splices.push({
         start: at,
         end: at,

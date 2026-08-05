@@ -187,6 +187,17 @@ export class DocumentImportService {
         : (error as Error);
     }
 
+    // 되쓰기 기준으로 삼기 전에 **바이트 자체**를 확인한다. `uploadState`는
+    // 컬럼값이지 내용이 아니다 — 확정 이후에도 스테이징 객체는 이론상 다시
+    // 쓰일 수 있고(전송 라우트는 PENDING 동안 재전송을 허용한다), Export 워커가
+    // 같은 비교를 이미 한다(CC-160 리뷰 M-6). 문서와 IR을 만드는 쪽이 확인하지
+    // 않는 비대칭은 근거가 없다(CC-170 리뷰 M-1).
+    if (sha256Of(bytes) !== file.sha256) {
+      throw fileErrors.importRejected('저장된 바이트가 등록된 해시와 다릅니다.', [
+        { field: 'fileId', reason: '파일을 다시 업로드하십시오.' },
+      ]);
+    }
+
     const result = await this.importFromBytes(
       auth,
       bytes,
@@ -404,9 +415,14 @@ export class DocumentImportService {
       const found = existing.rows[0] as { file_id: string } | undefined;
       if (found) return found.file_id;
       const inserted = await c.query(
+        // upload_state는 VERIFIED다. 이 경로는 **서버가 바이트를 손에 들고**
+        // 해시를 계산했으므로 검증된 것이 사실이며, 0022의 백필이 기존 행에
+        // 내린 판단과 같다. 기본값(PENDING)에 맡기면 그 판단과 반대되는 행이
+        // 계속 쌓이고 미완료 정리 인덱스에 걸린다(리뷰 M-5).
         `INSERT INTO file_object
-           (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256, scan_status, created_by)
-         VALUES ($1, $2, $3, 'application/hwp+zip', $4, $5, 'PENDING', $6)
+           (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256,
+            scan_status, upload_state, verified_at, created_by)
+         VALUES ($1, $2, $3, 'application/hwp+zip', $4, $5, 'PENDING', 'VERIFIED', now(), $6)
          RETURNING file_id`,
         [
           auth.tenantId,

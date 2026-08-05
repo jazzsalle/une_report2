@@ -702,13 +702,84 @@ function GenerateStep({ state, api, run, dispatch }: StepProps): JSX.Element {
           중지
         </Button>
         {state.contentJob ? <JobFacts job={state.contentJob} /> : null}
-        {state.contentJob?.status === 'COMPLETED' ? (
+      </Panel>
+
+      <MaterializePanel state={state} api={api} run={run} dispatch={dispatch} />
+    </>
+  );
+}
+
+/**
+ * 생성된 블록을 문서에 실제로 넣는다 (UNE-DOC-006 materialize).
+ *
+ * 이 단계가 없으면 내려받은 HWPX에는 **생성 본문이 한 글자도 없다** — 업로드한
+ * 원본 그대로다. 편집기가 없는 지금(OB-12) 문서를 바꾸는 유일한 경로이므로
+ * 화면에도 있어야 한다.
+ */
+function MaterializePanel({ state, api, run, dispatch }: StepProps): JSX.Element {
+  const staticAnchors = useMemo<string[]>(() => {
+    const profile = state.analysis?.profile as
+      { staticRegions?: { locator?: string }[] } | undefined;
+    return (profile?.staticRegions ?? [])
+      .map((region) => region.locator)
+      .filter((locator): locator is string => typeof locator === 'string');
+  }, [state.analysis]);
+
+  const materialize = async (): Promise<void> => {
+    if (!state.document || !state.plan || !state.tocVersionId) return;
+    const result = await run(
+      'UNE-DOC-006 본문 실체화',
+      () =>
+        api.materialize({
+          documentId: state.document!.documentId,
+          planId: state.plan!.planId,
+          tocVersionId: state.tocVersionId!,
+          staticAnchors,
+        }),
+      (r) => `${r.materialize?.insertedBlocks ?? 0}개 블록 삽입 → revision ${r.newRevisionNo}`,
+    );
+    if (result?.applied) {
+      dispatch({
+        type: 'MATERIALIZED',
+        materialized: {
+          insertedBlocks: result.materialize?.insertedBlocks ?? 0,
+          candidateBlocks: result.materialize?.candidateBlocks ?? 0,
+          revisionNo: result.newRevisionNo ?? 0,
+        },
+      });
+      dispatch({ type: 'STEP', step: 'export' });
+    }
+  };
+
+  return (
+    <Panel
+      title="5-3. 본문 실체화 (UNE-DOC-006)"
+      footnote="생성된 블록을 문서에 넣는다. 서버가 3중 방어를 건다(현재 목차버전 일치, 구세대 제외, 보호 블록 제외). 이 단계를 건너뛰면 내려받는 HWPX는 업로드한 원본 그대로다. 삽입 자리는 정적영역 밖의 마지막 문단 뒤다 — 표 뒤에 문단을 놓는 되쓰기는 아직 열려 있지 않다."
+    >
+      <Button
+        onClick={materialize}
+        disabled={state.busy || !state.tocVersionId || !state.document}
+        testId="materialize"
+      >
+        본문 실체화
+      </Button>
+      {state.materialized ? (
+        <div style={{ marginTop: '0.75rem' }} data-testid="materialize-result">
+          <Facts
+            rows={[
+              [
+                '삽입',
+                `${state.materialized.insertedBlocks} / 후보 ${state.materialized.candidateBlocks}`,
+              ],
+              ['새 revision', `#${state.materialized.revisionNo}`],
+            ]}
+          />
           <Button onClick={() => dispatch({ type: 'STEP', step: 'export' })} kind="ghost">
             다음: Export
           </Button>
-        ) : null}
-      </Panel>
-    </>
+        </div>
+      ) : null}
+    </Panel>
   );
 }
 

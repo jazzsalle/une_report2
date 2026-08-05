@@ -86,7 +86,7 @@ async function insertUploadFixture(c: Client, tenantCode: string): Promise<Uploa
        (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256, scan_status, created_by)
      VALUES ($1, $2, 'in.hwpx', 'application/hwp+zip', 4321, $3, 'PENDING', $4)
      RETURNING file_id, upload_state`,
-    [base.tenantId, `tenants/${base.tenantId}/uploads/${tenantCode}.hwpx`, HASH, base.userId],
+    [base.tenantId, `tenants/${base.tenantId}/sources/${tenantCode}.hwpx`, HASH, base.userId],
   );
   // 기본값이 PENDING이어야 한다 — 새 업로드는 아무것도 검증되지 않은 상태다.
   expect(file.rows[0].upload_state).toBe('PENDING');
@@ -132,7 +132,7 @@ describe.skipIf(!ADMIN_URL)('upload verification surface (CC-170, migration 0022
            VALUES ($1, $2, 'x.hwpx', 'application/hwp+zip', 1, $3, 'PENDING', $4, ${verifiedAt}, $5)`,
           [
             fxA.tenantId,
-            `tenants/${fxA.tenantId}/uploads/state-${state}.hwpx`,
+            `tenants/${fxA.tenantId}/sources/state-${state}.hwpx`,
             HASH,
             state,
             fxA.userId,
@@ -145,7 +145,7 @@ describe.skipIf(!ADMIN_URL)('upload verification surface (CC-170, migration 0022
            (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256,
             scan_status, upload_state, created_by)
          VALUES ($1, $2, 'x.hwpx', 'application/hwp+zip', 1, $3, 'PENDING', 'UPLOADED', $4)`,
-        [fxA.tenantId, `tenants/${fxA.tenantId}/uploads/bogus.hwpx`, HASH, fxA.userId],
+        [fxA.tenantId, `tenants/${fxA.tenantId}/sources/bogus.hwpx`, HASH, fxA.userId],
         CHECK_VIOLATION,
         'upload_state=UPLOADED (어휘 밖)',
       );
@@ -163,7 +163,7 @@ describe.skipIf(!ADMIN_URL)('upload verification surface (CC-170, migration 0022
            (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256,
             scan_status, upload_state, created_by)
          VALUES ($1, $2, 'x.hwpx', 'application/hwp+zip', 1, $3, 'PENDING', 'VERIFIED', $4)`,
-        [fxA.tenantId, `tenants/${fxA.tenantId}/uploads/no-time.hwpx`, HASH, fxA.userId],
+        [fxA.tenantId, `tenants/${fxA.tenantId}/sources/no-time.hwpx`, HASH, fxA.userId],
         CHECK_VIOLATION,
         'VERIFIED without verified_at',
       );
@@ -174,7 +174,7 @@ describe.skipIf(!ADMIN_URL)('upload verification surface (CC-170, migration 0022
            (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256,
             scan_status, upload_state, verified_at, created_by)
          VALUES ($1, $2, 'x.hwpx', 'application/hwp+zip', 1, $3, 'PENDING', 'PENDING', now(), $4)`,
-        [fxA.tenantId, `tenants/${fxA.tenantId}/uploads/early-time.hwpx`, HASH, fxA.userId],
+        [fxA.tenantId, `tenants/${fxA.tenantId}/sources/early-time.hwpx`, HASH, fxA.userId],
         CHECK_VIOLATION,
         'PENDING with verified_at',
       );

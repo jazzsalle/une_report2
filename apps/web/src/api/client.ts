@@ -171,14 +171,19 @@ export class ApiClient {
       });
     }
     if (!response.ok) {
-      const body = await response.text();
+      // 본문은 읽어서 **버린다**. 저장소는 우리 봉투가 아니라 자기 XML로 답하고,
+      // 그것을 화면에 그대로 실으면 외부 제공자 원문을 렌더하는 것이 된다
+      // (`.claude/rules/frontend.md`). 상태코드로만 판단한다.
+      await response.text().catch(() => '');
       throw new ApiCallError({
         status: response.status,
-        code: response.status === 403 ? 'FILE-403-001' : 'FILE-422-002',
+        code: 'UPLOAD-TRANSPORT',
         message: `업로드가 거부되었습니다 (HTTP ${response.status}).`,
         recoverable: response.status !== 403,
-        // 저장소가 XML로 답할 수 있다. 원문을 그대로 보여주지 않고 잘라 둔다.
-        userAction: body.slice(0, 200) || undefined,
+        userAction:
+          response.status === 403
+            ? '업로드 URL이 만료되었을 수 있습니다. 처음부터 다시 등록하십시오.'
+            : '파일을 다시 업로드하십시오.',
         correlationId: this.sessionCorrelationId,
       });
     }

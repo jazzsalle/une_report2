@@ -139,13 +139,18 @@ export function sourceObjectKey(input: {
 }
 
 /**
- * 업로드 스테이징 키: `tenants/{tenantId}/uploads/{fileId}/{sha256}.{ext}`.
+ * 업로드 키: `tenants/{tenantId}/sources/{fileId}/{sha256}.{ext}`.
  *
- * `sources/`와 달리 **fileId로 격리한다**. 이 시점의 해시는 클라이언트의 선언일
- * 뿐 검증되지 않았고, 검증되지 않은 바이트를 내용 주소 키(`sources/{sha256}`)에
+ * **fileId로 격리한다.** 사전등록 시점의 해시는 클라이언트의 선언일 뿐
+ * 검증되지 않았고, 검증되지 않은 바이트를 내용 주소 키(`sources/{sha256}`)에
  * 올리면 "키가 곧 내용"이라는 전제가 깨진다 — 다른 흐름이 같은 해시를 선언했을
  * 때 서로의 바이트를 보게 된다. 파일명에 선언 해시를 남기는 것은 진단용이며,
- * 불일치는 UNE-DOC-002가 잡는다(ADR-32).
+ * 불일치는 UNE-DOC-002가 잡는다(ADR-32 D5).
+ *
+ * 접두사는 `uploads/`가 아니라 `sources/`다. 검증을 통과한 이 객체가 문서의
+ * **영구 원본**이 되고 보존 Export가 계속 읽는다 — `uploads/`라는 이름은
+ * 수명주기 규칙이나 정리 배치에 "스테이징"으로 읽혀 원본이 사라질 수 있다
+ * (CC-160이 `source_file_id` NULL로 이미 겪은 실패 유형, 리뷰 M-4).
  */
 export function uploadObjectKey(input: {
   readonly tenantId: string;
@@ -161,7 +166,7 @@ export function uploadObjectKey(input: {
   if (!/^[a-z0-9]{1,8}$/.test(input.extension)) {
     throw new ObjectStorageError('REJECTED', '(key)', `확장자 형식이 아닙니다: ${input.extension}`);
   }
-  return `tenants/${input.tenantId}/uploads/${input.fileId}/${input.sha256}.${input.extension}`;
+  return `tenants/${input.tenantId}/sources/${input.fileId}/${input.sha256}.${input.extension}`;
 }
 
 /**

@@ -28,6 +28,14 @@ export interface UploadTicketClaims {
   readonly sizeBytes: number;
 }
 
+/**
+ * 서명 키 최소 길이. `jwt-auth.guard.ts`가 빈 비밀을 "키가 아니다"로 취급하는
+ * 것과 같은 규칙이다 — AUTH_MODE가 mock이 아니면 `loadApiConfig`가 빈 문자열을
+ * 정상 값으로 돌려주므로, 여기서 막지 않으면 **공개 상수로 파생한 키**로 쓰기를
+ * 인가하게 된다(리뷰 M-2).
+ */
+const MIN_SECRET_LENGTH = 32;
+
 function deriveKey(jwtSecret: string): Buffer {
   return createHmac('sha256', jwtSecret).update(KEY_LABEL).digest();
 }
@@ -42,6 +50,9 @@ function payloadOf(claims: UploadTicketClaims): string {
 }
 
 export function signUploadTicket(jwtSecret: string, claims: UploadTicketClaims): string {
+  if (jwtSecret.length < MIN_SECRET_LENGTH) {
+    throw new Error('업로드 티켓 서명 키가 없습니다 (UNE_AUTH_JWT_SECRET 미설정)');
+  }
   const payload = payloadOf(claims);
   const signature = createHmac('sha256', deriveKey(jwtSecret)).update(payload).digest();
   return `${payload}.${base64url(signature)}`;
@@ -56,6 +67,7 @@ export function verifyUploadTicket(
   token: string,
   nowSeconds: number = Math.floor(Date.now() / 1000),
 ): UploadTicketClaims | null {
+  if (jwtSecret.length < MIN_SECRET_LENGTH) return null;
   const parts = token.split('.');
   if (parts.length !== 6) return null;
   const [version, fileId, tenantId, expiresAt, sizeBytes, signature] = parts;

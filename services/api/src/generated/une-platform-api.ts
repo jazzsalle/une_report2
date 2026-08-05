@@ -690,7 +690,7 @@ export type paths = {
          *
          *     `upload.driver`는 진단·증거용이다. 클라이언트는 `url`/`method`/`headers`만 쓰고 driver로 분기하지 않는다. presign이 불가능한 드라이버(로컬·테스트의 인메모리 저장소)에서는 API 자신의 전송 라우트를 가리킨다.
          *
-         *     멱등: Idempotency-Key. 같은 키 재전송은 같은 fileId와 **새 티켓**을 돌려준다 (티켓은 만료되므로 원본을 그대로 재생하면 쓸 수 없는 URL을 준다).
+         *     멱등: Idempotency-Key. 같은 키 재전송은 **처음 발급한 응답을 그대로** 돌려준다(공통 멱등 저장소의 재생). 티켓에는 만료가 있으므로, 만료 뒤에 재시도하려면 **새 멱등 키로 다시 등록**해야 한다 — 앞의 행은 PENDING으로 남고 정리 대상이 된다.
          */
         post: operations["une_doc_001"];
         delete?: never;
@@ -743,7 +743,7 @@ export type paths = {
         get?: never;
         /**
          * 업로드 전송(presign 불가 드라이버 전용)
-         * @description `Authorization` 헤더를 쓰지 않는다 — UNE-DOC-001이 발급한 **1회용 티켓
+         * @description `Authorization` 헤더를 쓰지 않는다 — UNE-DOC-001이 발급한 **서명 티켓
          *     토큰**(`upload.url`의 쿼리)만으로 인가한다. presign URL이 그렇게 동작하기
          *     때문이며, 두 드라이버가 같은 클라이언트 코드로 동작해야 하기 때문이다.
          *
@@ -782,7 +782,7 @@ export type paths = {
          *
          *     전제: `fileId`는 UNE-DOC-002를 통과한(`uploadState=VERIFIED`) 파일이어야 한다. PENDING/ABORTED면 422 HWPX-422-001이다 — 검증되지 않은 바이트를 문서로 만들면 그 뒤의 모든 무결성 주장이 근거를 잃는다.
          *
-         *     `planId`를 주면 `document.plan_id`로 저장된다(0022). 계약에 있는 필드가 어디에도 남지 않으면 클라이언트는 연결됐다고 믿고 서버는 모르는 상태가 된다. 다른 테넌트·삭제된 계획서는 404다.
+         *     `planId`를 주면 **`plan.document_id`**에 이 문서가 기록된다. 그 컬럼은 0003부터 있었으나 쓰는 코드가 없어 항상 NULL이었다(CC-170이 채운다). 역방향 링크(`document.plan_id`)는 만들지 않는다 — 같은 관계에 진실을 둘 두면 갈라진다(ADR-32 D9). 이미 문서를 가진 계획서는 409, 다른 테넌트· 삭제된 계획서는 404다.
          *
          *     판정: 분석 결과 `verdict=REJECT`인 문서도 **가져온다**. 문서는 만들되 저장(Export)을 차단하는 것이 ADR-29 D11/ADR-31 D7의 집행 지점이므로, 반입 단계에서 문서를 만들지 않으면 사용자는 왜 거부됐는지 볼 화면이 없다. `analysis.verdict`와 `analysis.unsupportedObjects`가 그 근거다.
          *
@@ -3626,7 +3626,7 @@ export type components = {
             fileId: string;
             /**
              * Format: uuid
-             * @description 주면 document.plan_id로 저장된다(0022). 다른 테넌트·삭제된 계획서는 404다.
+             * @description 주면 plan.document_id에 이 문서가 기록된다(ADR-32 D9). 이미 문서를 가진 계획서는 409, 다른 테넌트·삭제된 계획서는 404다.
              */
             planId?: string | null;
             /** @description 생략하면 원본 파일명을 쓴다. */
@@ -5193,7 +5193,10 @@ export interface operations {
     une_doc_001_transport: {
         parameters: {
             query: {
-                /** @description UNE-DOC-001이 발급한 1회용 업로드 티켓 */
+                /**
+                 * @description UNE-DOC-001이 발급한 업로드 티켓. **확정 전에는 재전송할 수 있다**
+                 *     (전송 실패의 재시도 경로다). 확정(VERIFIED/ABORTED) 후에는 409다.
+                 */
                 token: string;
             };
             header?: {

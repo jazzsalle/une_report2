@@ -83,8 +83,11 @@ export class FileRepository {
   }
 
   /**
-   * `forUpdate`는 완료 확정 경로에서 쓴다. 같은 파일에 두 번 완료가 들어오면
-   * 하나만 검증을 통과해 상태를 옮기고 나머지는 옮겨진 상태를 본다.
+   * 조회. 완료 확정 경로는 **잠그지 않는다** — 저장소 읽기가 트랜잭션 밖이라
+   * 잠금을 그 사이에 들고 있을 수 없기 때문이다. 동시 확정의 방어는
+   * `markVerified`의 조건부 UPDATE(`upload_state='PENDING'`)이고, 옮기지 못한
+   * 요청은 옮겨진 상태를 다시 읽는다. `forUpdate`는 한 트랜잭션 안에서
+   * 읽고 쓰는 호출자를 위해 남겨 둔다.
    */
   async find(
     client: PoolClient,
@@ -119,12 +122,24 @@ export class FileRepository {
     return row ? toRow(row) : null;
   }
 
-  /** PENDING → ABORTED. 종단이며 되돌리지 않는다. */
-  async markAborted(client: PoolClient, tenantId: string, fileId: string): Promise<void> {
-    await client.query(
+  /**
+   * PENDING → ABORTED. 종단이며 되돌리지 않는다.
+   *
+   * 옮긴 행을 돌려준다 — 경쟁으로 이미 VERIFIED가 된 행에 "거절" 감사를 남기면
+   * 감사 기록이 일어나지 않은 일을 말한다(리뷰 m-2).
+   */
+  async markAborted(
+    client: PoolClient,
+    tenantId: string,
+    fileId: string,
+  ): Promise<FileObjectRow | null> {
+    const res = await client.query(
       `UPDATE file_object SET upload_state = 'ABORTED'
-        WHERE file_id = $1 AND tenant_id = $2 AND upload_state = 'PENDING'`,
+        WHERE file_id = $1 AND tenant_id = $2 AND upload_state = 'PENDING'
+        RETURNING ${COLUMNS}`,
       [fileId, tenantId],
     );
+    const row = res.rows[0] as Record<string, unknown> | undefined;
+    return row ? toRow(row) : null;
   }
 }

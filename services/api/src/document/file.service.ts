@@ -196,8 +196,14 @@ export class FileService {
 
     const violations = await this.verifyStoredBytes(row);
     if (violations.length > 0) {
-      await this.db.withTenant(auth.tenantId, async (c) => {
-        await this.files.markAborted(c, auth.tenantId, fileId);
+      const settledMeanwhile = await this.db.withTenant(auth.tenantId, async (c) => {
+        const aborted = await this.files.markAborted(c, auth.tenantId, fileId);
+        if (!aborted) {
+          // 그 사이 다른 요청이 옮겼다. 일어나지 않은 거절을 감사에 남기지
+          // 않고, 옮겨진 상태를 그대로 답한다(리뷰 m-2).
+          const current = await this.files.find(c, auth.tenantId, fileId);
+          return current ?? null;
+        }
         await this.audit.insertAudit(c, {
           tenantId: auth.tenantId,
           actorId: auth.userId,
@@ -209,7 +215,12 @@ export class FileService {
           userAgent: meta.userAgent,
           detail: { reasons: violations.map((v) => v.reason), etag: input.etag ?? null },
         });
+        return null;
       });
+      if (settledMeanwhile) {
+        const already = this.resolveSettled(settledMeanwhile);
+        if (already) return already;
+      }
       throw fileErrors.verificationFailed(violations);
     }
 

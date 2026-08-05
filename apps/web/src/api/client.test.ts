@@ -147,8 +147,15 @@ describe('ApiClient.uploadBytes', () => {
     expect(Object.keys(init.headers)).toEqual(['Content-Type', 'x-amz-checksum-sha256']);
   });
 
-  it('403은 티켓 문제로 매핑한다 (재시도 불가)', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('denied', { status: 403 })));
+  it('403은 재시도 불가로 매핑하고 저장소 원문을 화면에 싣지 않는다', async () => {
+    // 저장소는 우리 봉투가 아니라 자기 XML로 답한다. 그것을 화면에 그대로
+    // 실으면 외부 제공자 원문을 렌더하는 것이 된다(`.claude/rules/frontend.md`).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('<Error><Code>SignatureDoesNotMatch</Code></Error>', { status: 403 }),
+      ),
+    );
     const client = new ApiClient('http://api.test/api/v1');
     try {
       await client.uploadBytes(
@@ -158,8 +165,9 @@ describe('ApiClient.uploadBytes', () => {
       throw new Error('실패했어야 한다');
     } catch (error) {
       const failure = (error as ApiCallError).failure;
-      expect(failure.code).toBe('FILE-403-001');
       expect(failure.recoverable).toBe(false);
+      expect(JSON.stringify(failure)).not.toContain('SignatureDoesNotMatch');
+      expect(failure.userAction).toContain('다시 등록');
     }
   });
 });

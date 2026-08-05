@@ -54,6 +54,8 @@ export interface SliceState {
   tocVersionId: string | null;
   contentJob: GenerationJob | null;
 
+  /** materialize 결과 — 생성 본문이 실제로 문서에 들어갔는가. */
+  materialized: { insertedBlocks: number; candidateBlocks: number; revisionNo: number } | null;
   exportJob: ExportJob | null;
   downloaded: { fileName: string; sizeBytes: number; sha256: string } | null;
 }
@@ -84,6 +86,7 @@ export const initialState: SliceState = {
   tocJob: null,
   tocVersionId: null,
   contentJob: null,
+  materialized: null,
   exportJob: null,
   downloaded: null,
 };
@@ -104,6 +107,7 @@ export type SliceAction =
   | { type: 'TOC_JOB'; job: GenerationJob }
   | { type: 'TOC_VERSION'; tocVersionId: string }
   | { type: 'CONTENT_JOB'; job: GenerationJob }
+  | { type: 'MATERIALIZED'; materialized: SliceState['materialized'] }
   | { type: 'EXPORT'; job: ExportJob }
   | { type: 'DOWNLOADED'; downloaded: SliceState['downloaded'] }
   | { type: 'RESET' };
@@ -148,6 +152,8 @@ export function reducer(state: SliceState, action: SliceAction): SliceState {
       return { ...state, tocVersionId: action.tocVersionId };
     case 'CONTENT_JOB':
       return { ...state, contentJob: action.job };
+    case 'MATERIALIZED':
+      return { ...state, materialized: action.materialized };
     case 'EXPORT':
       return { ...state, exportJob: action.job };
     case 'DOWNLOADED':

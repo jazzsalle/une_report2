@@ -19,6 +19,8 @@ export type ExportJob = Schemas['ExportJobResource'];
 export type PlanResource = Schemas['PlanResource'];
 export type GenerationJob = Schemas['GenerationJobResource'];
 export type TocVersion = Schemas['TocVersionResource'];
+export type DocumentIrResource = Schemas['DocumentIrResource'];
+export type ChangeSetResult = Schemas['ChangeSetResult'];
 
 export interface UserContext {
   userId: string;
@@ -214,6 +216,61 @@ export class SliceApi {
     ).data;
   }
 
+  // ── 문서 편집 (UNE-DOC-005/006) ────────────────────────────────────────
+  async documentIr(documentId: string): Promise<{ ir: DocumentIrResource; etag: string | null }> {
+    const result = await this.client.call<DocumentIrResource>(`/documents/${documentId}/ir`);
+    return { ir: result.data, etag: result.etag };
+  }
+
+  /**
+   * UNE-DOC-006 materialize — 생성된 블록을 문서에 실제로 넣는다.
+   *
+   * 이것이 없으면 화면으로 내려받은 HWPX에는 **생성 본문이 한 글자도 없다**
+   * (업로드한 원본 그대로다). 편집기가 없는 지금(OB-12) 문서를 실제로 바꾸는
+   * 유일한 경로이므로 화면에도 있어야 한다.
+   *
+   * `If-Match`와 `baseRevisionId`가 둘 다 필요한 이중 가드다.
+   */
+  async materialize(input: {
+    documentId: string;
+    planId: string;
+    tocVersionId: string;
+    /** 분석 결과의 정적영역 로케이터. 그 안의 문단 뒤에는 놓을 수 없다. */
+    staticAnchors: readonly string[];
+  }): Promise<ChangeSetResult> {
+    const { ir, etag } = await this.documentIr(input.documentId);
+    const anchorParagraphId = pickAnchorParagraph(ir, input.staticAnchors);
+    if (!anchorParagraphId) {
+      throw new Error(
+        '삽입할 자리를 찾지 못했습니다 — 정적영역 밖의 편집 가능한 문단이 필요합니다.',
+      );
+    }
+    return (
+      await this.client.call<ChangeSetResult>(`/documents/${input.documentId}/changesets`, {
+        method: 'POST',
+        ifMatch: etag ?? undefined,
+        body: {
+          baseRevisionId: ir.revisionId,
+          origin: 'MATERIALIZE',
+          clientMutationId: newIdempotencyKey('materialize'),
+          checkpointLabel: '초안완료',
+          operations: [
+            {
+              type: 'INSERT_BLOCKS',
+              order: 0,
+              anchor: { relation: 'AFTER', ref: anchorParagraphId },
+              source: {
+                kind: 'GENERATED_BLOCKS',
+                planId: input.planId,
+                tocVersionId: input.tocVersionId,
+              },
+            },
+          ],
+        },
+      })
+    ).data;
+  }
+
   // ── Export (UNE-DOC-012/013/014) ───────────────────────────────────────
   async requestExport(documentId: string): Promise<ExportJob> {
     return (
@@ -243,4 +300,43 @@ function toTocTree(nodes: NonNullable<TocVersion['nodes']>): unknown[] {
       ? { children: toTocTree(node.children as NonNullable<TocVersion['nodes']>) }
       : {}),
   }));
+}
+
+interface IrBlock {
+  kind: string;
+  paragraphId?: string;
+  rawXmlAnchor?: string;
+  editState?: { locked?: boolean };
+  runs?: { text: string }[];
+}
+
+/**
+ * 실체화한 블록을 놓을 자리를 고른다.
+ *
+ * 두 제약이 있고 둘 다 **의도된 거절**이다: 정적영역(결재란·머리글) 문단 뒤에는
+ * 놓을 수 없고(고정 서식을 생성물이 밀어내면 양식이 깨진다), 섹션의 마지막
+ * 자식이 표면 그 뒤에 문단을 놓는 되쓰기가 아직 열려 있지 않다. 그래서
+ * **정적영역 밖의 마지막 문단 뒤**를 고른다(ADR-32 수용 한계 1).
+ */
+export function pickAnchorParagraph(
+  ir: DocumentIrResource,
+  staticAnchors: readonly string[],
+): string | null {
+  const blocked = new Set(staticAnchors);
+  const sections = (ir.ir as { sections?: { blocks?: IrBlock[] }[] } | undefined)?.sections ?? [];
+  let chosen: string | null = null;
+  for (const block of sections[0]?.blocks ?? []) {
+    if (block.kind !== 'PARAGRAPH') continue;
+    if (block.editState?.locked) continue;
+    if (block.rawXmlAnchor && blocked.has(block.rawXmlAnchor)) continue;
+    if (
+      (block.runs ?? [])
+        .map((run) => run.text)
+        .join('')
+        .trim().length === 0
+    )
+      continue;
+    chosen = block.paragraphId ?? chosen;
+  }
+  return chosen;
 }
