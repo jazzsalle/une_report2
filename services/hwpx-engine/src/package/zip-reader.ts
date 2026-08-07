@@ -42,6 +42,12 @@ export interface ZipEntry {
   readonly dosTime: number;
   readonly dosDate: number;
   readonly internalFileAttributes: number;
+  /**
+   * 중앙디렉터리의 disk number start. 단일 디스크 아카이브는 0이지만,
+   * 값을 해석하지 않고 그대로 나른다 — 바이트 동일 재작성(CC-160)에서
+   * 이 2바이트가 빠지면 재작성본이 원본과 달라진다.
+   */
+  readonly diskNumberStart: number;
   /** 중앙디렉터리 extra field 원문 바이트. */
   readonly centralExtraField: Uint8Array;
   /** local header extra field 원문 바이트(중앙디렉터리와 다를 수 있다). */
@@ -61,6 +67,11 @@ export interface ZipArchive {
   readonly byPath: ReadonlyMap<string, ZipEntry>;
   readonly archiveSha256: string;
   readonly archiveBytes: number;
+  /**
+   * EOCD 주석 원문 바이트(보통 비어 있다). 해석하지 않는다 — 원본에 주석이
+   * 있는 아카이브를 재작성할 때 이것이 없으면 바이트 동일성이 깨진다.
+   */
+  readonly archiveComment: Uint8Array;
 }
 
 const SIG_EOCD = 0x06054b50;
@@ -193,6 +204,7 @@ export function readZipArchive(
     const nameLength = buffer.readUInt16LE(cursor + 28);
     const extraLength = buffer.readUInt16LE(cursor + 30);
     const commentLength = buffer.readUInt16LE(cursor + 32);
+    const diskNumberStart = buffer.readUInt16LE(cursor + 34);
     const internalFileAttributes = buffer.readUInt16LE(cursor + 36);
     const externalFileAttributes = buffer.readUInt32LE(cursor + 38);
     const localHeaderOffset = buffer.readUInt32LE(cursor + 42);
@@ -309,6 +321,7 @@ export function readZipArchive(
       dosTime,
       dosDate,
       internalFileAttributes,
+      diskNumberStart,
       centralExtraField,
       localExtraField,
       comment,
@@ -322,10 +335,18 @@ export function readZipArchive(
     cursor += 46 + nameLength + extraLength + commentLength;
   }
 
+  const archiveCommentLength = buffer.readUInt16LE(eocd + 20);
+  const archiveComment = Uint8Array.prototype.slice.call(
+    buffer,
+    eocd + 22,
+    eocd + 22 + archiveCommentLength,
+  );
+
   return {
     entries,
     byPath,
     archiveSha256: sha256Bytes(buffer),
     archiveBytes: buffer.length,
+    archiveComment,
   };
 }

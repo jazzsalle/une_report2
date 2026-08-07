@@ -28,6 +28,9 @@ export const APPEND_ONLY_TABLES = [
   'plan_context_snapshot',
   'situation_snapshot',
   'job_event',
+  // 0020 (CC-160): 검증 보고서는 산출물이 어떤 근거로 나갔는지를 말하는
+  // 감사 증거다. 재검증은 새 보고서이지 과거 판정의 덮어쓰기가 아니다.
+  'validation_report',
 ];
 
 export async function withClient<T>(url: string, fn: (c: Client) => Promise<T>): Promise<T> {

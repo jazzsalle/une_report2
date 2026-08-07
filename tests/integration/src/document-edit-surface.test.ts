@@ -139,9 +139,13 @@ async function insertEditFixture(c: Client, tenantCode: string): Promise<EditFix
   const changeSetId = changeSet.rows[0].change_set_id as string;
 
   const autosave = await c.query(
+    // 0020 §5: ACCEPTED는 결과 리비전을 가져야 한다. 실제 쓰기 경로
+    // (change-set.service.ts)가 ACCEPTED에 항상 리비전을 싣고 CONFLICT/
+    // SUPERSEDED에는 null을 싣는데, 이 픽스처만 그 짝을 지키지 않았다.
     `INSERT INTO document_autosave
-       (document_id, base_revision_id, client_mutation_id, seq, delta_json, status, created_by)
-     VALUES ($1, $2, $3, 1, $4, 'ACCEPTED', $5) RETURNING autosave_id`,
+       (document_id, base_revision_id, client_mutation_id, seq, delta_json,
+        result_revision_id, status, created_by)
+     VALUES ($1, $2, $3, 1, $4, $2, 'ACCEPTED', $5) RETURNING autosave_id`,
     [
       documentId,
       revisionId,
@@ -371,25 +375,62 @@ describe.skipIf(!ADMIN_URL)('document edit surface (CC-150, migration 0019)', ()
     expect(survived.rows[0].status).toBe('ACCEPTED');
   });
 
-  it('lets a tenant write and supersede its own autosave (une_app happy path)', async () => {
+  it('lets a tenant write its own autosave and records supersede at INSERT (une_app happy path)', async () => {
     await asRole(db.url, 'une_app', fxA.tenantId, async (c) => {
       const inserted = await c.query(
         `INSERT INTO document_autosave
-           (document_id, base_revision_id, client_mutation_id, seq, delta_json, status, created_by)
-         VALUES ($1, $2, 'cm-happy-auto', 7, '{"t":"편집중"}', 'ACCEPTED', $3)
+           (document_id, base_revision_id, client_mutation_id, seq, delta_json,
+            result_revision_id, status, created_by)
+         VALUES ($1, $2, 'cm-happy-auto', 7, '{"t":"편집중"}', $2, 'ACCEPTED', $3)
          RETURNING autosave_id, created_at`,
         [fxA.documentId, fxA.revisionId, fxA.userId],
       );
       expect(inserted.rows[0].autosave_id).toBeTruthy();
       expect(inserted.rows[0].created_at).toBeInstanceOf(Date);
 
-      // 나중 자동저장이 반영되면 앞선 행을 SUPERSEDED로 표시한다(UPDATE 경로).
-      const superseded = await c.query(
-        `UPDATE document_autosave SET status = 'SUPERSEDED'
-         WHERE autosave_id = $1 RETURNING status`,
-        [inserted.rows[0].autosave_id],
+      // 늦게 도착한 항목은 **자기 자신이** SUPERSEDED로 들어온다. 앞선 행을
+      // 고쳐 쓰지 않는다 — change-set.service.ts에 `UPDATE document_autosave`
+      // 자체가 없고(전수 확인), 저널이 도착 사실의 기록이기 때문이다.
+      const late = await c.query(
+        `INSERT INTO document_autosave
+           (document_id, base_revision_id, client_mutation_id, seq, delta_json,
+            result_revision_id, status, created_by)
+         VALUES ($1, $2, 'cm-late-auto', 3, '{"t":"늦게도착"}', NULL, 'SUPERSEDED', $3)
+         RETURNING status, result_revision_id`,
+        [fxA.documentId, fxA.revisionId, fxA.userId],
       );
-      expect(superseded.rows[0].status).toBe('SUPERSEDED');
+      expect(late.rows[0].status).toBe('SUPERSEDED');
+      expect(late.rows[0].result_revision_id).toBeNull();
+    });
+  });
+
+  it('rejects an ACCEPTED row without a result revision (0020 §5 상관 제약)', async () => {
+    // ADR-30이 CC-160으로 미룬 제약이다. 실제 쓰기 경로는 ACCEPTED에 항상
+    // 리비전을 싣고 CONFLICT/SUPERSEDED에는 null을 싣는데, 그 짝이 DB에서
+    // 강제되지 않으면 "저장됐다는데 가리키는 리비전이 없는" 행이 남는다.
+    await asRole(db.url, 'une_app', fxA.tenantId, async (c) => {
+      await c.query('BEGIN');
+      await expectSqlState(
+        c,
+        `INSERT INTO document_autosave
+           (document_id, base_revision_id, client_mutation_id, seq, delta_json, status, created_by)
+         VALUES ($1, $2, 'cm-no-result', 11, '{}', 'ACCEPTED', $3)`,
+        [fxA.documentId, fxA.revisionId, fxA.userId],
+        CHECK_VIOLATION,
+        'ACCEPTED without result revision',
+      );
+      // 반대 방향도 막는다: 폐기된 항목이 결과 리비전을 가질 수 없다.
+      await expectSqlState(
+        c,
+        `INSERT INTO document_autosave
+           (document_id, base_revision_id, client_mutation_id, seq, delta_json,
+            result_revision_id, status, created_by)
+         VALUES ($1, $2, 'cm-bad-superseded', 12, '{}', $2, 'SUPERSEDED', $3)`,
+        [fxA.documentId, fxA.revisionId, fxA.userId],
+        CHECK_VIOLATION,
+        'SUPERSEDED with result revision',
+      );
+      await c.query('ROLLBACK');
     });
   });
 
@@ -405,8 +446,9 @@ describe.skipIf(!ADMIN_URL)('document edit surface (CC-150, migration 0019)', ()
       await expectSqlState(
         c,
         `INSERT INTO document_autosave
-           (document_id, base_revision_id, client_mutation_id, seq, delta_json, status, created_by)
-         VALUES ($1, $2, $3, 2, '{"replay":true}', 'ACCEPTED', $4)`,
+           (document_id, base_revision_id, client_mutation_id, seq, delta_json,
+            result_revision_id, status, created_by)
+         VALUES ($1, $2, $3, 2, '{"replay":true}', $2, 'ACCEPTED', $4)`,
         [fxA.documentId, fxA.revisionId, `auto-cc150e-a`, fxA.userId],
         UNIQUE_VIOLATION,
         'autosave replay',
@@ -418,8 +460,9 @@ describe.skipIf(!ADMIN_URL)('document edit surface (CC-150, migration 0019)', ()
     await withClient(db.url, async (c) => {
       const other = await c.query(
         `INSERT INTO document_autosave
-           (document_id, base_revision_id, client_mutation_id, seq, delta_json, status, created_by)
-         VALUES ($1, $2, 'auto-cc150e-a', 1, '{}', 'ACCEPTED', $3) RETURNING autosave_id`,
+           (document_id, base_revision_id, client_mutation_id, seq, delta_json,
+            result_revision_id, status, created_by)
+         VALUES ($1, $2, 'auto-cc150e-a', 1, '{}', $2, 'ACCEPTED', $3) RETURNING autosave_id`,
         [fxB.documentId, fxB.revisionId, fxB.userId],
       );
       expect(other.rows[0].autosave_id).toBeTruthy();
@@ -504,11 +547,24 @@ describe.skipIf(!ADMIN_URL)('document edit surface (CC-150, migration 0019)', ()
       }
       let seq = 100;
       for (const status of AUTOSAVE_STATUSES) {
+        // 0020 §5의 상관 제약과 함께 성립해야 한다: ACCEPTED만 결과 리비전을
+        // 갖는다. 어휘 양성 통제가 상관식을 우회하면 두 제약 중 하나는 검증되지
+        // 않은 채 남는다.
+        const resultRevisionId = status === 'ACCEPTED' ? fxA.revisionId : null;
         await c.query(
           `INSERT INTO document_autosave
-             (document_id, base_revision_id, client_mutation_id, seq, delta_json, status, created_by)
-           VALUES ($1, $2, $3, $4, '{}', $5, $6)`,
-          [fxA.documentId, fxA.revisionId, `vocab-auto-${status}`, seq++, status, fxA.userId],
+             (document_id, base_revision_id, client_mutation_id, seq, delta_json,
+              result_revision_id, status, created_by)
+           VALUES ($1, $2, $3, $4, '{}', $5, $6, $7)`,
+          [
+            fxA.documentId,
+            fxA.revisionId,
+            `vocab-auto-${status}`,
+            seq++,
+            resultRevisionId,
+            status,
+            fxA.userId,
+          ],
         );
       }
       for (const status of ['EDITING', 'REVIEW', 'APPROVED']) {
@@ -617,7 +673,7 @@ describe.skipIf(!ADMIN_URL)('document edit surface (CC-150, migration 0019)', ()
         c,
         `INSERT INTO template_profile
            (document_id, profile_version, analysis_status, profile_json, unsupported_objects_json, analysis_hash)
-         VALUES ($1, 1, 'CONFIRMED', '{}', '[]', $2)`,
+         VALUES ($1, 1, 'CONFIRM', '{}', '[]', $2)`,
         [fxA.documentId, 'Z'.repeat(64)],
         CHECK_VIOLATION,
         'template_profile.analysis_hash',
@@ -625,7 +681,7 @@ describe.skipIf(!ADMIN_URL)('document edit surface (CC-150, migration 0019)', ()
       const profile = await c.query(
         `INSERT INTO template_profile
            (document_id, profile_version, analysis_status, profile_json, unsupported_objects_json, analysis_hash)
-         VALUES ($1, 1, 'CONFIRMED', '{}', '[]', $2) RETURNING template_profile_id`,
+         VALUES ($1, 1, 'CONFIRM', '{}', '[]', $2) RETURNING template_profile_id`,
         [fxA.documentId, 'b'.repeat(64)],
       );
       await expectSqlState(
@@ -663,17 +719,23 @@ describe.skipIf(!ADMIN_URL)('document edit surface (CC-150, migration 0019)', ()
     });
   });
 
-  it('keeps validation_report.target_type open (0018 deferred it to CC-160)', async () => {
-    // 0018 §8은 어휘 밖 target_type을 정책이 fail-closed로 다루도록 남겼다.
-    // 0019가 CHECK로 닫아 버리면 그 관측 가능한 상태가 제약 위반으로 바뀐다.
-    // "닫지 않았다"를 명시적으로 고정해 두어야 나중에 무심코 닫히지 않는다.
+  it('closes validation_report vocabularies (0020이 CC-160 이연을 종결했다)', async () => {
+    // 0019는 이 어휘를 열어 두었다 — 0018 §8이 CC-160으로 미뤘고, 그때
+    // 닫으면 fail-closed 정책이 관측 가능한 상태를 잃기 때문이었다.
+    // 0020 §2가 Track A 보고서를 실제로 쓰게 되면서 그 이연이 끝났다.
+    // 어휘가 열려 있으면 "정책이 조용히 거짓이 되는 행"을 계속 만들 수 있다.
     const constraints = await withClient(db.url, (c) =>
       c.query(
         `SELECT conname FROM pg_constraint
-         WHERE conrelid = 'validation_report'::regclass AND contype = 'c'`,
+         WHERE conrelid = 'validation_report'::regclass AND contype = 'c'
+         ORDER BY conname`,
       ),
     );
-    expect(constraints.rows).toEqual([]);
+    expect(constraints.rows.map((row) => row.conname)).toEqual([
+      'ck_validation_report_status',
+      'ck_validation_report_target_type',
+      'ck_validation_report_track',
+    ]);
   });
 
   // -------------------------------------------------------------------------

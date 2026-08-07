@@ -1,8 +1,17 @@
 import type { WorkerConfig } from '../config/worker-config';
-import type { RunSummary } from '../plan-toc/toc-job.runner';
+
+/**
+ * 폴러가 실제로 보는 것은 "이번 틱에 몇 건을 집었는가"뿐이다(백로그가 있으면
+ * 즉시 재폴링). 러너마다 요약의 나머지 필드는 다르다 — Export에는 취소 경로가
+ * 없어(EXPORT_STATUSES) `cancelled`가 영원히 0인 필드로 남는다. 폴러의 계약을
+ * 최소로 좁혀, 러너가 자기 도메인에 맞는 요약을 그대로 돌려주게 한다.
+ */
+export interface PollTickSummary {
+  claimed: number;
+}
 
 export interface PlanJobRunner {
-  runOnce(): Promise<RunSummary>;
+  runOnce(): Promise<PollTickSummary>;
 }
 
 /** Production polling loop around timer-free runners (CC-130 generalized
@@ -19,7 +28,7 @@ export class PlanJobPoller {
   constructor(
     private readonly runners: readonly PlanJobRunner[],
     private readonly config: WorkerConfig,
-    private readonly onSummary: (summary: RunSummary) => void = () => {},
+    private readonly onSummary: (summary: PollTickSummary) => void = () => {},
   ) {
     this.backoffMs = config.pollIntervalMs;
   }

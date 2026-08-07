@@ -71,6 +71,10 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://une:ci-only@localhost:5432/une
+      OBJECT_STORAGE_ENDPOINT: http://localhost:9000
+      OBJECT_STORAGE_BUCKET: une-documents
+      OBJECT_STORAGE_ACCESS_KEY: une-ci
+      OBJECT_STORAGE_SECRET_KEY: ci-only-minio
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -82,7 +86,27 @@ jobs:
       # Workspace deps resolve to dist/ (gitignored) — tests that import
       # @une/domain / @une/provider-adapters need a build first (QA 필수-1).
       - run: pnpm build
+      # CC-160: the object-storage adapter is only proven against a real
+      # S3-compatible server. Without it the integration test skips and a 403
+      # like the CC-002 policy-attach defect ships unnoticed.
+      #
+      # A `services:` container cannot be used here: GitHub runs the image's
+      # default command, and the MinIO image needs `server /data`. Image tags
+      # are pinned to the same releases as infrastructure/docker-compose.yml.
+      - name: Start MinIO and create the export bucket
+        env:
+          MINIO_IMAGE: minio/minio:RELEASE.2025-04-22T22-12-26Z
+          MC_IMAGE: minio/mc:RELEASE.2025-04-16T18-13-26Z
+        run: |
+          docker run -d --name ci-minio --network host -e MINIO_ROOT_USER=une-ci -e MINIO_ROOT_PASSWORD=ci-only-minio "$MINIO_IMAGE" server /data
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 2
+          done
+          curl -sf http://localhost:9000/minio/health/live
+          docker run --rm --network host --entrypoint sh "$MC_IMAGE" -c "mc alias set ci http://localhost:9000 une-ci ci-only-minio && mc mb --ignore-existing ci/une-documents"
       - run: pnpm --filter @une/db-integration test
+      - run: pnpm --filter @une/provider-adapters test
       # CC-100: HTTP e2e (mock auth/tenant/RBAC) runs its transactions with
       # SET LOCAL ROLE une_app, so FORCE RLS applies as in production.
       - run: pnpm --filter @une/api test

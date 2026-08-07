@@ -566,6 +566,12 @@ function emptyHeaderRoot(): XmlElement {
     ordinal: 1,
     parent: null,
     partPath: 'Contents/header.xml',
+    // 원문이 없는 합성 노드다. 빈 구간(0,0)으로 두어 되쓰기 대상이 될 수 없게
+    // 한다 — 이 자리를 splice하면 존재하지 않는 Part를 고치는 셈이 된다.
+    sourceStart: 0,
+    sourceEnd: 0,
+    innerStart: 0,
+    innerEnd: 0,
   };
 }
 

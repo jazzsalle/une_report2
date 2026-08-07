@@ -325,7 +325,7 @@ work_items:
   gate: G4
   dependencies:
   - CC-150
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - no-op round trip
   - reference validation
@@ -335,7 +335,11 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-31-cc160-preservation-export-and-track-a.md
+  - docs/evidence/CC-160-preservation-export-verification.md
+  - database/migrations/0020_export_and_validation.sql
+  - database/migrations/0021_export_lease_and_file_immutability.sql
 - id: CC-170
   title: Complete Plan vertical slice E2E
   gate: G2

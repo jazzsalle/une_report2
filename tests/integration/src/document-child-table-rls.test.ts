@@ -117,7 +117,7 @@ async function insertDocFixture(c: Client, tenantCode: string): Promise<DocFixtu
   const profile = await c.query(
     `INSERT INTO template_profile
        (document_id, profile_version, analysis_status, profile_json, unsupported_objects_json, analysis_hash)
-     VALUES ($1, 1, 'COMPLETED', '{}', '[]', $2) RETURNING template_profile_id`,
+     VALUES ($1, 1, 'LIMITED', '{}', '[]', $2) RETURNING template_profile_id`,
     [documentId, 'b'.repeat(64)],
   );
   const templateProfileId = profile.rows[0].template_profile_id as string;
@@ -129,10 +129,14 @@ async function insertDocFixture(c: Client, tenantCode: string): Promise<DocFixtu
     [templateProfileId, 'c'.repeat(64)],
   );
 
+  // 0020: export_job이 tenant_id를 직접 들고(워커 디스패치 근거), 종단 상태는
+  // 결과 파일·검증 보고서·완료시각을 모두 요구한다. 이 픽스처가 검증하려는
+  // 것은 격리이므로 종단 상태를 흉내 내지 않고 QUEUED로 둔다 — 완료 상태의
+  // 상관식은 export 전용 테스트(export-surface)가 다룬다.
   const exportJob = await c.query(
-    `INSERT INTO export_job (document_id, revision_id, format, status, requested_by)
-     VALUES ($1, $2, 'HWPX', 'COMPLETED', $3) RETURNING export_id`,
-    [documentId, revisionId, base.userId],
+    `INSERT INTO export_job (tenant_id, document_id, revision_id, format, status, requested_by)
+     VALUES ($1, $2, $3, 'HWPX', 'QUEUED', $4) RETURNING export_id`,
+    [base.tenantId, documentId, revisionId, base.userId],
   );
   const exportId = exportJob.rows[0].export_id as string;
 
@@ -202,9 +206,29 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
               generate_series(1, $1::int) g`,
         [BULK_BLOCKS],
       );
+      // export_job / validation_report에도 부피를 준다. 0020이 두 테이블에
+      // 인덱스를 더했는데 행이 2건뿐이면 플래너는 언제나 순차 스캔을 고르고
+      // "부모를 순차 스캔하지 않는다"는 단언이 아무것도 증명하지 못한다
+      // (이 파일이 document/revision/block에 이미 적용한 원칙과 같다).
+      await c.query(
+        `INSERT INTO export_job (tenant_id, document_id, revision_id, format, status, requested_by)
+         SELECT d.tenant_id, d.document_id, r.revision_id, 'HWPX', 'QUEUED', $1
+         FROM document d
+         JOIN document_revision r ON r.document_id = d.document_id
+         WHERE d.title LIKE 'bulk %'`,
+        [fxA.userId],
+      );
+      await c.query(
+        `INSERT INTO validation_report
+           (target_type, target_id, track, status, checks_json, environment_json)
+         SELECT 'EXPORT', e.export_id, 'A_AUTO', 'PASS', '[]', '{}' FROM export_job e`,
+      );
+
       await c.query('ANALYZE document');
       await c.query('ANALYZE document_revision');
       await c.query('ANALYZE document_block');
+      await c.query('ANALYZE export_job');
+      await c.query('ANALYZE validation_report');
 
       const bulk = await c.query(
         `SELECT document_id FROM document WHERE title = 'bulk 1' AND tenant_id = $1`,
@@ -240,7 +264,14 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
     for (const row of state.rows) {
       expect(row.relrowsecurity, `${row.relname} RLS enabled`).toBe(true);
       expect(row.relforcerowsecurity, `${row.relname} RLS forced`).toBe(true);
-      expect(row.policies, `${row.relname} policy`).toEqual([`p_${row.relname}_tenant`]);
+      // export_job은 0020(CC-160)에서 워커 디스패치 정책 둘을 더 받는다.
+      // 0015 §7이 generation_job에 쓴 것과 같은 모델이며, 테넌트 정책은
+      // 그대로 남아 있어야 한다(추가지 대체가 아니다).
+      const expected =
+        row.relname === 'export_job'
+          ? ['p_export_job_tenant', 'p_export_job_worker_claim', 'p_export_job_worker_dispatch']
+          : [`p_${row.relname}_tenant`];
+      expect(row.policies, `${row.relname} policy`).toEqual(expected);
     }
   });
 
@@ -407,7 +438,7 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
         c.query(
           `INSERT INTO template_profile
              (document_id, profile_version, analysis_status, profile_json, unsupported_objects_json, analysis_hash)
-           VALUES ($1, 9, 'COMPLETED', '{}', '[]', $2)`,
+           VALUES ($1, 9, 'LIMITED', '{}', '[]', $2)`,
           [fxB.documentId, 'f'.repeat(64)],
         ),
         'template_profile',
@@ -421,13 +452,25 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
         ),
         'style_prototype',
       ).rejects.toThrow(/row-level security/);
+      // 0020 이후 export_job은 tenant_id를 직접 든다. 위조 시도는 "내 테넌트
+      // 값을 적고 남의 문서를 가리키는" 형태가 된다 — WITH CHECK의
+      // EXISTS(document) 절이 그것을 막는다. tenant_id를 비우는 형태는 RLS가
+      // 아니라 NOT NULL에 걸리므로 격리 검증이 되지 않는다.
       await expect(
         c.query(
-          `INSERT INTO export_job (document_id, revision_id, format, status, requested_by)
-           VALUES ($1, $2, 'HWPX', 'QUEUED', $3)`,
-          [fxB.documentId, fxB.revisionId, fxA.userId],
+          `INSERT INTO export_job (tenant_id, document_id, revision_id, format, status, requested_by)
+           VALUES ($1, $2, $3, 'HWPX', 'QUEUED', $4)`,
+          [fxA.tenantId, fxB.documentId, fxB.revisionId, fxA.userId],
         ),
-        'export_job',
+        'export_job (내 테넌트 + 남의 문서)',
+      ).rejects.toThrow(/row-level security/);
+      await expect(
+        c.query(
+          `INSERT INTO export_job (tenant_id, document_id, revision_id, format, status, requested_by)
+           VALUES ($1, $2, $3, 'HWPX', 'QUEUED', $4)`,
+          [fxB.tenantId, fxB.documentId, fxB.revisionId, fxA.userId],
+        ),
+        'export_job (남의 테넌트 값 직접 기재)',
       ).rejects.toThrow(/row-level security/);
       await expect(
         c.query(
@@ -484,32 +527,30 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
     });
   });
 
-  it('fails closed on a validation_report target_type outside the design vocabulary', async () => {
-    // 설계 §6.26의 target_type 어휘는 DOCUMENT/EXPORT 둘뿐이고 target_id에는
-    // FK가 없다. 정책은 그 두 분기만 참이 되므로 다른 값은 자기 테넌트의
-    // 대상을 가리켜도 읽기 0행 / 쓰기 거부다 — 조용한 유출 대신 즉시 실패.
-    const unknownId = await withClient(db.url, async (c) => {
-      const inserted = await c.query(
-        `INSERT INTO validation_report
-           (target_type, target_id, track, status, checks_json, environment_json)
-         VALUES ('SITUATION', $1, 'A_AUTO', 'PASS', '[]', '{}') RETURNING validation_report_id`,
-        [fxA.documentId],
-      );
-      return inserted.rows[0].validation_report_id as string;
-    });
-
-    await asRole(db.url, 'une_app', fxA.tenantId, async (c) => {
-      const read = await c.query(
-        `SELECT validation_report_id FROM validation_report WHERE validation_report_id = $1`,
-        [unknownId],
-      );
-      expect(read.rows).toHaveLength(0);
+  it('rejects a validation_report target_type outside the vocabulary (0020이 닫았다)', async () => {
+    // 0018 §8은 어휘 밖 target_type을 **정책**으로만 막았다(읽기 0행/쓰기 거부).
+    // CC-160이 실제로 보고서를 쓰게 되면서 0020 §2가 어휘를 CHECK로 닫았고,
+    // 이제 그런 행은 superuser로도 만들 수 없다 — 정책이 조용히 거짓이 되는
+    // 행 자체가 존재하지 않는다. 방어는 약해진 것이 아니라 한 층 앞당겨졌다.
+    await withClient(db.url, async (c) => {
       await expect(
         c.query(
           `INSERT INTO validation_report
              (target_type, target_id, track, status, checks_json, environment_json)
            VALUES ('SITUATION', $1, 'A_AUTO', 'PASS', '[]', '{}')`,
           [fxA.documentId],
+        ),
+      ).rejects.toThrow(/ck_validation_report_target_type/);
+    });
+
+    // 어휘 안의 값은 여전히 정책이 테넌트로 가른다(0018의 fail-closed 유지).
+    await asRole(db.url, 'une_app', fxA.tenantId, async (c) => {
+      await expect(
+        c.query(
+          `INSERT INTO validation_report
+             (target_type, target_id, track, status, checks_json, environment_json)
+           VALUES ('DOCUMENT', $1, 'A_AUTO', 'PASS', '[]', '{}')`,
+          [fxB.documentId],
         ),
       ).rejects.toThrow(/row-level security/);
     });
@@ -585,31 +626,49 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
     expect(survived.rows[0]).toEqual({ blocks: 1, untouched: 1 });
   });
 
-  it('gives une_worker no privileges at all on the document child tables', async () => {
+  it('gives une_worker only the Export-path privileges on the document child tables', async () => {
     // 0011의 ALL TABLES GRANT는 une_app 전용이고 0015 §6은 une_worker에
-    // 테이블별 최소권한만 준다. 따라서 이 여덟 테이블에는 회수할 권한이
-    // 없다 — 그 상태를 회귀 단언으로 고정한다(향후 일괄 GRANT 재도입 방지).
+    // 테이블별 최소권한만 준다. 0020(CC-160)이 Export 러너에게 딱 두 테이블을
+    // 열었다: export_job은 claim/settle이라 SELECT+UPDATE, validation_report는
+    // 감사 증거라 SELECT+INSERT뿐이다(UPDATE/DELETE 없음). 나머지 여섯은
+    // 여전히 0건이어야 한다 — 일괄 GRANT 재도입 방지.
     const grants = await withClient(db.url, (c) =>
       c.query(
-        `SELECT table_name, privilege_type FROM information_schema.role_table_grants
-         WHERE grantee = 'une_worker' AND table_name = ANY($1)`,
+        `SELECT table_name, string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type) AS privs
+         FROM information_schema.role_table_grants
+         WHERE grantee = 'une_worker' AND table_name = ANY($1)
+         GROUP BY table_name ORDER BY table_name`,
         [[...DOC_CHILD_TABLES]],
       ),
     );
-    expect(grants.rows).toEqual([]);
+    expect(grants.rows).toEqual([
+      // 대상 리비전의 IR을 읽어야 되쓰기를 할 수 있다. 읽기뿐이다.
+      { table_name: 'document_revision', privs: 'SELECT' },
+      { table_name: 'export_job', privs: 'SELECT,UPDATE' },
+      // 호환성 판정은 저장 차단 집행의 입력이다(ADR-29 D11). 읽기뿐이다.
+      { table_name: 'template_profile', privs: 'SELECT' },
+      { table_name: 'validation_report', privs: 'INSERT,SELECT' },
+    ]);
   });
 
   it('blocks une_worker before RLS with a privilege error on these tables', async () => {
     await asRole(db.url, 'une_worker', fxA.tenantId, async (c) => {
-      await expect(c.query(`SELECT count(*) FROM document_revision`)).rejects.toThrow(
-        /permission denied for table document_revision/,
-      );
+      // 0020이 Export 러너에게 연 것은 document_revision(읽기)·export_job·
+      // validation_report뿐이다. 편집 표면은 워커의 일이 아니므로 여전히
+      // RLS 이전에 권한 오류로 막힌다.
       await expect(c.query(`SELECT count(*) FROM document_block`)).rejects.toThrow(
         /permission denied for table document_block/,
       );
       await expect(c.query(`SELECT count(*) FROM change_operation`)).rejects.toThrow(
         /permission denied for table change_operation/,
       );
+      await expect(c.query(`SELECT count(*) FROM change_set`)).rejects.toThrow(
+        /permission denied for table change_set/,
+      );
+      // 읽기를 준 테이블에도 쓰기는 없다 — 최소권한이 방향까지 좁힌다.
+      await expect(
+        c.query(`UPDATE document_revision SET revision_no = revision_no WHERE false`),
+      ).rejects.toThrow(/permission denied for table document_revision/);
     });
   });
 
@@ -627,7 +686,12 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
     );
     expect(grants.rows).toHaveLength(DOC_CHILD_TABLES.length);
     for (const row of grants.rows) {
-      expect(row.privs, `${row.table_name} privileges`).toBe('DELETE,INSERT,SELECT,UPDATE');
+      // 0020 §3: validation_report는 append-only가 됐다. 검증 보고서는
+      // 산출물이 어떤 근거로 나갔는지를 말하는 감사 증거이고, 재검증은 새
+      // 보고서이지 과거 판정의 덮어쓰기가 아니다.
+      const expected =
+        row.table_name === 'validation_report' ? 'INSERT,SELECT' : 'DELETE,INSERT,SELECT,UPDATE';
+      expect(row.privs, `${row.table_name} privileges`).toBe(expected);
     }
   });
 
@@ -684,8 +748,17 @@ describe.skipIf(!ADMIN_URL)('document child-table tenant RLS (CC-150, migration 
       `SELECT validation_report_id FROM validation_report WHERE target_type = 'EXPORT' AND target_id = $1`,
       [fxA.exportId],
     );
-    expect(reports, reports).toMatch(/Index Scan using export_job_pkey/);
+    // 0020이 (target_type, target_id, created_at DESC)와 export_job(document_id)
+    // 인덱스를 더하면서 계획이 바뀌었다. 지키려는 불변식은 인덱스 **이름**이나
+    // 스캔 **종류**가 아니라 두 가지다: 보고서를 대상에서 되찾을 때 새 인덱스가
+    // 쓰이고, 정책의 EXPORT 분기가 export_job을 훑지 않는다.
+    //
+    // `document`에 대해서는 단언하지 않는다 — 이 픽스처의 document는 21행이라
+    // 순차 스캔이 옳은 계획이고, 그것을 금지하면 플래너의 정상 동작을 회귀로
+    // 신고하게 된다.
+    expect(reports, reports).toMatch(/ix_validation_report_target/);
     expect(reports, reports).not.toMatch(/Seq Scan on export_job/);
+    expect(reports, reports).not.toMatch(/Seq Scan on validation_report/);
   });
 
   it('does not change the child access path compared to the RLS-bypassed baseline (EXPLAIN)', async () => {
