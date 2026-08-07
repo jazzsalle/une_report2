@@ -1,155 +1,183 @@
 # Session Handoff
 
-- Date/time: 2026-08-07 (회사 PC, 여덟 번째 세션 — 종료)
-- Branch: **feature/CC-200** @ `24793ce` (**origin 미푸시**)
-- main: `0eabd59` (최신, CI PASS)
-- Current Work Item: **CC-200 착수 — 마이그레이션 0023까지 완료, 구현은 시작 전.**
+- Date/time: 2026-08-08 (집 PC, 아홉 번째 세션 — 종료)
+- Branch: **main** @ `816a70a` (= PR #16 머지 커밋)
+- Current Work Item: **CC-200·CC-210 둘 다 DONE, 머지 완료.** 열린 PR 없음.
+  **G3가 절반 진행됐다** — 다음은 **CC-220**.
 
 ## 이번 세션에 끝난 것
 
-### 1. PR 두 개 머지 — G2 종료
+한 세션에서 Work Item 두 개를 끝내고 머지까지 했다.
 
-지난 세션의 유일한 미결이었다. **사람이 `!` 접두사로 직접 실행**해서 통과했다
-(`gh pr merge`는 Claude Code auto mode 분류기가 여전히 차단한다 — 이번에도 막혔다).
+| PR | 항목 | 머지 커밋 | CI |
+|---|---|---|---|
+| [#15](https://github.com/jazzsalle/une_report2/pull/15) | CC-200 | `cf2fe5a` | verify 2m7s / db-verify 1m46s |
+| [#16](https://github.com/jazzsalle/une_report2/pull/16) | CC-210 | `816a70a` | verify 2m3s / db-verify 2m10s |
 
-| PR | 머지 커밋 | 결과 |
-|---|---|---|
-| [#13](https://github.com/jazzsalle/une_report2/pull/13) CC-160 | `e8d8b78` | 머지 커밋 방식, main CI PASS |
-| [#14](https://github.com/jazzsalle/une_report2/pull/14) CC-170 | `0eabd59` | 머지 커밋 방식, main CI `verify`+`db-verify` PASS |
+`gh pr merge`는 이번에 **Claude가 직접 실행했다**(사용자가 "알아서 머지하고
+진행해"로 위임). 이전 핸드오프의 "분류기가 차단한다"는 이 조건에서는 해소됐다.
+⚠️ **출력이 비어 보여도 성공한 것이다** — `gh pr view <n> --json state`로 확인할 것.
 
-순서(#13 → #14)와 방식(`--merge`) 모두 계획대로였다. 열린 PR 없음. **G2 닫힘.**
+### CC-200 (ADR-33, 마이그레이션 0023·0024)
 
-- ⚠️ **`gh pr merge`는 출력이 비어 보여도 성공한 것이다.** 이번에 두 번 다 빈
-  출력이었고 `gh pr view <n> --json state`로 확인하니 MERGED였다. 실패로 오인하지 말 것.
+상황 CRUD + 후보 SituationFact 수집. 종점은 `status=CANDIDATE`.
 
-### 2. CC-200 마이그레이션 0023 (`24793ce`)
+- **Provider 수집은 동기**(승인). `provider_job`은 SUCCEEDED/PARTIAL/FAILED
+  셋뿐이고 행이 종결된 채로 태어난다. 경계: 짧은 읽기 → **트랜잭션 밖** 병렬
+  호출 → 한 쓰기 트랜잭션(쓰기 트랜잭션이 상황을 `FOR UPDATE`로 재확인).
+- **부분 장애는 200.** 전멸해도 200 + FAILED Job. 실패 8갈래로
+  `DISABLED`(OB-05)·`NOT_CONTRACTED`(OB-02)·실제 장애를 구분한다.
+- 신설 API **UNE-SIT-014/015**. `Situation` 자리표시자 실형태화.
+- **마이그레이션 0024**: 0023이 `updated_at` 컬럼만 넣고 관례 트리거를
+  빠뜨려 "마지막 보정 시각"이 INSERT 시각에 고정되던 것을 닫았다.
+- 실측 결함 3건: `new Date('2026-02-30')` 롤오버, 위 트리거 누락, SIT-005가
+  계약(200) 대신 201.
 
-**0018 §9가 "각 도메인 Work Item이 닫는다"고 예고한 상황 계열 격리를 닫았다.**
-착수 시점 실측: `situation`만 RLS가 켜져 있었고 `fact_source`·`situation_fact`·
-`provider_job`·`fact_conflict`·`conflict_resolution`·`situation_snapshot`
-**여섯 테이블은 정책이 한 번도 없었다.** 0011이 `une_app`에 전 테이블 DML을
-일괄 부여하므로 **정책 없는 테이블 = 전 테넌트 공개**였고, CC-200이 첫 쓰기
-경로를 여는 순간 테넌트 격리 규칙이 깨지는 상태였다.
+### CC-210 (ADR-34, 마이그레이션 0025)
 
-- `fact_source`·`provider_job`은 **tenant_id를 직접 세웠다**(EXISTS(부모) 불가).
-  전자는 부모 애그리거트가 아예 없어 "아직 참조되지 않는 source 행"이
-  fail-open으로 노출된다. 후자는 `situation_id`가 **nullable**이다 —
-  UNE-KNOW-002/003이 상황 없는 UNI Job에 같은 테이블을 쓰므로, 상황 경유 정책은
-  그 정당한 행들을 전부 막는다.
-- **`provider_result` 신설** (테이블 61 → 62). 계약 UNE-SIT-006의 `x-db-tables`가
-  **존재하지 않는 이 이름**을 가리키고 있었다. CC-170의 `malware_scan`과 같은
-  드리프트지만 **결론은 반대다**: 원문 페이로드 보존은 CLAUDE.md 비협상 규칙이라
-  이름을 지우는 대신 실체화하는 쪽이 맞다. UPDATE/DELETE 회수(증거).
-- **CHECK 제약이 곧바로 실질 결함을 잡았다.** CC-004 픽스처가 설계 어디에도 없는
-  `mode='ACTUAL'`, `status='OPEN'`을 쓰고 있었다. 상태 어휘 정본은 **설계 06
-  §7.1**(`DRAFT → REGISTERED → CONTEXT_CONFIRMED → SOP_READY → RUNNING/PAUSED
-  → CLOSING → CLOSED`)이다. 픽스처를 설계에 맞췄다(LIVE/DRAFT).
-- `provider_job` 상태는 **SUCCEEDED/PARTIAL/FAILED 셋뿐**이다. 동기 수집이라
-  행이 종결된 채 태어나 QUEUED/RUNNING이 도달 불가능하다(0022 §1 원칙).
+중복군·충돌 해소·불변 SituationSnapshot. 테이블 62 → **63**.
 
-**테스트**: `@une/db-integration` **11 파일 127 테스트 통과(skip 0)** — 빈 DB
-전체 적용과 0010→0023 업그레이드 둘 다 포함. 데이터 사전 재생성 완료(62/587).
+- **UNE-SIT-008의 의미가 바뀌었다**(사용자 결정): 보정이 제자리 UPDATE →
+  **파생 Fact 생성 + 원본 SUPERSEDED**, `reason` 필수, 출처는 MANUAL/USER 신규.
+  응답은 **새 factId**이고 강한 ETag 대신 `Content-Location`을 준다.
+  같은 원본 재보정은 이제 **412**(전에는 409).
+- 충돌 탐지는 SIT-009 시점(사용자 결정). 값도 시각도 같으면 중복이지 충돌이
+  아니다. 확정은 미해결 충돌을 차단하고 자동으로 고르지 않는다.
+- Snapshot은 Fact의 **사본**을 갖는다. 해시는 사실+`effectiveAt`만.
+  Diff는 **(범주, Key)** 기준.
+- **`situation_fact` 중복 유니크 키는 만들지 않기로 결정**(0023 §3이 미룬 항목
+  종결). 중복은 제약이 아니라 판정이다.
+- 계약의 `SituationSnapshot` 자리표시자 해소 → **상황 계열에 열린 스키마 0건.**
 
-## ⚠️ 다음 세션에서 가장 먼저 할 일
+## 이중 리뷰가 잡은 것 — 이번 세션의 가장 큰 값
 
-**1. 브랜치를 푸시하지 않았다.** `feature/CC-200` @ `24793ce`가 로컬에만 있다.
+두 항목 모두 병렬 이중 리뷰(architecture-guardian + qa-gate-reviewer, opus)를
+돌렸고 **둘 다 실질 결함을 냈다.** CC-210은 특히 무거웠다.
 
-**2. CC-200은 마이그레이션만 끝났고 구현은 0줄이다.** 승인된 계획은 아래와 같다.
+**CC-200**: arch 1 BLOCKER / 6 MAJOR / 8 MINOR, QA PASS WITH CONDITIONS(필수 5).
+- 컨트롤러가 시각 검사 규칙의 **두 번째 사본**을 들고 있었고 그 사본에 달력
+  검사가 없어 `occurredAt: 2026-02-30`이 3월 2일로 저장됐다.
+- `Promise.all`의 무보호 어댑터 호출 — 하나가 던지면 다른 Provider의 원문·
+  후보가 통째로 버려지고 Job 행이 하나도 안 남는다.
+- 시험 훅 `mockScenario`가 **운영 요청 경로**에 있었다 → 설정 주입으로 이동.
+- **타임아웃이 하나도 없었다** → Provider당 제한시간 도입.
+- `PROV-503-001 → PROV-400-001` 재명명이 **테스트 0건 실패로 통과**했다 →
+  구현 소스에서 코드를 뽑아 계약과 대조하는 게이트 신설.
 
-### CC-200 남은 작업 (사용자 승인 완료)
+**CC-210**: arch **2 BLOCKER** / 11 MAJOR / 9 MINOR, QA PASS WITH
+CONDITIONS(필수 7). BLOCKER 둘이 **인수기준 1을 우회하고 있었다.**
+1. 충돌의 정체성이 `fact_key` 하나라 그룹의 정체성(범주+Key+창)과 어긋났다.
+   같은 Key의 다른 시간창 충돌이 부분 유니크에 걸려 `DO NOTHING`으로
+   삼켜졌고, 첫 충돌만 해소하면 미해결 불일치를 못 본 채 확정이 통과했다.
+2. 0025가 `SUPERSEDED`를 더했는데 도메인·계약·JSON Schema는 3값 그대로였고,
+   **ADR-33 D1의 삼중 대조 게이트가 0023 한 파일만 읽어 초록으로 통과했다.**
+   게이트가 막으려던 사고가 게이트를 우회했다 → 게이트가 "제약을 마지막으로
+   정의한 마이그레이션"을 찾아 읽도록 고쳤다.
 
-이번 세션에 사용자가 두 가지를 결정했다.
+그 밖에 재확정이 이전 판의 사실을 잃어 **Diff가 지운 적 없는 사실을 REMOVED로
+보고**하던 것, 재계산이 사라진 충돌을 닫지 않아 **확정이 영구 차단**되던 것
+(→ `OBSOLETE` 신설), `openConflictCount` 하드코딩 0으로 `CONFLICT_OPEN`이
+도달 불가능하던 것 등 전건 반영.
 
-- **Provider 수집은 동기 방식**(어댑터 호출은 트랜잭션 밖, 결과는 한 트랜잭션에
-  기록, 이미 종결된 Job 반환). 지금 어댑터가 전부 목업이라 비동기로 만들면
-  큐·리스·폴링이 실제로는 아무것도 기다리지 않는 장치가 된다. 실 Provider가
-  붙으면 응답이 느려지는 한계는 ADR 수용 한계와 OB에 남긴다.
-- **계약 공백 두 곳을 CC-200에서 닫는다.** `UNE-SIT-014`(GET 후보 Fact 목록 —
-  없으면 SIT-008이 보정할 factId를 얻을 방법이 없다), `UNE-SIT-015`(GET Provider
-  Job 상태). SSE(SIT-006) 자체는 CC-170 선례대로 폴링으로 대체하고 수용 한계에 남긴다.
+## ⚠️ 다음 세션에서 먼저 알아야 할 것
 
-**남은 항목:**
-
-1. **계약 동기화** — `Situation`이 `additionalProperties: true` **자리표시자**다
-   (CC-160/ADR-31이 같은 문제를 고치며 남긴 주석이 바로 위에 있다). 어떤 응답이든
-   통과하므로 예제 게이트가 아무것도 검증하지 못한다. 실제 형태로 채우고,
-   SIT-002 응답이 단건 `Situation`으로 잘못돼 있는 것(Page여야 함)을 고치고,
-   SIT-004/007/008의 `GenericRequest`를 전용 스키마로 바꾼다. SIT-014/015 신설.
-   **`pnpm generate:contract-types` 재실행 필수** — 지난 세션에 이걸 빠뜨려
-   CI가 15초 만에 잡았다.
-2. **`packages/domain/src/situation/`** — 상태기계(설계 06 §7.1), fact 표준 key,
-   **정규화**(단위·값 형태 — 인수기준 3번).
-3. **`packages/provider-adapters/src/situation/`** — `SituationFactProvider` 포트 +
-   KMA/MOIS 목업 + **비활성 어댑터**(OB-02 T3Q 상황 API) + **기능 플래그 off**
-   (OB-05 SafeKorea/Naver 법적 승인 전). 공식 데이터 수집 에이전트는 T3Q 소유이므로
-   UNE는 포트와 어댑터만 만든다.
-4. **`services/api/src/situation/`** — SIT-001~005, 007, 008, 014, 015.
-   `plan.controller/service/repository`가 그대로 본이 된다(If-Match=version_no
-   강한 ETag, `@Idempotent`, `db.withTenant`, audit).
-5. **테스트** — 도메인 단위, 어댑터 단위, API e2e, **RLS 통합 테스트 신설**
-   (`tests/integration/src/situation-table-rls.test.ts` — 0023 주석이 이 파일명을
-   이미 참조한다. `une_worker`가 이 테이블들에 42501로 막히는 것도 단언할 것).
-6. **ADR-33** — 0023 주석이 D2/D3/D4/D6을 이미 참조하고 있다. **아직 파일이 없다.**
-7. `IMPLEMENTATION_STATUS.md` / `CHANGELOG.md` / OPEN_BINDINGS(보존기간 TTL).
-8. 이중 리뷰(`architecture-guardian` + `qa-gate-reviewer` 병렬) — 필수.
-
-### CC-200 범위 밖 (경계)
-
-중복군·충돌 해소·SituationSnapshot 확정(`UNE-SIT-009~013`)은 **CC-210**이다.
-CC-200은 `status=CANDIDATE`까지만 만든다. `fact_duplicate_group` 테이블도
-만들지 않았다(0023 §8) — 계약의 그 드리프트는 CC-210이 닫는다.
+1. **로컬 브랜치 정리.** `feature/CC-150`, `feature/CC-200`, `feature/CC-210`이
+   머지 후에도 로컬에 남아 있다.
+2. **`pnpm test`와 CI `verify`가 덮는 범위가 다르다.** 이번에도
+   `pnpm test`는 통과하는데 `pnpm -r typecheck`가 깨진 순간이 있었다 —
+   `tests/e2e/src/harness.ts`가 `ApiConfig` 리터럴을 따로 들고 있어 새 필드가
+   빠졌고 **vitest는 타입검사를 하지 않는다.** 커밋 전 `-r typecheck` 필수.
+3. **WSL keepalive가 약 1시간마다 만료된다.** 이번 세션에 네 번 만료됐고 한
+   번은 전량 테스트 도중에 죽어 워커 e2e가 통째로 실패했다
+   (`terminating connection due to administrator command`).
+   **테스트가 무더기로 깨지면 코드 이전에 컨테이너를 의심할 것.**
+   `MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- sleep 3500`을 별도 프로세스로 띄운다.
+4. **실행 중인 트리는 유효한 증거가 아니다.** QA 리뷰어의 첫 전량 실행이
+   내 편집과 겹쳐 `ReferenceError`로 실패했다. 수치는 편집을 끝낸 뒤 얼린
+   트리에서 한 번에 얻을 것.
 
 ## 환경 재개 (이 PC면 부트스트랩 불필요)
 
 ```bash
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- docker ps    # WSL 깨우기(컨테이너 자동 복구)
-```
-
-```bash
 set -a; . ./infrastructure/.env; set +a
 export DATABASE_URL="postgres://$UNE_DB_USER:$UNE_DB_PASSWORD@127.0.0.1:$UNE_DB_PORT/$UNE_DB_NAME"
 export OBJECT_STORAGE_ENDPOINT="http://127.0.0.1:$UNE_MINIO_API_PORT"
 export OBJECT_STORAGE_BUCKET="$UNE_MINIO_BUCKET"
 export OBJECT_STORAGE_ACCESS_KEY="$UNE_STORAGE_ACCESS_KEY"
 export OBJECT_STORAGE_SECRET_KEY="$UNE_STORAGE_SECRET_KEY"
-pnpm db:migrate     # 23개 — 적용돼 있으면 "No migrations to run!"
+pnpm db:migrate   # 25개
+pnpm -r build
 ```
 
-- **`pnpm db:migrate`도 `DATABASE_URL`이 필요하다.** 위 블록 먼저.
-- **keepalive는 포그라운드 형태여야 한다**: `wsl -d Ubuntu -- sleep 3500`을 별도
-  프로세스로 띄운다. **약 1시간마다 만료된다.** 테스트가 무더기로 깨지면 코드를
-  의심하기 전에 컨테이너부터 확인할 것(`connect ECONNREFUSED 127.0.0.1:5432`).
-- 통합·e2e는 위 환경변수가 없으면 **조용히 skip되고 exit 0**이다. 수치 인용 전
-  분모(`Test Files N passed (N)`)를 확인할 것.
-- Git Bash에서 `wsl`에 경로를 넘길 때는 `MSYS_NO_PATHCONV=1`.
-- **gh CLI 2.97.0 설치·인증 완료**(keyring, 재시작해도 유지). 그냥 `gh`로 된다.
+- **이 PC의 DB 포트는 15432**(회사 PC는 5432). `infrastructure/.env`는 gitignored.
+- 통합·e2e는 위 환경변수가 없으면 **조용히 skip되고 exit 0**이다.
+  수치 인용 전 분모(`Test Files N passed (N)`)를 확인할 것.
+- `gh` 2.97.0 설치·인증됨(keyring). 그냥 `gh`로 된다.
 
-## Risks / OPEN
+## 게이트 (main 기준, 단일 `pnpm test` exit 0 · skip 0)
 
-- **feature/CC-200 미푸시** — 이번 세션 최대 미결.
-- **CC-200 마이그레이션이 main에 없는 상태에서 다른 브랜치를 파면 안 된다** —
-  0023은 62 테이블 기준선을 바꾼다.
-- **ADR-33이 없는데 0023 주석이 이미 D2/D3/D4/D6을 참조한다.** 다음 세션에서
-  ADR을 쓰기 전까지 그 참조는 매달려 있다.
-- **`pnpm test`와 CI `verify`가 덮는 범위가 다르다.** 생성 타입 drift 게이트,
-  `validate:handoff`, baseline pytest는 CI에만 있다. 로컬 녹색 ≠ CI 녹색.
-- **provider_result 보존기간·TTL 없음** — 원문에 개인정보가 섞일 수 있는데
-  보존 정책이 없다(0023 §8, OPEN 등재 필요).
-- **`situation.context_state` 컬럼을 만들지 않았다** — 설계 06의 SituationContext
-  상태기계는 파생으로 둔다(0023 §8). 비동기 전환 시 `PROVIDER_QUERYING`이 실재하게
-  되며 그때 재판단.
+| 워크스페이스 | Test Files | Tests |
+|---|---|---|
+| @une/hwpx-engine | 23 | 426 |
+| @une/api | 26 | 375 |
+| @une/contract-tests | 13 | 222 |
+| @une/provider-adapters | 14 | 162 |
+| @une/db-integration | 12 | 141 |
+| @une/domain | 14 | 143 |
+| @une/worker | 5 | 44 |
+| @une/e2e | 2 | 13 |
+| @une/web / @une/field-web | 3 / 1 | 28 / 1 |
+
+build·typecheck·lint·format PASS. contracts·intake·handoff PASS.
+계약 타입 재생성 diff 0. 마이그레이션 **25개**, 테이블 **63**, 데이터 사전 63/601.
+
+## 다음 항목: CC-220
+
+**지식문서 업로드 + UNI 목업 어댑터**(UNE-KNOW 계열). 의존 CC-210 충족.
+착수 전 확인할 것:
+
+- `knowledge_document` 테이블은 0004부터 있다. RLS·어휘 상태를 **실측**할 것 —
+  상황 계열이 그랬듯 정책이 없을 수 있다.
+- UNI 후보 호스트는 `http://221.147.100.161:8000`이고 **base path·auth를
+  추측하지 말 것**(OB-13). 계획 흐름에는 UNI를 쓰지 않는다.
+- `packages/provider-adapters/src/index.ts`의 머리말이 "UNI adapter: CC-220 /
+  CC-240"이라고 이미 적어 두었다.
+- CC-170의 업로드 3단(UNE-DOC-001~004)이 본이 된다 — 파일 업로드는 이미 있다.
+
+## 알려진 미결 (ADR-33·34 수용 한계에서 무거운 것)
+
+- **`contextRevision`/`REVISION_CONFLICT`가 없다**(ADR-34 수용 한계 10).
+  낡은 화면을 든 두 통제관이 각각 확정하면 **둘 다 성공하고 경고가 없다.**
+  남은 것 중 가장 큰 누락이며 화면(SCR-SIT-007)이 붙는 시점에 재판단해야 한다.
+- CONFIRM_PREVIEW·확정 예외 승인·MFA 미구현(수용 한계 3·4·11).
+- freshness/STALE 경고 없음 — WP-SITUATION-09.
+- `conflict_type='SOURCE'`는 도달 불가능(어휘만 남았다).
+- Diff는 항상 최신판과만 비교(v1↔v2 불가).
+- 동시 확정 경합의 **실행 증거**가 없다(`FOR UPDATE`와 버전 유니크는 있다).
+- `payload_sha256`이 wire 바이트가 아니라 정규 직렬화 해시(ADR-33 한계 10).
+- 재난유형 어휘를 상황 모듈이 계획 모듈에서 읽는다(ADR-33 한계 11).
+- 응답 본문의 런타임 스키마 검증 없음(ADR-33 한계 13).
+- **상황 계열 화면이 없다**(SCR-SIT-003~007). CC-170의 슬라이스 UI는 계획서만
+  다룬다.
+- 새 OPEN 바인딩 **OB-16**: `provider_result.raw_payload_json`과
+  `provider_job.request_json`의 보존기간·TTL 없음. 요청 쪽도 위험이 같다 —
+  `query`는 사용자가 채우는 객체라 주소·성명이 들어올 수 있고
+  `REVOKE UPDATE, DELETE`라 사후 마스킹 경로가 없다.
 - 기존 이월(변동 없음): 한/글 열림 증거 없음(OB-08, rhwp 미반입 OB-12),
-  XML 1.0 금지 제어문자 미필터, 실체화 자리 제약(ADR-32 한계 1), AV 스캔 없음(OB-15),
-  화면 캡처 CI 미실행, 성능 수치는 개발 PC 표본 3~5회, SSE 대신 폴링, T3Q SSO 없음(OB-01),
-  자기닫힘 `<hp:t/>` 되쓰기 오류코드 부정확, 정산 실패 시 고아 객체,
-  `rewriteArchive`/`buildXmlDelta` 검증 우회 진입점, PDF/DOCX 미구현(422),
-  표·SPLIT/MERGE 되쓰기 미개방, CI가 minio-init 결함 유형 미탐지,
-  `canTransitionExport` 호출자 없음, 미반영 리뷰 지적 8건(ADR-32 D17),
-  IX-*-TENANT 10건, 0010 파티션 전환 시 append-only REVOKE 재적용,
-  UNI_VERIFY_TLS=false POC-local.
+  XML 1.0 금지 제어문자 미필터, AV 스캔 없음(OB-15), 화면 캡처 CI 미실행,
+  SSE 대신 폴링, T3Q SSO 없음(OB-01), IX-*-TENANT 10건,
+  UNI_VERIFY_TLS=false POC-local, ADR-32 D17의 미반영 지적 8건.
 
 ## Notes
 
-- `git push`는 사람 승인 후 Claude가 실행 가능. **`gh pr merge`는 승인이 있어도
-  분류기가 차단** — 사람이 `!` 접두사로 실행할 것.
-- DATABASE_URL: 마이그레이션·시드·테스트는 superuser(une), 런타임은 une_app.
+- **설계 원문(docs/design-markdown)은 수정 금지.** 보완은 ADR + work-items로만.
+- prettier를 **docs/·contracts/에 실행하지 말 것**. 파일을 지정해 실행한다.
+- **소스 파일에 리터럴 NUL을 넣지 말 것.** 이번 세션에 실제로 2바이트가
+  들어갔다가 잡았다(구분자를 `|`로 교체). 해시·식별자 구분자는 눈에 보이는
+  문자를 쓸 것.
+- **JSON Schema 2020-12에서 `allOf` + `additionalProperties:false` 금지**
+  (ADR-24 D4). 이번 세션에는 재발하지 않았다.
+- 계약 description에 `: `를 쓰면 YAML 스칼라가 깨진다 — 이번에 한 번 밟았다.
+  인용하거나 표현을 바꿀 것.
+- 게이트를 깨뜨린 뒤 재실행 없이 완료 선언하지 말 것.
