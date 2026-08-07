@@ -65,6 +65,48 @@ export const factErrors = {
     new ApiError(412, 'FACT-412-001', `후보가 아닌 Fact(${status})는 보정할 수 없습니다.`),
 };
 
+/** CC-210. 설계 10 SIT 표가 정한 코드를 그대로 쓴다 —
+ * FACT-404-002(충돌 목록), SIT-412-003(미해결 충돌), SIT-422-006(출처 없는
+ * Fact), SIT-404-003(Snapshot). 400 형식 오류는 CC-200이 세운 표기를 따른다. */
+export const conflictErrors = {
+  invalidRequest: (violations: ErrorViolation[]): ApiError =>
+    new ApiError(400, 'FACT-400-002', '충돌 요청이 올바르지 않습니다.', { violations }),
+  situationNotFound: (): ApiError => new ApiError(404, 'FACT-404-002', '상황을 찾을 수 없습니다.'),
+  notFound: (): ApiError => new ApiError(404, 'FACT-404-002', '충돌을 찾을 수 없습니다.'),
+  /** 설계 06 US-SIT-007 E-02(다른 사용자가 선결정) — 재조회 후 다시 판단한다.
+   * 해소는 불변이므로(0025 §5) 덮어쓰기가 아니라 충돌이다. */
+  alreadyResolved: (): ApiError =>
+    new ApiError(409, 'FACT-409-002', '이미 해소된 충돌입니다.', {
+      recoverable: true,
+      userAction: '최신 상태를 다시 조회한 뒤 판단하십시오.',
+    }),
+  selectionNotCandidate: (): ApiError =>
+    new ApiError(422, 'FACT-422-002', '이 충돌의 후보가 아닌 Fact는 선택할 수 없습니다.', {
+      userAction: '충돌 후보 중에서 선택하거나, 새 사실이라면 Fact로 등록하십시오.',
+    }),
+};
+
+export const snapshotErrors = {
+  invalidRequest: (violations: ErrorViolation[]): ApiError =>
+    new ApiError(400, 'SIT-400-003', 'Snapshot 요청이 올바르지 않습니다.', { violations }),
+  notFound: (): ApiError => new ApiError(404, 'SIT-404-003', 'Snapshot을 찾을 수 없습니다.'),
+  /** 인수기준 "unresolved conflict block". 설계 10의 SIT-412-003이다. */
+  blocked: (violations: ErrorViolation[]): ApiError =>
+    new ApiError(412, 'SIT-412-003', '확정 선행조건을 만족하지 않습니다.', {
+      violations,
+      userAction: '충돌을 해소하고 확정 대상을 다시 고르십시오.',
+    }),
+  /** 확정 도중 대상 Fact가 다른 요청에 의해 바뀌었다(아키텍처 리뷰 M-6). */
+  raced: (): ApiError =>
+    new ApiError(409, 'SIT-409-003', '확정 대상이 처리 중에 변경되었습니다.', {
+      recoverable: true,
+      userAction: '최신 후보 목록을 다시 조회한 뒤 확정하십시오.',
+    }),
+  /** 설계 10 오류표 SIT-422-006 "출처 없는 Fact / 출처 등록". */
+  factWithoutSource: (violations: ErrorViolation[]): ApiError =>
+    new ApiError(422, 'SIT-422-006', '출처가 없는 Fact는 확정할 수 없습니다.', { violations }),
+};
+
 export const providerErrors = {
   invalidRequest: (violations: ErrorViolation[]): ApiError =>
     new ApiError(400, 'PROV-400-001', 'Provider 조회 요청이 올바르지 않습니다.', { violations }),

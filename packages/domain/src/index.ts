@@ -18,3 +18,5 @@ export * from './document/export';
 export * from './situation/situation-status';
 export * from './situation/fact-vocabulary';
 export * from './situation/fact-normalization';
+export * from './situation/duplicate-conflict';
+export * from './situation/snapshot';

@@ -32,10 +32,14 @@ export const APPEND_ONLY_TABLES = [
   // 감사 증거다. 재검증은 새 보고서이지 과거 판정의 덮어쓰기가 아니다.
   'validation_report',
   // 0023 (CC-200): 수집 Job은 종결된 채로 태어나고(동기 수집), 원문 응답은
-  // 증거다. situation_fact는 여기 없다 — UNE-SIT-008 보정이 UPDATE를 쓰므로
-  // DELETE만 회수했다(거부는 status='REJECTED'이지 삭제가 아니다).
+  // 증거다. situation_fact는 여기 없다 — CC-210부터 보정은 제자리 UPDATE가
+  // 아니지만(파생 Fact) 상태 전이(SUPERSEDED/CONFIRMED)에 UPDATE가 필요하다.
+  // DELETE만 회수한다(거부는 status='REJECTED'이지 삭제가 아니다).
   'provider_job',
   'provider_result',
+  // 0025 (CC-210): 해소는 한 번 정해지면 바뀌지 않는다 — 덮어쓸 수 있으면
+  // "누가 무엇을 선택했는가"의 이력이 사라진다(설계 06 US-SIT-007 완료조건).
+  'conflict_resolution',
 ];
 
 export async function withClient<T>(url: string, fn: (c: Client) => Promise<T>): Promise<T> {

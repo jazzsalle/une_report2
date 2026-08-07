@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   FACT_STATUSES,
@@ -25,7 +26,7 @@ import { loadYaml, repoPath } from './contract-loader';
  */
 
 const CONTRACT = ['contracts', 'openapi', 'une-platform-api-v1.yaml'] as const;
-const MIGRATION_0023 = repoPath('database', 'migrations', '0023_situation_fact_ingestion.sql');
+const MIGRATIONS_DIR = repoPath('database', 'migrations');
 
 interface Schema {
   type?: string | string[];
@@ -56,18 +57,36 @@ for (const [path, methods] of Object.entries(doc.paths)) {
   }
 }
 
-/** `CHECK (col IN ('A', 'B'))`에서 값들을 뽑는다. */
-function checkValues(sql: string, constraint: string): string[] {
-  const anchor = sql.indexOf(`ADD CONSTRAINT ${constraint}`);
-  if (anchor < 0) throw new Error(`제약 ${constraint}을 0023에서 찾지 못했다`);
+/**
+ * `CHECK (col IN ('A', 'B'))`에서 값들을 뽑는다.
+ *
+ * **제약을 마지막으로 정의한 마이그레이션**을 찾아 읽는다. 처음에는 0023
+ * 한 파일만 읽었는데, 0025가 `ck_situation_fact_status`에 `SUPERSEDED`를
+ * 더했을 때 게이트가 그 사실을 보지 못하고 초록으로 통과했다 — 삼중 대조가
+ * 정확히 그 변경에서 뚫렸다(아키텍처 리뷰 B-2). 어휘를 넓히는 마이그레이션이
+ * 나중에 또 올 것이므로 한 파일에 고정하지 않는다.
+ */
+const MIGRATION_FILES = readdirSync(MIGRATIONS_DIR)
+  .filter((name) => /^\d{4}_.*\.sql$/.test(name))
+  .sort();
+
+function checkValues(constraint: string): string[] {
+  const defining = [...MIGRATION_FILES]
+    .reverse()
+    .find((name) =>
+      readFileSync(join(MIGRATIONS_DIR, name), 'utf8').includes(`ADD CONSTRAINT ${constraint}`),
+    );
+  if (!defining) throw new Error(`제약 ${constraint}을 어느 마이그레이션에서도 찾지 못했다`);
+  const sql = readFileSync(join(MIGRATIONS_DIR, defining), 'utf8');
+  const anchor = sql.lastIndexOf(`ADD CONSTRAINT ${constraint}`);
   const slice = sql.slice(anchor, anchor + 800);
   const open = slice.indexOf('IN (');
   const close = slice.indexOf(')', open);
-  if (open < 0 || close < 0) throw new Error(`제약 ${constraint}의 IN 목록을 읽지 못했다`);
+  if (open < 0 || close < 0) {
+    throw new Error(`제약 ${constraint}의 IN 목록을 읽지 못했다(${defining})`);
+  }
   return [...slice.slice(open, close).matchAll(/'([^']+)'/g)].map((m) => m[1]);
 }
-
-const migrationSql = readFileSync(MIGRATION_0023, 'utf8');
 
 /** 구현된 SIT API 목록 — 컨트롤러 주석에서 유도한다. 손으로 관리하는 목록은
  * 낡는다(file-upload 게이트와 같은 방식). */
@@ -129,42 +148,53 @@ describe('CC-200 계약: 자리표시자가 실형태로 바뀌었다', () => {
     }
   });
 
-  it('SituationSnapshot은 아직 자리표시자다 (CC-210이 채운다)', () => {
-    // 형태를 지금 추측하면 확정 경로를 쥔 CC-210의 결정을 미리 자른다.
-    // 의도적으로 남긴 것임을 고정해 둔다 — 잊고 남긴 것과 구분하기 위해서다.
-    expect(schemas.SituationSnapshot.additionalProperties).toBe(true);
+  it('SituationSnapshot도 CC-210에서 채워졌다 — 상황 계열에 자리표시자가 남지 않았다', () => {
+    // CC-200은 "확정 경로를 쥔 CC-210이 채운다"며 의도적으로 남겼고, 그 항목이
+    // 이것이다. 이제 상황 계열 응답 스키마에 열린 것이 하나도 없어야 한다.
+    for (const name of [
+      'SituationSnapshot',
+      'SnapshotFact',
+      'DuplicateGroup',
+      'FactConflict',
+      'ConflictResolution',
+      'SnapshotDiff',
+    ]) {
+      expect(schemas[name], `${name} 누락`).toBeDefined();
+      expect(schemas[name].additionalProperties, `${name}이 열려 있다`).toBe(false);
+    }
   });
 });
 
 describe('CC-200 계약: 어휘가 마이그레이션·도메인과 같다', () => {
   it('상황 상태 8종이 세 곳에서 같다', () => {
-    const fromDb = checkValues(migrationSql, 'ck_situation_status');
+    const fromDb = checkValues('ck_situation_status');
     expect(schemas.SituationStatus.enum).toEqual(fromDb);
     expect([...SITUATION_STATUSES]).toEqual(fromDb);
   });
 
   it('mode 2종이 세 곳에서 같다', () => {
-    const fromDb = checkValues(migrationSql, 'ck_situation_mode');
+    const fromDb = checkValues('ck_situation_mode');
     expect(schemas.SituationMode.enum).toEqual(fromDb);
     expect([...SITUATION_MODES]).toEqual(fromDb);
   });
 
   it('Fact 상태 3종이 세 곳에서 같다', () => {
-    const fromDb = checkValues(migrationSql, 'ck_situation_fact_status');
+    const fromDb = checkValues('ck_situation_fact_status');
+    // 0025가 SUPERSEDED를 더했다 — 세 곳이 함께 넓어졌는지 본다.
     expect(schemas.SituationFactStatus.enum).toEqual(fromDb);
     expect([...FACT_STATUSES]).toEqual(fromDb);
   });
 
   it('Provider 코드 7종이 세 곳에서 같다', () => {
-    const fromDb = checkValues(migrationSql, 'ck_fact_source_provider_code');
+    const fromDb = checkValues('ck_fact_source_provider_code');
     expect(schemas.ProviderCode.enum).toEqual(fromDb);
     expect([...PROVIDER_CODES]).toEqual(fromDb);
     // provider_job 쪽 CHECK도 같은 목록이어야 한다.
-    expect(checkValues(migrationSql, 'ck_provider_job_provider_code')).toEqual(fromDb);
+    expect(checkValues('ck_provider_job_provider_code')).toEqual(fromDb);
   });
 
   it('provider_job 상태 3종에 QUEUED/RUNNING이 없다 (동기 수집, ADR-33 D2)', () => {
-    const fromDb = checkValues(migrationSql, 'ck_provider_job_status');
+    const fromDb = checkValues('ck_provider_job_status');
     expect(fromDb).toEqual(['SUCCEEDED', 'PARTIAL', 'FAILED']);
     expect((schemas.ProviderJob.properties?.status.enum ?? []).sort()).toEqual([...fromDb].sort());
   });
@@ -237,7 +267,9 @@ describe('CC-200 계약: 요청이 GenericRequest가 아니다', () => {
 
   it('빈 PATCH 본문을 계약에서 막는다', () => {
     expect(schemas.SituationPatchRequest.minProperties).toBe(1);
-    expect(schemas.SituationFactPatchRequest.minProperties).toBe(1);
+    // Fact 보정은 사유가 필수이므로 사유 + 바꿀 항목 하나 = 최소 2다(ADR-34 D3).
+    expect(schemas.SituationFactPatchRequest.minProperties).toBe(2);
+    expect(schemas.SituationFactPatchRequest.required).toContain('reason');
   });
 
   it('수동 Fact 등록 요청은 providerCode를 받지 않는다 (사칭 차단)', () => {
@@ -276,7 +308,8 @@ describe('CC-200 계약: 구현이 던지는 오류코드가 x-error-codes에 �
     // 잘못된 UUID는 404가 아니라 400 COM-0400이다(controller-utils.uuidParam).
     // 미구현 API(SIT-006 SSE, SIT-009~013 CC-210)는 대상이 아니다 — 구현 목록은
     // 컨트롤러 주석에서 유도한다(file-upload 게이트와 같은 방식).
-    expect(implementedSitApis.size).toBe(9);
+    // CC-200의 9 + CC-210의 SIT-009~013 다섯 = 14.
+    expect(implementedSitApis.size).toBe(14);
     for (const [id, operation] of operations) {
       if (!implementedSitApis.has(id)) continue;
       if (!String(operation.__path).includes('{')) continue;

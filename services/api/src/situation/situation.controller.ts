@@ -14,6 +14,9 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
+  CONFLICT_STATUSES,
+  DEFAULT_DUPLICATE_STRATEGY,
+  DUPLICATE_STRATEGIES,
   FACT_STATUSES,
   FACT_TYPES,
   SITUATION_MODES,
@@ -23,20 +26,32 @@ import {
 } from '@une/domain';
 import { QUERYABLE_PROVIDERS, isQueryableProvider } from '@une/provider-adapters';
 import { ApiError, type ErrorViolation } from '../common/api-error';
-import { requestMeta, requireAuth, uuidParam } from '../common/controller-utils';
+import { isUuid, requestMeta, requireAuth, uuidParam } from '../common/controller-utils';
 import { Idempotent, RequirePermission } from '../common/decorators';
 import { ok, type SuccessEnvelope } from '../common/envelope';
 import type { ApiRequest } from '../common/request-context';
 import { HAZARD_TYPES } from '../plan/plan-context.validator';
 import { FactService, type FactPatchInput, type ManualFactInput } from './fact.service';
 import { ProviderQueryService, type ProviderQueryJobResource } from './provider-query.service';
-import { factErrors, providerErrors, situationErrors } from './situation-errors';
+import {
+  conflictErrors,
+  factErrors,
+  providerErrors,
+  situationErrors,
+  snapshotErrors,
+} from './situation-errors';
+import { ResolutionService } from './resolution.service';
+import { SnapshotService, type SnapshotListResult } from './snapshot.service';
 import { SituationService } from './situation.service';
 import type {
+  ConflictResolutionResource,
+  ConflictResource,
+  DeduplicateResult,
   Page,
   SituationDetailResource,
   SituationFactResource,
   SituationResource,
+  SnapshotResource,
 } from './situation.resources';
 
 /** If-Match는 version_no를 담은 강한 ETag다: `"3"`. 약한 태그(`W/"3"`)는
@@ -138,6 +153,8 @@ export class SituationController {
     @Inject(SituationService) private readonly situations: SituationService,
     @Inject(FactService) private readonly facts: FactService,
     @Inject(ProviderQueryService) private readonly providers: ProviderQueryService,
+    @Inject(ResolutionService) private readonly resolutions: ResolutionService,
+    @Inject(SnapshotService) private readonly snapshots: SnapshotService,
   ) {}
 
   /** UNE-SIT-001 */
@@ -542,11 +559,23 @@ export class SituationController {
     const raw = body ?? {};
     const violations: ErrorViolation[] = [];
     rejectUnknownKeys(raw, ['value', 'unit', 'observedAt', 'confidence', 'reason'], violations);
-    if (Object.keys(raw).length === 0) {
+    // 사유 외에 바꿀 것이 하나 이상 있어야 한다 — 사유만 보내는 것은 보정이
+    // 아니라 주석이고, 그것을 파생 Fact로 남기면 계보가 의미 없이 길어진다.
+    const changedFields = Object.keys(raw).filter((k) => k !== 'reason');
+    if (changedFields.length === 0) {
       violations.push({ field: 'body', reason: '보정할 항목이 하나 이상 필요합니다.' });
     }
 
-    const patch: FactPatchInput = {};
+    // CC-210: 보정은 파생 Fact를 만들고, 파생은 사유 없이 만들 수 없다
+    // (설계 06 US-SIT-007 #3, 0025 §2의 CHECK).
+    const reason = typeof raw.reason === 'string' ? raw.reason.trim() : '';
+    if (!reason) {
+      violations.push({ field: 'reason', reason: '보정 사유는 필수입니다.' });
+    } else if (reason.length > 500) {
+      violations.push({ field: 'reason', reason: '500자 이하여야 합니다.' });
+    }
+
+    const patch: FactPatchInput = { reason };
     if (Object.prototype.hasOwnProperty.call(raw, 'value')) {
       if (raw.value === null) violations.push({ field: 'value', reason: 'null일 수 없습니다.' });
       else patch.value = raw.value;
@@ -566,12 +595,6 @@ export class SituationController {
         violations.push({ field: 'confidence', reason: '0 이상 1 이하의 수여야 합니다.' });
       } else patch.confidence = raw.confidence;
     }
-    if (raw.reason !== undefined) {
-      if (typeof raw.reason !== 'string' || raw.reason.length > 500) {
-        violations.push({ field: 'reason', reason: '500자 이하 문자열이어야 합니다.' });
-      } else patch.reason = raw.reason;
-    }
-
     if (violations.length > 0) throw factErrors.invalidRequest(violations);
 
     const updated = await this.facts.patch(
@@ -582,8 +605,205 @@ export class SituationController {
       patch,
       requestMeta(req),
     );
-    setEtag(res, updated.versionNo);
+    // **ETag를 세우지 않는다.** 보정은 파생 Fact를 만들므로 응답 본문은 이
+    // URL이 가리키는 자원이 아니다(원본은 이제 SUPERSEDED다). 파생의 버전을
+    // ETag로 실으면 클라이언트가 그 값으로 같은 URL을 다시 PATCH해 412를
+    // 받는다(리뷰 m-5). 새 자원의 위치를 알려 준다.
+    res.setHeader('Content-Location', `/api/v1/situations/${situationId}/facts/${updated.factId}`);
     return ok(req, updated);
+  }
+
+  /** UNE-SIT-009 */
+  @Post(':id/facts/deduplicate')
+  @RequirePermission('SITUATION_FACT_EDIT')
+  @HttpCode(200)
+  @Idempotent({ required: true, successStatus: 200 })
+  async deduplicate(
+    @Req() req: ApiRequest,
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown> | undefined,
+  ): Promise<SuccessEnvelope<DeduplicateResult>> {
+    const situationId = uuidParam('id', id);
+    const raw = body ?? {};
+    const violations: ErrorViolation[] = [];
+    rejectUnknownKeys(raw, ['strategy', 'threshold', 'timeWindowMinutes'], violations);
+
+    const strategy = raw.strategy === undefined ? DEFAULT_DUPLICATE_STRATEGY : raw.strategy;
+    if (!(DUPLICATE_STRATEGIES as readonly string[]).includes(String(strategy))) {
+      violations.push({ field: 'strategy', reason: `허용 값: ${DUPLICATE_STRATEGIES.join(', ')}` });
+    }
+    let threshold: number | null = null;
+    if (raw.threshold !== undefined && raw.threshold !== null) {
+      if (typeof raw.threshold !== 'number' || raw.threshold < 0 || raw.threshold > 1) {
+        violations.push({ field: 'threshold', reason: '0 이상 1 이하의 수여야 합니다.' });
+      } else threshold = raw.threshold;
+    }
+    let timeWindowMinutes: number | undefined;
+    if (raw.timeWindowMinutes !== undefined) {
+      if (
+        !Number.isInteger(raw.timeWindowMinutes) ||
+        (raw.timeWindowMinutes as number) < 1 ||
+        (raw.timeWindowMinutes as number) > 1440
+      ) {
+        violations.push({
+          field: 'timeWindowMinutes',
+          reason: '1 이상 1440 이하의 정수여야 합니다.',
+        });
+      } else timeWindowMinutes = raw.timeWindowMinutes as number;
+    }
+    if (violations.length > 0) throw conflictErrors.invalidRequest(violations);
+
+    return ok(
+      req,
+      await this.resolutions.deduplicate(
+        requireAuth(req),
+        situationId,
+        {
+          strategy: strategy as (typeof DUPLICATE_STRATEGIES)[number],
+          ...(timeWindowMinutes === undefined ? {} : { timeWindowMinutes }),
+          threshold,
+        },
+        requestMeta(req),
+      ),
+    );
+  }
+
+  /** UNE-SIT-010 */
+  @Get(':id/conflicts')
+  @RequirePermission('SITUATION_READ')
+  async listConflicts(
+    @Req() req: ApiRequest,
+    @Param('id') id: string,
+    @Query('status') status?: string,
+  ): Promise<SuccessEnvelope<ConflictResource[]>> {
+    const situationId = uuidParam('id', id);
+    if (status !== undefined && !(CONFLICT_STATUSES as readonly string[]).includes(status)) {
+      throw conflictErrors.invalidRequest([
+        { field: 'status', reason: `허용 값: ${CONFLICT_STATUSES.join(', ')}` },
+      ]);
+    }
+    return ok(req, await this.resolutions.listConflicts(requireAuth(req), situationId, status));
+  }
+
+  /** UNE-SIT-011 */
+  @Post(':id/conflicts/:conflictId/resolve')
+  @RequirePermission('SITUATION_CONFIRM')
+  @HttpCode(200)
+  @Idempotent({ required: true, successStatus: 200 })
+  async resolveConflict(
+    @Req() req: ApiRequest,
+    @Param('id') id: string,
+    @Param('conflictId') conflictId: string,
+    @Body() body: Record<string, unknown> | undefined,
+  ): Promise<SuccessEnvelope<ConflictResolutionResource>> {
+    const situationId = uuidParam('id', id);
+    const targetConflictId = uuidParam('conflictId', conflictId);
+    const raw = body ?? {};
+    const violations: ErrorViolation[] = [];
+    rejectUnknownKeys(raw, ['selectedFactId', 'reason'], violations);
+
+    if (!isUuid(raw.selectedFactId)) {
+      violations.push({ field: 'selectedFactId', reason: 'UUID 형식의 factId가 필요합니다.' });
+    }
+    // 선택에는 사유가 남는다 — 설계 06 US-SIT-007 완료조건
+    // ("모든 선택에 actor/time/source 추적")이고 컬럼도 NOT NULL이다(0004).
+    const reason = typeof raw.reason === 'string' ? raw.reason.trim() : '';
+    if (!reason) violations.push({ field: 'reason', reason: '선택 사유는 필수입니다.' });
+    else if (reason.length > 1000) {
+      violations.push({ field: 'reason', reason: '1000자 이하여야 합니다.' });
+    }
+    if (violations.length > 0) throw conflictErrors.invalidRequest(violations);
+
+    return ok(
+      req,
+      await this.resolutions.resolveConflict(
+        requireAuth(req),
+        situationId,
+        targetConflictId,
+        { selectedFactId: raw.selectedFactId as string, reason },
+        requestMeta(req),
+      ),
+    );
+  }
+
+  /** UNE-SIT-012 */
+  @Post(':id/snapshots')
+  @RequirePermission('SITUATION_CONFIRM')
+  @Idempotent({ required: true, successStatus: 201 })
+  async confirmSnapshot(
+    @Req() req: ApiRequest,
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown> | undefined,
+  ): Promise<SuccessEnvelope<SnapshotResource>> {
+    const situationId = uuidParam('id', id);
+    const raw = body ?? {};
+    const violations: ErrorViolation[] = [];
+    rejectUnknownKeys(
+      raw,
+      ['factIds', 'conflictResolutionIds', 'effectiveAt', 'reason'],
+      violations,
+    );
+
+    const factIds = Array.isArray(raw.factIds) ? raw.factIds : [];
+    if (factIds.length === 0) {
+      violations.push({ field: 'factIds', reason: '하나 이상 필요합니다.' });
+    }
+    for (const factId of factIds) {
+      if (!isUuid(factId)) {
+        violations.push({ field: 'factIds', reason: 'UUID 형식이어야 합니다.' });
+        break;
+      }
+    }
+    if (new Set(factIds).size !== factIds.length) {
+      violations.push({ field: 'factIds', reason: '중복된 factId가 있습니다.' });
+    }
+    const effectiveAt = checkTimestamp('effectiveAt', raw.effectiveAt, violations);
+    if (effectiveAt === undefined || effectiveAt === null) {
+      violations.push({ field: 'effectiveAt', reason: '필수 항목입니다.' });
+    }
+    let reason: string | null = null;
+    if (raw.reason !== undefined && raw.reason !== null) {
+      if (typeof raw.reason !== 'string' || raw.reason.length > 1000) {
+        violations.push({ field: 'reason', reason: '1000자 이하 문자열이어야 합니다.' });
+      } else reason = raw.reason;
+    }
+    // 계약이 받는 필드지만 CC-210은 쓰지 않는다 — 해소는 이미 저장돼 있고
+    // 확정은 OPEN 충돌 유무만 본다. 받아서 버리면 클라이언트가 보낸 값이
+    // 조용히 무시되므로 거부한다.
+    if (raw.conflictResolutionIds !== undefined) {
+      violations.push({
+        field: 'conflictResolutionIds',
+        reason: '지원하지 않는 항목입니다(해소는 UNE-SIT-011에서 이미 기록됩니다).',
+      });
+    }
+    if (violations.length > 0) throw snapshotErrors.invalidRequest(violations);
+
+    return ok(
+      req,
+      await this.snapshots.confirm(
+        requireAuth(req),
+        situationId,
+        { factIds: factIds as string[], effectiveAt: effectiveAt as string, reason },
+        requestMeta(req),
+      ),
+    );
+  }
+
+  /** UNE-SIT-013 */
+  @Get(':id/snapshots')
+  @RequirePermission('SITUATION_READ')
+  async listSnapshots(
+    @Req() req: ApiRequest,
+    @Param('id') id: string,
+    @Query('compareTo') compareTo?: string,
+  ): Promise<SuccessEnvelope<SnapshotListResult>> {
+    const situationId = uuidParam('id', id);
+    if (compareTo !== undefined && !isUuid(compareTo)) {
+      throw snapshotErrors.invalidRequest([
+        { field: 'compareTo', reason: 'UUID 형식이어야 합니다.' },
+      ]);
+    }
+    return ok(req, await this.snapshots.list(requireAuth(req), situationId, compareTo));
   }
 }
 

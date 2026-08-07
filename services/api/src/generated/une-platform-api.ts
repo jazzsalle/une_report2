@@ -1512,7 +1512,7 @@ export type paths = {
          * SituationSnapshot 확정
          * @description 권한: SITUATION_CONFIRM
          *
-         *     핵심 요청: factIds,resolutionIds,effectiveAt,reason
+         *     핵심 요청: factIds,effectiveAt,reason (resolutionIds는 받지 않는다 — ADR-34 D6)
          *
          *     핵심 응답: SituationSnapshot
          *
@@ -4017,15 +4017,30 @@ export type components = {
             /** Format: date-time */
             observedAt?: string | null;
             confidence?: number | null;
-            /** @description 보정 사유. 감사에 남는다(설계 06 US-SIT-007 완료조건). */
-            reason?: string;
+            /** @description 보정 사유. **필수다** — CC-210부터 보정은 파생 Fact를 만들고 (설계 06 US-SIT-007 #3) 파생은 actor·사유 없이 만들 수 없다 (0025 §2 ck_situation_fact_derivation_shape). */
+            reason: string;
         };
         SituationSnapshotCreateRequest: {
             factIds: string[];
-            conflictResolutionIds?: string[];
             /** Format: date-time */
             effectiveAt: string;
             reason?: string | null;
+        };
+        DeduplicateRequest: {
+            strategy?: components["schemas"]["DuplicateStrategy"];
+            /** @description 지금 두 전략은 쓰지 않지만 값을 버리지 않고 그대로 기록한다. */
+            threshold?: number | null;
+            /** @description KEY_TIME_WINDOW의 창(분). 기본 60. */
+            timeWindowMinutes?: number;
+        };
+        ConflictResolveRequest: {
+            /**
+             * Format: uuid
+             * @description 이 충돌의 후보 중 하나여야 한다. 그 밖은 422다.
+             */
+            selectedFactId: string;
+            /** @description 설계 06 US-SIT-007 완료조건("모든 선택에 actor/time/source 추적"). */
+            reason: string;
         };
         KnowledgeDocumentCreateRequest: {
             /** Format: uuid */
@@ -4110,10 +4125,10 @@ export type components = {
          */
         SituationFactType: "WEATHER_OBSERVATION" | "WEATHER_FORECAST" | "WEATHER_WARNING" | "DISASTER_MESSAGE" | "FIELD_REPORT" | "USER_ASSERTED";
         /**
-         * @description 0023 ck_situation_fact_status. CC-200은 CANDIDATE만 만든다.
+         * @description 0023 + **0025**의 ck_situation_fact_status. `SUPERSEDED`는 보정이 파생 Fact를 만들면서 원본이 내려가는 자리다(ADR-34 D3). 마이그레이션만 넓히고 여기를 두면 삼중 대조가 갈라진다.
          * @enum {string}
          */
-        SituationFactStatus: "CANDIDATE" | "CONFIRMED" | "REJECTED";
+        SituationFactStatus: "CANDIDATE" | "CONFIRMED" | "REJECTED" | "SUPERSEDED";
         /**
          * @description situation-fact.schema.json source.providerCode enum과 같은 일곱 값
          * @enum {string}
@@ -4219,6 +4234,12 @@ export type components = {
             confidence?: number | null;
             status: components["schemas"]["SituationFactStatus"];
             normalization?: components["schemas"]["FactNormalization"];
+            /**
+             * Format: uuid
+             * @description 파생 원본(0025 §2). 원천이면 null이다. 보정은 제자리 수정이 아니라 파생 생성이므로 화면이 계보를 그릴 수 있어야 한다(ADR-34 D3).
+             */
+            originalFactId: string | null;
+            derivedReason?: string | null;
             versionNo: number;
             /** Format: date-time */
             updatedAt: string;
@@ -4303,14 +4324,177 @@ export type components = {
             data: components["schemas"]["ProviderQueryJob"];
             meta: Record<string, never>;
         };
+        DeduplicateResponse: {
+            success: boolean;
+            data: {
+                groups: components["schemas"]["DuplicateGroup"][];
+                /** @description 계산 후의 OPEN 충돌 전부(이번에 새로 연 것만이 아니다). */
+                conflicts: components["schemas"]["FactConflict"][];
+                /** @description 이번 계산이 **새로** 연 충돌 수. 기존 OPEN은 세지 않는다. */
+                conflictsOpened: number;
+                /** @description 이번 계산에 더 이상 나타나지 않아 OBSOLETE로 닫힌 충돌 수. 보정으로 값이 같아진 경우가 대표적이다. */
+                conflictsObsoleted: number;
+            };
+            meta: Record<string, never>;
+        };
+        FactConflictListResponse: {
+            success: boolean;
+            data: components["schemas"]["FactConflict"][];
+            meta: Record<string, never>;
+        };
+        ConflictResolutionResponse: {
+            success: boolean;
+            data: components["schemas"]["ConflictResolution"];
+            meta: Record<string, never>;
+        };
+        SituationSnapshotResponse: {
+            success: boolean;
+            data: components["schemas"]["SituationSnapshot"];
+            meta: Record<string, never>;
+        };
+        SituationSnapshotListResponse: {
+            success: boolean;
+            data: {
+                /** @description 최신 버전부터. */
+                items: components["schemas"]["SituationSnapshot"][];
+                /** @description compareTo가 없으면 null. */
+                diff: components["schemas"]["SnapshotDiff"] | null;
+            };
+            meta: Record<string, never>;
+        };
         ProviderJobResponse: {
             success: boolean;
             data: components["schemas"]["ProviderJob"];
             meta: Record<string, never>;
         };
         SituationSnapshot: {
-            [key: string]: unknown;
+            /** Format: uuid */
+            snapshotId: string;
+            /** Format: uuid */
+            situationId: string;
+            /** @description 상황 안에서 유일하다(0025 §6). 재확정은 새 snapshotId + v+1. */
+            versionNo: number;
+            /** Format: date-time */
+            effectiveAt: string;
+            /** @description 확정 시점의 Fact 사본. 참조가 아니라 사본인 이유는 설계 06 A-02다 — 확정 후 원천이 바뀌어도 Snapshot은 움직이지 않아야 한다. */
+            facts: components["schemas"]["SnapshotFact"][];
+            /** @description 정규화 JSON의 SHA-256. 사실과 effectiveAt만 들어가고 확정자·시각· 사유·버전은 빠진다 — 그래야 "내용이 같은가"를 물을 수 있다. */
+            contentHash: string;
+            /** Format: uuid */
+            supersedesSnapshotId?: string | null;
+            /** Format: uuid */
+            confirmedBy: string;
+            /** Format: date-time */
+            confirmedAt: string;
         };
+        SnapshotFact: {
+            /** Format: uuid */
+            factId: string;
+            factType: components["schemas"]["SituationFactType"];
+            factKey: string;
+            value: unknown;
+            unit?: string | null;
+            source: {
+                providerCode: components["schemas"]["ProviderCode"];
+                sourceName: string;
+                sourceUrl?: string | null;
+                /** Format: date-time */
+                collectedAt: string;
+            };
+            /** Format: date-time */
+            observedAt?: string | null;
+            /** Format: date-time */
+            collectedAt: string;
+            confidence?: number | null;
+            /**
+             * @description 확정 시점의 상태를 박는다. 사본은 이후 UPDATE를 따라가지 않는다.
+             * @enum {string}
+             */
+            status: "CONFIRMED";
+        };
+        DuplicateGroup: {
+            /** Format: uuid */
+            groupId: string;
+            /** Format: uuid */
+            situationId: string;
+            factType: components["schemas"]["SituationFactType"];
+            factKey: string;
+            /** @description 전략이 만든 그룹화 키(범주+Key+시간창). 같은 상황 안에서 유일하다(0025 §1). **범주가 들어간다** — 빼면 범주가 다른 동명 Key가 한 그룹이 되어 허위 충돌이 열린다(ADR-34 D5 따름정리). */
+            groupKey: string;
+            strategy: components["schemas"]["DuplicateStrategy"];
+            threshold?: number | null;
+            /** @description 묶인 Fact. **원천은 각각 유지된다**(설계 06 US-SIT-006 */
+            memberFactIds: string[];
+            memberCount: number;
+            /** Format: date-time */
+            computedAt: string;
+        };
+        /**
+         * @description 0025 §1 ck_fact_duplicate_group_strategy와 같은 어휘
+         * @enum {string}
+         */
+        DuplicateStrategy: "KEY_TIME_WINDOW" | "KEY_ONLY";
+        FactConflict: {
+            /** Format: uuid */
+            conflictId: string;
+            /** Format: uuid */
+            situationId: string;
+            factKey: string;
+            /**
+             * @description VALUE(값이 다름) / TIME(값은 같고 시각이 다름) / SOURCE. **값도 시각도 같으면 충돌이 아니라 중복이다**(설계 06 US-SIT-006 #3).
+             * @enum {string}
+             */
+            conflictType: "VALUE" | "TIME" | "SOURCE";
+            /**
+             * @description `OBSOLETE`는 재계산이 "더 이상 존재하지 않는 충돌"을 닫은 것이다 — 보정으로 값이 같아졌는데 OPEN으로 두면 확정이 영구 차단되고, RESOLVED로 적으면 하지 않은 선택을 기록하게 된다(ADR-34 D6).
+             * @enum {string}
+             */
+            status: "OPEN" | "RESOLVED" | "OBSOLETE";
+            /** @description 충돌의 단위는 그룹의 단위와 같다(0025 §4). */
+            groupKey: string | null;
+            candidateFactIds: string[];
+            /** Format: date-time */
+            detectedAt: string;
+        };
+        ConflictResolution: {
+            /** Format: uuid */
+            resolutionId: string;
+            /** Format: uuid */
+            conflictId: string;
+            factKey: string;
+            /** Format: uuid */
+            selectedFactId: string;
+            reason: string;
+            /** Format: uuid */
+            resolvedBy: string;
+            /** Format: date-time */
+            resolvedAt: string;
+        };
+        SnapshotDiff: {
+            /** Format: uuid */
+            fromSnapshotId: string;
+            /** Format: uuid */
+            toSnapshotId: string;
+            added: number;
+            removed: number;
+            changed: number;
+            unchanged: number;
+            entries: {
+                factKey: string;
+                /** @enum {string} */
+                kind: "ADDED" | "REMOVED" | "CHANGED" | "UNCHANGED";
+                from?: components["schemas"]["SnapshotDiffSide"];
+                to?: components["schemas"]["SnapshotDiffSide"];
+            }[];
+        };
+        SnapshotDiffSide: {
+            /** Format: uuid */
+            factId: string;
+            value?: unknown;
+            unit?: string | null;
+            /** Format: date-time */
+            observedAt?: string | null;
+        } | null;
         SopRun: {
             [key: string]: unknown;
         };
@@ -6517,6 +6701,8 @@ export interface operations {
                      *           "originalUnit": "km/h",
                      *           "notes": []
                      *         },
+                     *         "originalFactId": null,
+                     *         "derivedReason": null,
                      *         "versionNo": 1,
                      *         "updatedAt": "2026-08-08T00:20:00.000Z"
                      *       },
@@ -6601,7 +6787,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["DeduplicateRequest"];
             };
         };
         responses: {
@@ -6611,7 +6797,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["DeduplicateResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6619,13 +6805,17 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };
     };
     une_sit_010: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 생략하면 전부. 설계 10 SIT 표가 요청 요약에 status를 적었다. */
+                status?: "OPEN" | "RESOLVED" | "OBSOLETE";
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -6642,7 +6832,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["FactConflictListResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6667,9 +6857,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["ConflictResolveRequest"];
             };
         };
         responses: {
@@ -6679,7 +6869,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["ConflictResolutionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6687,13 +6877,17 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };
     };
     une_sit_013: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 비교 기준 Snapshot. 주면 최신판과의 Diff를 함께 준다(인수기준 "change comparison"). 생략하면 목록만 준다. */
+                compareTo?: string;
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -6710,7 +6904,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SituationSnapshot"];
+                    "application/json": components["schemas"]["SituationSnapshotListResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6734,19 +6928,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["SituationSnapshotCreateRequest"];
             };
         };
         responses: {
-            /** @description Success */
-            200: {
+            /** @description 확정된 Snapshot. **자원 생성이므로 201이다** — 재확정도 새 snapshotId를 만든다(설계 06 US-SIT-008 인수기준). 멱등 재생도 같은 코드로 나간다. */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SituationSnapshot"];
+                    "application/json": components["schemas"]["SituationSnapshotResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6754,6 +6948,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };

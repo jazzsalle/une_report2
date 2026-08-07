@@ -1,4 +1,10 @@
 import { deriveContextState, type NormalizedFact } from '@une/domain';
+import type {
+  ConflictResolutionRow,
+  ConflictRow,
+  DuplicateGroupRow,
+  SnapshotRow as ResolutionSnapshotRow,
+} from './resolution.repository';
 import type { ProviderJobRow, SituationFactRow, SituationRow } from './situation.repository';
 
 /** 계약 리소스로의 투영 (CC-200).
@@ -56,6 +62,10 @@ export interface SituationFactResource {
   confidence: number | null;
   status: string;
   normalization?: FactNormalizationResource;
+  /** 파생 계보(0025 §2). 원천이면 null이다. 화면이 "무엇에서 보정됐는가"를
+   * 그릴 수 있어야 한다(설계 06 US-SIT-007 #3, 아키텍처 리뷰 m-6). */
+  originalFactId: string | null;
+  derivedReason: string | null;
   versionNo: number;
   updatedAt: string;
 }
@@ -210,6 +220,8 @@ export function toFactResource(row: SituationFactRow): SituationFactResource {
     confidence: row.confidence === null ? null : Number(row.confidence),
     status: row.status,
     ...(envelope.normalization ? { normalization: envelope.normalization } : {}),
+    originalFactId: row.originalFactId,
+    derivedReason: row.derivedReason,
     versionNo: row.versionNo,
     updatedAt: iso(row.updatedAt),
   };
@@ -227,6 +239,157 @@ export function toProviderJobResource(row: ProviderJobRow): ProviderJobResource 
     correlationId: row.correlationId,
     createdAt: iso(row.createdAt),
     finishedAt: iso(row.finishedAt),
+  };
+}
+
+// ── CC-210: 중복군·충돌·해소·Snapshot ──────────────────────────────────────
+
+export interface DuplicateGroupResource {
+  groupId: string;
+  situationId: string;
+  factKey: string;
+  groupKey: string;
+  strategy: string;
+  threshold: number | null;
+  memberFactIds: string[];
+  memberCount: number;
+  computedAt: string;
+}
+
+export interface ConflictResource {
+  conflictId: string;
+  situationId: string;
+  groupKey: string | null;
+  factKey: string;
+  conflictType: string;
+  status: string;
+  candidateFactIds: string[];
+  detectedAt: string;
+}
+
+export interface ConflictResolutionResource {
+  resolutionId: string;
+  conflictId: string;
+  factKey: string;
+  selectedFactId: string;
+  reason: string;
+  resolvedBy: string;
+  resolvedAt: string;
+}
+
+export interface DeduplicateResult {
+  groups: DuplicateGroupResource[];
+  conflicts: ConflictResource[];
+  conflictsOpened: number;
+  /** 이번 계산으로 "더 이상 존재하지 않는" 것이 된 충돌 수(0025 §4 OBSOLETE). */
+  conflictsObsoleted: number;
+}
+
+export interface SnapshotResource {
+  snapshotId: string;
+  situationId: string;
+  versionNo: number;
+  effectiveAt: string;
+  facts: unknown[];
+  contentHash: string;
+  supersedesSnapshotId: string | null;
+  confirmedBy: string;
+  confirmedAt: string;
+}
+
+export function toDuplicateGroupResource(row: DuplicateGroupRow): DuplicateGroupResource {
+  return {
+    groupId: row.groupId,
+    situationId: row.situationId,
+    factKey: row.factKey,
+    groupKey: row.groupKey,
+    strategy: row.strategy,
+    // numeric은 pg가 문자열로 준다.
+    threshold: row.threshold === null ? null : Number(row.threshold),
+    memberFactIds: row.memberFactIds,
+    memberCount: row.memberCount,
+    computedAt: iso(row.computedAt),
+  };
+}
+
+export function toConflictResource(row: ConflictRow): ConflictResource {
+  return {
+    conflictId: row.conflictId,
+    situationId: row.situationId,
+    groupKey: row.groupKey,
+    factKey: row.factKey,
+    conflictType: row.conflictType,
+    status: row.status,
+    candidateFactIds: row.candidateFactIds,
+    detectedAt: iso(row.detectedAt),
+  };
+}
+
+export function toResolutionResource(
+  row: ConflictResolutionRow,
+  factKey: string,
+): ConflictResolutionResource {
+  return {
+    resolutionId: row.resolutionId,
+    conflictId: row.conflictId,
+    factKey,
+    selectedFactId: row.selectedFactId,
+    reason: row.reason,
+    resolvedBy: row.resolvedBy,
+    resolvedAt: iso(row.resolvedAt),
+  };
+}
+
+export function toSnapshotResource(row: ResolutionSnapshotRow): SnapshotResource {
+  return {
+    snapshotId: row.snapshotId,
+    situationId: row.situationId,
+    versionNo: row.versionNo,
+    effectiveAt: iso(row.effectiveAt),
+    facts: Array.isArray(row.factsJson) ? (row.factsJson as unknown[]) : [],
+    contentHash: row.contentHash,
+    supersedesSnapshotId: row.supersedesId,
+    confirmedBy: row.confirmedBy,
+    confirmedAt: iso(row.confirmedAt),
+  };
+}
+
+/** Snapshot에 박히는 Fact 사본. 도메인 `SnapshotFact`와 같은 모양이며
+ * 확정 시점의 값을 그대로 얼린다(설계 06 A-02: 확정 후 자동변경 금지). */
+export function toSnapshotFact(fact: SituationFactResource): {
+  factId: string;
+  factType: string;
+  factKey: string;
+  value: unknown;
+  unit: string | null;
+  source: {
+    providerCode: string;
+    sourceName: string;
+    sourceUrl: string | null;
+    collectedAt: string;
+  };
+  observedAt: string | null;
+  collectedAt: string;
+  confidence: number | null;
+  status: string;
+} {
+  return {
+    factId: fact.factId,
+    factType: fact.factType,
+    factKey: fact.factKey,
+    value: fact.value,
+    unit: fact.unit,
+    source: {
+      providerCode: fact.source.providerCode,
+      sourceName: fact.source.sourceName,
+      sourceUrl: fact.source.sourceUrl,
+      collectedAt: fact.source.collectedAt,
+    },
+    observedAt: fact.observedAt,
+    collectedAt: fact.collectedAt,
+    confidence: fact.confidence,
+    // 확정 시점의 상태를 박는다. 이 사본은 이후 어떤 UPDATE에도 따라가지 않는다.
+    status: 'CONFIRMED',
   };
 }
 

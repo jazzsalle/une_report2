@@ -45,6 +45,9 @@ import { TocVersionRepository } from './plan/toc-version.repository';
 import { TocVersionService } from './plan/toc-version.service';
 import { FactService } from './situation/fact.service';
 import { ProviderQueryService } from './situation/provider-query.service';
+import { ResolutionRepository } from './situation/resolution.repository';
+import { ResolutionService } from './situation/resolution.service';
+import { SnapshotService } from './situation/snapshot.service';
 import { situationProviderFactory } from './situation/situation-provider.provider';
 import { ProviderJobController, SituationController } from './situation/situation.controller';
 import { SituationRepository } from './situation/situation.repository';
@@ -112,6 +115,10 @@ export class AppModule {
         FactService,
         ProviderQueryService,
         situationProviderFactory,
+        // CC-210: 중복군·충돌 해소·불변 SituationSnapshot (UNE-SIT-009~013).
+        ResolutionRepository,
+        ResolutionService,
+        SnapshotService,
         objectStorageProvider,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;

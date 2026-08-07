@@ -101,7 +101,8 @@
       "enum": [
         "CANDIDATE",
         "CONFIRMED",
-        "REJECTED"
+        "REJECTED",
+        "SUPERSEDED"
       ]
     }
   }

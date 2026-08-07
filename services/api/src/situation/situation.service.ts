@@ -5,6 +5,7 @@ import { AuditRepository } from '../common/audit.repository';
 import type { RequestMetaLike } from '../common/controller-utils';
 import type { AuthContext } from '../common/request-context';
 import { DatabaseService } from '../db/database.service';
+import { ResolutionRepository } from './resolution.repository';
 import { situationErrors } from './situation-errors';
 import {
   SituationRepository,
@@ -30,6 +31,7 @@ export class SituationService {
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(SituationRepository) private readonly repo: SituationRepository,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
+    @Inject(ResolutionRepository) private readonly conflicts: ResolutionRepository,
   ) {}
 
   private async insertAudit(
@@ -95,9 +97,15 @@ export class SituationService {
       const row = await this.repo.findSituation(c, auth.tenantId, situationId);
       if (!row) throw situationErrors.notFound();
       const candidateFactCount = await this.repo.countCandidateFacts(c, auth.tenantId, situationId);
-      // 충돌 계산은 CC-210이 연다. 지금 0을 넣는 것은 "충돌이 없다"가 아니라
-      // "충돌을 계산하는 경로가 아직 없다"이며, 그 사실이 ADR-33 수용 한계다.
-      return toSituationDetailResource(row, { candidateFactCount, openConflictCount: 0 });
+      // CC-210이 실계산을 연다. 하드코딩 0으로 두면 설계 06 §7.1의
+      // `CONFLICT_OPEN`이 **어떤 입력으로도 나오지 않는** 파생 상태가 되고,
+      // ADR-33 D15가 저장 대신 파생을 택한 근거가 무너진다(아키텍처 리뷰 M-4).
+      const openConflictCount = await this.conflicts.countOpenConflicts(
+        c,
+        auth.tenantId,
+        situationId,
+      );
+      return toSituationDetailResource(row, { candidateFactCount, openConflictCount });
     });
   }
 
@@ -153,8 +161,9 @@ export class SituationService {
     client: PoolClient,
     tenantId: string,
     situationId: string,
+    options: { forUpdate?: boolean } = {},
   ): Promise<SituationRow> {
-    const row = await this.repo.findSituation(client, tenantId, situationId);
+    const row = await this.repo.findSituation(client, tenantId, situationId, options);
     if (!row) throw situationErrors.notFound();
     if (isSituationClosed(row.status)) throw situationErrors.closed(row.status);
     return row;
