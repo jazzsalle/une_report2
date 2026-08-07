@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ObjectStorageError, exportObjectKey, sha256Of } from './object-storage-port';
+import {
+  ObjectStorageError,
+  exportObjectKey,
+  sha256Of,
+  uploadObjectKey,
+} from './object-storage-port';
 import { S3ObjectStorage } from './s3-object-storage';
 
 /**
@@ -96,6 +101,95 @@ describe.skipIf(!CONFIGURED)('S3ObjectStorage — 실 MinIO', () => {
     await storage!.put({ key, body, contentType: 'application/octet-stream' });
     await storage!.remove(key);
     expect(await storage!.head(key)).toBeNull();
+  }, 60_000);
+
+  // --- CC-170 presigned 업로드 ---------------------------------------------
+  // presign은 서명·엔드포인트 스타일·체크섬이 모두 맞아야 동작한다. 인메모리
+  // 어댑터로는 이 중 무엇도 확인되지 않으므로 실물에서만 증명된다.
+  it('presign한 URL로 클라이언트가 직접 PUT할 수 있다', async () => {
+    const body = Uint8Array.prototype.slice.call(Buffer.from('presign으로 올린 바이트'), 0);
+    const sha256 = sha256Of(body);
+    const key = uploadObjectKey({
+      tenantId: TENANT,
+      fileId: randomUUID(),
+      sha256,
+      extension: 'hwpx',
+    });
+    written.push(key);
+
+    const ticket = await storage!.presignPut({
+      key,
+      contentType: 'application/hwp+zip',
+      sha256,
+      expiresInSeconds: 900,
+    });
+    expect(ticket).not.toBeNull();
+    expect(ticket!.url).toContain(encodeURIComponent(key).replace(/%2F/g, '/'));
+    expect(ticket!.headers['x-amz-checksum-sha256']).toBe(
+      Buffer.from(sha256, 'hex').toString('base64'),
+    );
+
+    const response = await fetch(ticket!.url, {
+      method: 'PUT',
+      headers: ticket!.headers as Record<string, string>,
+      body,
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    // 서버가 실제로 그 바이트를 가지고 있다.
+    const got = await storage!.get(key);
+    expect(got.sha256).toBe(sha256);
+  }, 60_000);
+
+  it('선언과 다른 바이트는 저장소가 거부한다 (체크섬이 서명에 들어 있다)', async () => {
+    const declared = Uint8Array.prototype.slice.call(Buffer.from('선언한 내용'), 0);
+    const actual = Uint8Array.prototype.slice.call(Buffer.from('실제로 올린 다른 내용'), 0);
+    const sha256 = sha256Of(declared);
+    const key = uploadObjectKey({
+      tenantId: TENANT,
+      fileId: randomUUID(),
+      sha256,
+      extension: 'hwpx',
+    });
+
+    const ticket = await storage!.presignPut({
+      key,
+      contentType: 'application/hwp+zip',
+      sha256,
+      expiresInSeconds: 900,
+    });
+    const response = await fetch(ticket!.url, {
+      method: 'PUT',
+      headers: ticket!.headers as Record<string, string>,
+      body: actual,
+    });
+    expect(response.ok).toBe(false);
+    // 거부됐으므로 자리에 아무것도 남지 않는다.
+    expect(await storage!.head(key)).toBeNull();
+  }, 60_000);
+
+  it('만료된 티켓은 거부된다', async () => {
+    const body = Uint8Array.prototype.slice.call(Buffer.from('만료 확인'), 0);
+    const sha256 = sha256Of(body);
+    const key = uploadObjectKey({
+      tenantId: TENANT,
+      fileId: randomUUID(),
+      sha256,
+      extension: 'hwpx',
+    });
+    const ticket = await storage!.presignPut({
+      key,
+      contentType: 'application/hwp+zip',
+      sha256,
+      expiresInSeconds: 1,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const response = await fetch(ticket!.url, {
+      method: 'PUT',
+      headers: ticket!.headers as Record<string, string>,
+      body,
+    });
+    expect(response.status).toBe(403);
   }, 60_000);
 });
 

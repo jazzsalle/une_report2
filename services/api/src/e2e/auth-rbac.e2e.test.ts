@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../app.factory';
 import { buildMockExternalToken } from '../auth/mock-sso';
 import { signAccessToken } from '../auth/tokens';
-import type { ApiConfig } from '../config/api-config';
+import { e2eApiConfig } from './test-config';
 
 /**
  * HTTP-level acceptance evidence for CC-100 against a real migrated database.
@@ -168,15 +168,7 @@ describe.skipIf(!ADMIN_URL)('CC-100 auth/tenant/RBAC e2e', () => {
     });
     fx = await withClient(dbUrl, insertFixtures);
 
-    const config: ApiConfig = {
-      port: 0,
-      authMode: 'mock',
-      jwtSecret: SECRET,
-      accessTtlSec: 900,
-      refreshTtlSec: 3600,
-      databaseUrl: dbUrl,
-      runtimeRole: 'une_app',
-    };
+    const config = e2eApiConfig({ databaseUrl: dbUrl, jwtSecret: SECRET });
     app = await createApp(config);
     await app.listen(0);
     base = (await app.getUrl()).replace('[::1]', '127.0.0.1');
@@ -405,15 +397,9 @@ describe.skipIf(!ADMIN_URL)('CC-100 auth/tenant/RBAC e2e', () => {
   });
 
   it('answers 503 AUTH-1004 when AUTH_MODE is not mock', async () => {
-    const disabled = await createApp({
-      port: 0,
-      authMode: 'disabled',
-      jwtSecret: '',
-      accessTtlSec: 900,
-      refreshTtlSec: 3600,
-      databaseUrl: dbUrl,
-      runtimeRole: 'une_app',
-    });
+    const disabled = await createApp(
+      e2eApiConfig({ databaseUrl: dbUrl, jwtSecret: '' }, { authMode: 'disabled' }),
+    );
     await disabled.listen(0);
     try {
       const url = (await disabled.getUrl()).replace('[::1]', '127.0.0.1');

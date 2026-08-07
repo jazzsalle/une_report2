@@ -113,6 +113,11 @@ jobs:
       # CC-120: worker e2e claims jobs as SET LOCAL ROLE une_worker (dispatch
       # policies + tenant-scoped terminal writes exactly as in production).
       - run: pnpm --filter @une/worker test
+      # CC-170: the Plan vertical slice (SSO mock -> HWPX download) is the only
+      # artefact proving AC1/AC4. Without DATABASE_URL its describe.skipIf makes
+      # the whole file skip and exit 0 — the same silent-skip failure this job's
+      # MinIO note warns about. It must run where the database exists.
+      - run: pnpm --filter @une/e2e test
       - run: pnpm db:data-dictionary
       # git add -N makes an untracked (never-committed) dictionary fail too.
       - run: git add -N -- docs/db/DATA_DICTIONARY.md && git diff --exit-code -- docs/db/DATA_DICTIONARY.md

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryObjectStorage } from './memory-object-storage';
-import { ObjectStorageError, exportObjectKey, sha256Of } from './object-storage-port';
+import {
+  ObjectStorageError,
+  exportObjectKey,
+  sha256Of,
+  uploadObjectKey,
+} from './object-storage-port';
 import { createObjectStorage } from './storage-factory';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -51,7 +56,65 @@ describe('exportObjectKey — 테넌트 접두사와 키 위생', () => {
   });
 });
 
+describe('uploadObjectKey — 검증 전 바이트는 내용 주소를 차지하지 않는다', () => {
+  const FILE = '33333333-3333-4333-8333-333333333333';
+
+  it('fileId로 격리한다 (sources/{sha256}과 섞이지 않는다)', () => {
+    expect(
+      uploadObjectKey({ tenantId: TENANT, fileId: FILE, sha256: HASH, extension: 'hwpx' }),
+    ).toBe(`tenants/${TENANT}/sources/${FILE}/${HASH}.hwpx`);
+  });
+
+  it('접두사가 sources/다 — 검증을 통과하면 이 객체가 문서의 영구 원본이다', () => {
+    // `uploads/`는 수명주기 규칙·정리 배치에 스테이징으로 읽혀 문서의 유일한
+    // 원본이 지워질 수 있다(리뷰 M-4).
+    const key = uploadObjectKey({
+      tenantId: TENANT,
+      fileId: FILE,
+      sha256: HASH,
+      extension: 'hwpx',
+    });
+    expect(key).not.toContain('/uploads/');
+    expect(key).toContain('/sources/');
+  });
+
+  it('같은 해시를 선언한 두 등록이 서로 다른 키를 받는다', () => {
+    const other = '44444444-4444-4444-8444-444444444444';
+    expect(
+      uploadObjectKey({ tenantId: TENANT, fileId: FILE, sha256: HASH, extension: 'hwpx' }),
+    ).not.toBe(
+      uploadObjectKey({ tenantId: TENANT, fileId: other, sha256: HASH, extension: 'hwpx' }),
+    );
+  });
+
+  it('경로 탈출과 형식 위반을 거부한다', () => {
+    for (const evil of ['../../etc', '', 'not-a-uuid']) {
+      expect(() =>
+        uploadObjectKey({ tenantId: evil, fileId: FILE, sha256: HASH, extension: 'hwpx' }),
+      ).toThrowError(ObjectStorageError);
+      expect(() =>
+        uploadObjectKey({ tenantId: TENANT, fileId: evil, sha256: HASH, extension: 'hwpx' }),
+      ).toThrowError(ObjectStorageError);
+    }
+    expect(() =>
+      uploadObjectKey({ tenantId: TENANT, fileId: FILE, sha256: 'nope', extension: 'hwpx' }),
+    ).toThrowError(/sha256/);
+  });
+});
+
 describe('MemoryObjectStorage — 포트 계약', () => {
+  it('presign 능력이 없으면 null이다 (흉내낸 URL을 주지 않는다)', async () => {
+    const storage = new MemoryObjectStorage();
+    expect(
+      await storage.presignPut({
+        key: 'k',
+        contentType: 'application/hwp+zip',
+        sha256: HASH,
+        expiresInSeconds: 900,
+      }),
+    ).toBeNull();
+  });
+
   it('넣은 바이트를 그대로 돌려주고 해시를 계산한다', async () => {
     const storage = new MemoryObjectStorage();
     const body = Buffer.from('UNE 산출물');
@@ -133,6 +196,43 @@ describe('createObjectStorage — 드라이버 선택', () => {
     expect(() => createObjectStorage({ OBJECT_STORAGE_DRIVER: 'local-disk' })).toThrowError(
       /OBJECT_STORAGE_DRIVER/,
     );
+  });
+
+  it('공개 엔드포인트를 주면 서명 주소가 그것으로 바뀐다 (브라우저가 볼 주소)', async () => {
+    const storage = createObjectStorage({
+      OBJECT_STORAGE_DRIVER: 's3',
+      OBJECT_STORAGE_ENDPOINT: 'http://minio:9000',
+      OBJECT_STORAGE_PUBLIC_ENDPOINT: 'http://localhost:9000',
+      OBJECT_STORAGE_BUCKET: 'une-documents',
+      OBJECT_STORAGE_ACCESS_KEY: 'key',
+      OBJECT_STORAGE_SECRET_KEY: 'secret',
+    });
+    const ticket = await storage.presignPut({
+      key: `tenants/${TENANT}/sources/${TENANT}/${HASH}.hwpx`,
+      contentType: 'application/hwp+zip',
+      sha256: HASH,
+      expiresInSeconds: 900,
+    });
+    // 서버가 저장소를 보는 주소(minio:9000)가 아니라 브라우저가 볼 주소여야 한다.
+    expect(ticket!.url.startsWith('http://localhost:9000/')).toBe(true);
+    expect(ticket!.url).not.toContain('minio:9000');
+  });
+
+  it('공개 엔드포인트가 없으면 기본 엔드포인트로 서명한다', async () => {
+    const storage = createObjectStorage({
+      OBJECT_STORAGE_DRIVER: 's3',
+      OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:9000',
+      OBJECT_STORAGE_BUCKET: 'une-documents',
+      OBJECT_STORAGE_ACCESS_KEY: 'key',
+      OBJECT_STORAGE_SECRET_KEY: 'secret',
+    });
+    const ticket = await storage.presignPut({
+      key: `tenants/${TENANT}/sources/${TENANT}/${HASH}.hwpx`,
+      contentType: 'application/hwp+zip',
+      sha256: HASH,
+      expiresInSeconds: 900,
+    });
+    expect(ticket!.url.startsWith('http://127.0.0.1:9000/')).toBe(true);
   });
 
   it('s3 드라이버는 설정이 갖춰지면 만들어진다', () => {

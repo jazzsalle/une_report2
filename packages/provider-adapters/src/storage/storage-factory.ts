@@ -22,6 +22,17 @@ export type StorageDriver = (typeof STORAGE_DRIVERS)[number];
 export interface StorageEnv {
   readonly OBJECT_STORAGE_DRIVER?: string;
   readonly OBJECT_STORAGE_ENDPOINT?: string;
+  /**
+   * 브라우저가 실제로 도달하는 주소 (CC-170).
+   *
+   * CC-001의 `.env.example`이 "presigned URL에 들어가는 엔드포인트"라고 적어
+   * 두었지만 읽는 코드가 없었다 — presign 경로가 없었기 때문이다. 이제
+   * UNE-DOC-001이 서명한 URL을 브라우저가 직접 호출하므로 값이 의미를 갖는다.
+   * API가 컨테이너 네트워크(`http://minio:9000`)로 저장소를 보고 브라우저는
+   * `http://localhost:9000`으로 봐야 하는 배포에서, 이 값이 없으면 서명된 URL이
+   * 브라우저에서 **연결조차 되지 않는다**. 생략하면 ENDPOINT와 같다.
+   */
+  readonly OBJECT_STORAGE_PUBLIC_ENDPOINT?: string;
   readonly OBJECT_STORAGE_REGION?: string;
   readonly OBJECT_STORAGE_BUCKET?: string;
   readonly OBJECT_STORAGE_ACCESS_KEY?: string;
@@ -54,6 +65,7 @@ export function createObjectStorage(env: StorageEnv): ObjectStoragePort {
 
   return new S3ObjectStorage({
     endpoint: env.OBJECT_STORAGE_ENDPOINT as string,
+    publicEndpoint: env.OBJECT_STORAGE_PUBLIC_ENDPOINT,
     region: env.OBJECT_STORAGE_REGION ?? 'us-east-1',
     bucket: env.OBJECT_STORAGE_BUCKET as string,
     accessKeyId: env.OBJECT_STORAGE_ACCESS_KEY as string,

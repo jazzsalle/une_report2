@@ -16,6 +16,7 @@ These items must not be guessed by Claude Code.
 | OB-11 | T3Q evidence search and semantic validation CR-T3Q-005/006 | target-v2 mock adapter (CC-135: searchEvidence provenance 충전 + validateContent 휴리스틱 — 판정은 어떤 UNE 경로도 차단하지 않음, ADR-28 D9) | accepted contract + representative payloads |
 | OB-12 | ProcessGPT adoption and rhwp pinned source decisions | ProcessGPT evaluation-only; rhwp still NOT imported — the provenance gate now exists and is CI-enforced (CC-140/ADR-29 D1: `pnpm validate:intake` R1..R11, green in the pre-intake state). Remaining: tag selection + actual intake | ADR + license/SBOM/hash/POC report |
 | OB-13 | UNI live base path, auth, TLS, limits, and error contract | bundled OpenAPI snapshot + mock adapter | live OpenAPI capture + contract tests |
+| OB-15 | 악성코드 검사(AV) 엔진·정책 | 미구현. `file_object.scan_status`는 영구 PENDING이고 UNE-DOC-002는 **업로드 검증**(크기·SHA-256 재계산·내용 기반 HWPX 판정)만 한다 — 검증 통과를 CLEAN으로 올리면 하지 않은 검사를 했다고 감사에 남으므로 축을 분리했다(CC-170/ADR-32 D3). `malware_scan` 테이블도 만들지 않았고 계약의 x-db-tables에서 뺐다(D4) | AV 제품·연동 방식 확정 + scan_status 전이 설계 + malware_scan 신설 |
 | OB-14 | final delivery environment (demo backend host closed: Railway, see below) | demo backend on Railway containers; local Docker Compose for dev; frontend demo on Vercel | delivery env binding record |
 
 ## Closed bindings

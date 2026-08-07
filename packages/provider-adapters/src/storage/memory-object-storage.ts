@@ -3,6 +3,7 @@ import {
   sha256Of,
   type FetchedObject,
   type ObjectStoragePort,
+  type PresignPutInput,
   type PutObjectInput,
   type StoredObject,
 } from './object-storage-port';
@@ -63,6 +64,15 @@ export class MemoryObjectStorage implements ObjectStoragePort {
   remove(key: string): Promise<void> {
     this.objects.delete(key);
     return Promise.resolve();
+  }
+
+  /**
+   * presign할 수 없다 — 이 어댑터에는 HTTP 종단점이 없다. 흉내낸 URL을 돌려주면
+   * 클라이언트가 쓸 수 없는 주소를 받고 실패가 업로드 단계로 미뤄진다. `null`은
+   * "능력 없음"이며, 호출자는 자기 전송 라우트로 대체한다(ADR-32).
+   */
+  presignPut(_input: PresignPutInput): Promise<null> {
+    return Promise.resolve(null);
   }
 
   /** 테스트 보조 — 저장된 키 목록. */

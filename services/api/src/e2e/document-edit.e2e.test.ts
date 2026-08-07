@@ -9,8 +9,8 @@ import { HwpxEngine, isInStaticRegion } from '@une/hwpx-engine';
 import type { BlockIR, DocumentIR } from '@une/domain';
 import { createApp } from '../app.factory';
 import { buildMockExternalToken } from '../auth/mock-sso';
-import type { ApiConfig } from '../config/api-config';
 import { DocumentImportService } from '../document/document-import.service';
+import { e2eApiConfig } from './test-config';
 
 /**
  * CC-150 UNE-DOC-005~009 e2e.
@@ -244,15 +244,7 @@ describe.skipIf(!ADMIN_URL || !existsSync(TEMPLATE))(
       });
       fx = await withClient(dbUrl, insertFixtures);
 
-      const config: ApiConfig = {
-        port: 0,
-        authMode: 'mock',
-        jwtSecret: SECRET,
-        accessTtlSec: 900,
-        refreshTtlSec: 3600,
-        databaseUrl: dbUrl,
-        runtimeRole: 'une_app',
-      };
+      const config = e2eApiConfig({ databaseUrl: dbUrl, jwtSecret: SECRET });
       app = await createApp(config);
       await app.listen(0);
       base = (await app.getUrl()).replace('[::1]', '127.0.0.1');

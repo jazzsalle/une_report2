@@ -3,4 +3,5 @@ packages:
   - services/*
   - packages/*
   - tests/integration
+  - tests/e2e
   - tests/contract

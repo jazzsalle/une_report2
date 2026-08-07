@@ -345,7 +345,7 @@ work_items:
   gate: G2
   dependencies:
   - CC-160
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - SSO mock to HWPX download
   - normal/alternate/error paths
@@ -355,7 +355,13 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-32-cc170-plan-slice-upload-and-ui.md
+  - docs/evidence/CC-170-plan-slice-e2e.md
+  - docs/evidence/CC-170/screens/
+  - tests/e2e/src/plan-slice.e2e.test.ts
+  - tests/e2e/src/perf-baseline.e2e.test.ts
+  - database/migrations/0022_upload_state_and_plan_document_link.sql
 - id: CC-200
   title: Implement Situation and candidate SituationFact ingestion
   gate: G3

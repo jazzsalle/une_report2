@@ -361,6 +361,37 @@ export class PlanRepository {
     return toPlanRow(result.rows[0]);
   }
 
+  /**
+   * UNE-DOC-003이 반입한 문서를 계획서에 붙인다 (CC-170).
+   *
+   * `document_id IS NULL`을 조건으로 둔다. 이미 문서를 가진 계획서에 두 번째
+   * 문서를 붙이면 첫 문서가 조용히 고아가 되므로, 조건에 걸려 0행이 돌아오면
+   * 호출자가 409로 끝낸다. 0022의 부분 유니크 인덱스가 같은 것을 DB에서도
+   * 막지만, 여기서 먼저 걸러야 사용자에게 이유를 말할 수 있다.
+   *
+   * status는 건드리지 않는다. 문서를 붙이는 것은 계획서 진행 상태의 전이가
+   * 아니고(전이는 ADR-23 D4의 도메인 함수가 결정한다), version_no만 올린다 —
+   * 계획서 표현이 바뀌었으므로 ETag가 움직여야 한다.
+   */
+  async attachDocument(
+    client: PoolClient,
+    tenantId: string,
+    planId: string,
+    documentId: string,
+  ): Promise<PlanRow | null> {
+    const result = await client.query(
+      `UPDATE plan
+       SET document_id = $3,
+           version_no = version_no + 1
+       WHERE plan_id = $1 AND tenant_id = $2 AND document_id IS NULL AND deleted_at IS NULL
+       RETURNING plan_id, tenant_id, title, hazard_type, management_phase, status, start_mode,
+                 document_id, current_context_snapshot_id, current_toc_version_id,
+                 owner_id, version_no, deleted_at, created_at, updated_at`,
+      [planId, tenantId, documentId],
+    );
+    return result.rows[0] ? toPlanRow(result.rows[0]) : null;
+  }
+
   /** Same-transaction plan pointer/status update on snapshot confirm.
    * The status transition is decided by the domain (plan-status.ts,
    * ADR-23 D4); this method only records the decided value. */

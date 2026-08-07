@@ -15,9 +15,17 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['scripts/**/*.mjs'],
+    // 저장소 루트의 도구 스크립트와 워크스페이스의 스크립트(예: CC-170 화면
+    // 캡처)는 Node에서 직접 돈다. 브라우저 전역이 아니라 Node 전역을 쓴다.
+    files: ['scripts/**/*.mjs', '**/scripts/**/*.mjs'],
     languageOptions: {
-      globals: { console: 'readonly', process: 'readonly', URL: 'readonly' },
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+      },
     },
   },
   {

@@ -1831,7 +1831,29 @@ paths:
         핵심 응답: FileObject+uploadUrl
 
 
-        오류: FILE-422-001'
+        오류: FILE-422-001
+
+
+        3단 업로드(설계 10 §2 "사전등록→직접 업로드→완료확정")의 1단이다. 서버는
+        `file_object` 행을 `uploadState=PENDING`으로 만들고 **바이트가 놓일 자리**와
+        그 자리에 쓸 티켓만 돌려준다. 바이트는 이 API를 지나가지 않는다.
+
+
+        선언값은 아직 사실이 아니다. `sha256`·`sizeBytes`는 클라이언트의 주장이며
+        UNE-DOC-002가 **저장된 바이트에서 다시 계산해** 대조한다. 그래서 저장 키에는
+        선언 해시를 쓰지 않고 `fileId`로 격리한다(ADR-32) — 검증되지 않은 바이트가
+        내용 주소 키를 차지하면 "키가 곧 내용"이라는 전제가 깨진다.
+
+
+        `upload.driver`는 진단·증거용이다. 클라이언트는 `url`/`method`/`headers`만
+        쓰고 driver로 분기하지 않는다. presign이 불가능한 드라이버(로컬·테스트의
+        인메모리 저장소)에서는 API 자신의 전송 라우트를 가리킨다.
+
+
+        멱등: Idempotency-Key. 같은 키 재전송은 **처음 발급한 응답을 그대로**
+        돌려준다(공통 멱등 저장소의 재생). 티켓에는 만료가 있으므로, 만료 뒤에
+        재시도하려면 **새 멱등 키로 다시 등록**해야 한다 — 앞의 행은 PENDING으로
+        남고 정리 대상이 된다.'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
       - $ref: '#/components/parameters/IdempotencyKey'
@@ -1841,7 +1863,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/FileRegistrationResponse'
+              examples:
+                hwpxUpload:
+                  summary: HWPX 사전등록 — presign 티켓 발급
+                  value:
+                    success: true
+                    data:
+                      file:
+                        fileId: 4d7f1a90-2b3c-4d5e-8f60-718293a4b5c6
+                        originalName: 간략 보고 양식.hwpx
+                        mimeType: application/hwp+zip
+                        sizeBytes: 33940
+                        sha256: 9f2c1d3e4f5a6b708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8
+                        uploadState: PENDING
+                        scanStatus: PENDING
+                        verifiedAt: null
+                        createdBy: 5d2a7b91-3c4e-4f60-8a1b-2c3d4e5f6071
+                        createdAt: '2026-08-05T01:10:00Z'
+                      upload:
+                        url: http://127.0.0.1:9000/une-exports/tenants/1c9f.../uploads/4d7f1a90.../9f2c1d3e....hwpx?X-Amz-Signature=...
+                        method: PUT
+                        headers:
+                          Content-Type: application/hwp+zip
+                        expiresAt: '2026-08-05T01:25:00Z'
+                        maxSizeBytes: 52428800
+                        driver: PRESIGNED_S3
+                    meta:
+                      requestId: req_7a8b9c0d1e2f3a4b
+                      correlationId: corr_1a2b3c4d5e6f7081
+                      timestamp: '2026-08-05T01:10:00Z'
+                      schemaVersion: '1.0'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1862,12 +1914,23 @@ paths:
       - file_object
       x-error-codes:
       - FILE-422-001
+      - COM-0409
+      - COM-0428
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/FileRegisterRequest'
+            examples:
+              hwpx:
+                summary: HWPX 원본 사전등록
+                value:
+                  fileName: 간략 보고 양식.hwpx
+                  sizeBytes: 33940
+                  mimeType: application/hwp+zip
+                  sha256: 9f2c1d3e4f5a6b708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8
+                  purpose: HWPX_IMPORT
       security:
       - BearerAuth: []
   /files/{fileId}/complete:
@@ -1885,7 +1948,29 @@ paths:
         핵심 응답: FileObject
 
 
-        오류: FILE-422-002'
+        오류: FILE-422-002
+
+
+        3단 업로드의 3단이며 **검증 지점**이다. 서버는 저장된 객체를 읽어
+        (1) 크기, (2) SHA-256 재계산값, (3) **내용 기반 형식**을 사전등록 선언과
+        대조한다. 하나라도 어긋나면 422 FILE-422-002이고 행은
+        `uploadState=ABORTED`로 끝난다 — 이후 어떤 경로도 이 파일을 쓸 수 없다.
+
+
+        형식 판정은 확장자·`Content-Type`을 신뢰하지 않는다(`.claude/rules/security.md`).
+        HWPX는 ZIP 매직과 `mimetype` 엔트리(`application/hwp+zip`)를 실제 바이트에서
+        확인한다. `etag`는 전송 계층이 준 값이며 **참고**로만 기록한다: 멀티파트
+        업로드의 ETag는 MD5가 아니고, 드라이버마다 다르므로 이것을 무결성 근거로
+        쓸 수 없다. 근거는 우리가 다시 계산한 SHA-256이다.
+
+
+        `scanStatus`는 이 단계에서도 PENDING이다. AV 스캐너는 아직 없다(OB-15) —
+        상태를 CLEAN으로 올리면 검사하지 않은 파일이 감사에서 검사된 것으로 보인다.
+        `malware_scan` 테이블도 만들지 않았으므로 x-db-tables에 적지 않는다(ADR-32).
+
+
+        멱등: 같은 파일에 대한 재확정은 이미 VERIFIED인 행을 그대로 돌려준다.
+        ABORTED 행의 재확정은 다시 422다(재조회로 고쳐지지 않는다).'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
       - name: fileId
@@ -1893,6 +1978,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
@@ -1900,7 +1986,28 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/FileObjectResponse'
+              examples:
+                verified:
+                  summary: 검증 통과 — 선언 해시와 저장 바이트가 일치
+                  value:
+                    success: true
+                    data:
+                      fileId: 4d7f1a90-2b3c-4d5e-8f60-718293a4b5c6
+                      originalName: 간략 보고 양식.hwpx
+                      mimeType: application/hwp+zip
+                      sizeBytes: 33940
+                      sha256: 9f2c1d3e4f5a6b708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8
+                      uploadState: VERIFIED
+                      scanStatus: PENDING
+                      verifiedAt: '2026-08-05T01:11:30Z'
+                      createdBy: 5d2a7b91-3c4e-4f60-8a1b-2c3d4e5f6071
+                      createdAt: '2026-08-05T01:10:00Z'
+                    meta:
+                      requestId: req_8b9c0d1e2f3a4b5c
+                      correlationId: corr_1a2b3c4d5e6f7081
+                      timestamp: '2026-08-05T01:11:30Z'
+                      schemaVersion: '1.0'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1919,17 +2026,90 @@ paths:
       x-permission: FILE_UPLOAD
       x-db-tables:
       - file_object
-      - malware_scan
       x-error-codes:
       - FILE-422-002
+      - COM-0409
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/FileCompleteRequest'
+            examples:
+              withEtag:
+                summary: 전송 계층 ETag를 참고값으로 함께 보고
+                value:
+                  etag: '"3f8a1c2d4e5b6f708192a3b4c5d6e7f8"'
       security:
       - BearerAuth: []
+  # 카탈로그 API가 아니다 — UNE-DOC-001이 발급하는 `upload.url`이 가리킬 수 있는
+  # **전송 라우트**이며, presign을 할 수 없는 저장소 드라이버(로컬·테스트의
+  # 인메모리)에서만 쓰인다. x-une-api-id를 붙이지 않는 이유가 이것이다:
+  # 설계 10 §3.4의 API 카탈로그에 없는 것을 있는 것처럼 만들면 카탈로그가
+  # 사실이 아니게 된다(ADR-32). 실 운영(S3/MinIO)에서는 이 라우트를 지나가지 않는다.
+  /files/{fileId}/content:
+    put:
+      tags:
+      - DOC
+      summary: 업로드 전송(presign 불가 드라이버 전용)
+      operationId: une_doc_001_transport
+      description: |-
+        `Authorization` 헤더를 쓰지 않는다 — UNE-DOC-001이 발급한 **서명 티켓
+        토큰**(`upload.url`의 쿼리)만으로 인가한다. presign URL이 그렇게 동작하기
+        때문이며, 두 드라이버가 같은 클라이언트 코드로 동작해야 하기 때문이다.
+
+        토큰은 fileId·테넌트·만료·선언 크기에 묶인다. 만료 후에는 403이고,
+        이미 확정(VERIFIED/ABORTED)된 파일에는 409다. 여기서는 바이트를 저장만
+        하며 **검증은 하지 않는다** — 검증 지점은 UNE-DOC-002 하나뿐이어야 한다.
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: fileId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: token
+        in: query
+        required: true
+        description: |-
+          UNE-DOC-001이 발급한 업로드 티켓. **확정 전에는 재전송할 수 있다**
+          (전송 실패의 재시도 경로다). 확정(VERIFIED/ABORTED) 후에는 409다.
+        schema:
+          type: string
+      responses:
+        '204':
+          description: 저장 완료 (본문 없음)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: 선언 크기를 넘는 본문
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ProviderError'
+      x-permission: PUBLIC_UPLOAD_TICKET
+      x-db-tables:
+      - file_object
+      x-error-codes:
+      - FILE-403-001
+      - FILE-409-001
+      - FILE-413-001
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
   /documents/import-hwpx:
     post:
       tags:
@@ -1945,17 +2125,83 @@ paths:
         핵심 응답: Document+AnalysisJob
 
 
-        오류: HWPX-422-001'
+        오류: HWPX-422-001
+
+
+        분석은 **동기**다. 설계의 "Document+AnalysisJob"에서 Job 형태를 취하지
+        않는 이유는 측정 결과다 — 실문서 6종 분석이 수십 ms이고(CC-140), Job으로
+        만들면 상태 폴링·리스·재시도를 관리할 대상이 하나 늘어나는 대신 사용자가
+        기다리는 시간은 같다. 이 결정과 되돌릴 조건(대용량에서 목표 초과)은
+        ADR-32에 적었다. 응답의 `analysis`가 곧 결과이며 UNE-DOC-004로 다시 읽는다.
+
+
+        전제: `fileId`는 UNE-DOC-002를 통과한(`uploadState=VERIFIED`) 파일이어야
+        한다. PENDING/ABORTED면 422 HWPX-422-001이다 — 검증되지 않은 바이트를
+        문서로 만들면 그 뒤의 모든 무결성 주장이 근거를 잃는다.
+
+
+        `planId`를 주면 **`plan.document_id`**에 이 문서가 기록된다. 그 컬럼은
+        0003부터 있었으나 쓰는 코드가 없어 항상 NULL이었다(CC-170이 채운다).
+        역방향 링크(`document.plan_id`)는 만들지 않는다 — 같은 관계에 진실을 둘
+        두면 갈라진다(ADR-32 D9). 이미 문서를 가진 계획서는 409, 다른 테넌트·
+        삭제된 계획서는 404다.
+
+
+        판정: 분석 결과 `verdict=REJECT`인 문서도 **가져온다**. 문서는 만들되
+        저장(Export)을 차단하는 것이 ADR-29 D11/ADR-31 D7의 집행 지점이므로,
+        반입 단계에서 문서를 만들지 않으면 사용자는 왜 거부됐는지 볼 화면이 없다.
+        `analysis.verdict`와 `analysis.unsupportedObjects`가 그 근거다.
+
+
+        멱등: Idempotency-Key. 같은 키 재전송은 처음 만든 문서를 그대로 돌려준다
+        (같은 파일을 다시 반입하면 **새 문서**가 된다 — 파일 재사용은 반입 중복이
+        아니다).'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/HwpImportResponse'
+              examples:
+                imported:
+                  summary: 반입 완료 — revision 1(origin=IMPORT)과 Template Profile 생성
+                  value:
+                    success: true
+                    data:
+                      documentId: 8f14e45f-ceea-467a-9a1c-2b3d4e5f6071
+                      planId: 9d4e5f60-7a8b-4c9d-8e1f-2a3b4c5d6e7f
+                      title: 간략 보고 양식.hwpx
+                      documentType: PLAN
+                      status: EDITING
+                      sourceFileId: 4d7f1a90-2b3c-4d5e-8f60-718293a4b5c6
+                      revisionId: 3f1c1a52-2b0f-4a1e-9f2d-6c7b8a9d0e11
+                      revisionNo: 1
+                      irHash: 1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a
+                      analysis:
+                        templateProfileId: 6c7d8e9f-0a1b-4c2d-8e3f-4a5b6c7d8e9f
+                        profileVersion: 1
+                        verdict: CONFIRM
+                        confidence: 0.72
+                        objectCounts:
+                          NATIVE_EDIT: 41
+                          PRESERVE_ONLY: 3
+                          FLATTEN_EXPORT_ONLY: 0
+                          REJECT: 0
+                        prototypeCount: 5
+                        unsupportedObjectCount: 3
+                        warnings:
+                        - 표 안 문단은 이번 범위에서 되쓰지 않습니다
+                        analysisHash: 5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e
+                        elapsedMs: 48
+                    meta:
+                      requestId: req_9c0d1e2f3a4b5c6d
+                      correlationId: corr_1a2b3c4d5e6f7081
+                      timestamp: '2026-08-05T01:12:00Z'
+                      schemaVersion: '1.0'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1976,14 +2222,29 @@ paths:
       - document
       - document_revision
       - template_profile
+      - style_prototype
+      - file_object
+      - audit_log
       x-error-codes:
       - HWPX-422-001
+      - COM-0409
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/HwpImportRequest'
+            examples:
+              withPlan:
+                summary: 계획서에 묶어 반입
+                value:
+                  fileId: 4d7f1a90-2b3c-4d5e-8f60-718293a4b5c6
+                  planId: 9d4e5f60-7a8b-4c9d-8e1f-2a3b4c5d6e7f
+                  title: 2026 폭염 대응 계획서
+              standalone:
+                summary: 계획서 없이 문서만 반입
+                value:
+                  fileId: 4d7f1a90-2b3c-4d5e-8f60-718293a4b5c6
       security:
       - BearerAuth: []
   /documents/{documentId}/analysis:
@@ -2001,7 +2262,18 @@ paths:
         핵심 응답: TemplateProfile,Warnings
 
 
-        오류: HWPX-404-001'
+        오류: HWPX-404-001
+
+
+        요약(`analysis`)과 **전체 프로파일**(`profile`)을 함께 낸다. 전체 형태의
+        정본은 `contracts/schemas/template-profile.schema.json`이며 여기서는
+        `additionalProperties: true`로 통과시킨다 — 같은 어휘를 두 벌로 적으면
+        반드시 갈라진다(UNE-DOC-006이 change-set 스키마를 다루는 방식과 같다).
+
+
+        `unsupportedObjects`는 NATIVE_EDIT가 아닌 객체의 분류 결과이며, 어떤 것이
+        Export를 차단하는지(REJECT/FLATTEN_EXPORT_ONLY)를 화면이 판단하는 근거다.
+        분석 이력이 없는 문서는 404 HWPX-404-001이다.'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
       - name: documentId
@@ -2009,13 +2281,51 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/DocumentAnalysisResponse'
+              examples:
+                confirmVerdict:
+                  summary: CONFIRM — 보존 객체 3건, 되쓰기는 가능하되 사용자 확인 필요
+                  value:
+                    success: true
+                    data:
+                      documentId: 8f14e45f-ceea-467a-9a1c-2b3d4e5f6071
+                      analysis:
+                        templateProfileId: 6c7d8e9f-0a1b-4c2d-8e3f-4a5b6c7d8e9f
+                        profileVersion: 1
+                        verdict: CONFIRM
+                        confidence: 0.72
+                        objectCounts:
+                          NATIVE_EDIT: 41
+                          PRESERVE_ONLY: 3
+                          FLATTEN_EXPORT_ONLY: 0
+                          REJECT: 0
+                        prototypeCount: 5
+                        unsupportedObjectCount: 3
+                        warnings:
+                        - 표 안 문단은 이번 범위에서 되쓰지 않습니다
+                        analysisHash: 5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e
+                        elapsedMs: 48
+                      unsupportedObjects:
+                      - objectClass: PRESERVE_ONLY
+                        elementName: hp:pic
+                        locator: Contents/section0.xml#el[214]
+                        reason: 그림은 편집 대상이 아니며 원문 그대로 보존한다
+                      profile:
+                        profileVersion: '1'
+                        sourceHash: 9f2c1d3e4f5a6b708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8
+                      createdAt: '2026-08-05T01:12:00Z'
+                    meta:
+                      requestId: req_0d1e2f3a4b5c6d7e
+                      correlationId: corr_1a2b3c4d5e6f7081
+                      timestamp: '2026-08-05T01:12:30Z'
+                      schemaVersion: '1.0'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -8554,18 +8864,410 @@ components:
           description: 현재(supersede되지 않은) generated_block id 목록. 지정 시 해당 블록은
             protection_state=USER_LOCKED로 영속 기록되어 이후 모든 재생성에서 보호된다
             (범위 지정 재생성 여부와 무관). 알 수 없는 id는 422 PLAN-422-002.
+    # ===== UNE-DOC-001~004: 3단 업로드와 HWPX 반입 (CC-170, ADR-32) =============
+    # `storageKey`는 어느 응답에도 넣지 않는다. 테넌트 경로가 드러나면 저장소
+    # 레이아웃이 공개 계약의 일부가 되고, 클라이언트가 API를 우회해 객체를
+    # 직접 가리키기 시작한다. 바이트로 가는 길은 발급받은 티켓뿐이다.
+    FileUploadPurpose:
+      type: string
+      enum:
+      - HWPX_IMPORT
+      - KNOWLEDGE_DOCUMENT
+      - ATTACHMENT
+      description: |-
+        용도. 허용 MIME·크기 상한이 여기서 갈린다. CC-170이 실제로 처리하는 것은
+        HWPX_IMPORT 하나이며 나머지는 각 항목(CC-220 등)에서 열린다 — 지금 보내면
+        422 FILE-422-001이다. 어휘를 미리 두는 이유는 용도별 상한이 나중에 생기는
+        분기가 아니라 처음부터 있어야 하는 축이기 때문이다.
+    FileUploadState:
+      type: string
+      enum:
+      - PENDING
+      - VERIFIED
+      - ABORTED
+      description: |-
+        사전등록(PENDING) → UNE-DOC-002 검증 성공(VERIFIED) 또는 실패(ABORTED).
+        전송 완료를 별도 상태로 두지 않는다 — 검증하지 않은 "올라옴"은 이후 어떤
+        결정의 근거도 되지 못하므로 도달 가능한 상태를 늘리기만 한다.
+    FileScanStatus:
+      type: string
+      enum:
+      - PENDING
+      - CLEAN
+      - INFECTED
+      description: |-
+        악성코드 검사 상태. **AV 스캐너가 없으므로 현재 구현은 항상 PENDING이다**
+        (OB-15). 검증을 통과한 파일도 "검사되지 않음"이 사실이며, 여기를 CLEAN으로
+        올리면 감사 기록이 하지 않은 검사를 했다고 말한다.
+    FileObjectResource:
+      type: object
+      required:
+      - fileId
+      - originalName
+      - mimeType
+      - sizeBytes
+      - sha256
+      - uploadState
+      - scanStatus
+      - createdBy
+      - createdAt
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+          maxLength: 500
+        mimeType:
+          type: string
+          maxLength: 150
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: PENDING에서는 클라이언트의 **선언값**, VERIFIED에서는 저장 바이트에서 재계산한 값이다.
+        uploadState:
+          $ref: '#/components/schemas/FileUploadState'
+        scanStatus:
+          $ref: '#/components/schemas/FileScanStatus'
+        verifiedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+    FileUploadTicket:
+      type: object
+      required:
+      - url
+      - method
+      - headers
+      - expiresAt
+      - maxSizeBytes
+      - driver
+      properties:
+        url:
+          type: string
+          description: 바이트를 그대로 PUT할 절대 URL. 서명이나 티켓이 쿼리에 실린다.
+        method:
+          type: string
+          enum:
+          - PUT
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: 전송 시 그대로 붙여야 하는 헤더. 서명 대상이므로 임의로 더하거나 빼면 실패한다.
+        expiresAt:
+          type: string
+          format: date-time
+        maxSizeBytes:
+          type: integer
+          format: int64
+        driver:
+          type: string
+          enum:
+          - PRESIGNED_S3
+          - API_DIRECT
+          description: |-
+            진단·증거용이다. **클라이언트는 이 값으로 분기하지 않는다** — 그래야
+            로컬(인메모리)과 MinIO/S3가 같은 화면 코드로 동작한다.
+    FileRegistrationResource:
+      type: object
+      required:
+      - file
+      - upload
+      properties:
+        file:
+          $ref: '#/components/schemas/FileObjectResource'
+        upload:
+          $ref: '#/components/schemas/FileUploadTicket'
+    FileRegisterRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - fileName
+      - sizeBytes
+      - mimeType
+      - sha256
+      properties:
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 500
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        mimeType:
+          type: string
+          minLength: 1
+          maxLength: 150
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        purpose:
+          $ref: '#/components/schemas/FileUploadPurpose'
+    FileCompleteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        etag:
+          type: string
+          maxLength: 200
+          description: |-
+            전송 계층이 돌려준 ETag. **참고 기록일 뿐 무결성 근거가 아니다** —
+            멀티파트 업로드의 ETag는 MD5가 아니고 드라이버마다 다르다. 근거는
+            서버가 저장 바이트에서 다시 계산한 SHA-256이다.
+    FileRegistrationResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/FileRegistrationResource'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    FileObjectResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/FileObjectResource'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    # 설계 07 §1.5~§1.7 TemplateProfile의 **요약**이다. 전체 형태의 정본은
+    # contracts/schemas/template-profile.schema.json이며 화면·감사가 반복해서
+    # 보는 값만 여기서 1급으로 꺼낸다.
+    DocumentAnalysisSummary:
+      type: object
+      required:
+      - templateProfileId
+      - profileVersion
+      - verdict
+      - confidence
+      - objectCounts
+      - prototypeCount
+      - unsupportedObjectCount
+      - warnings
+      - analysisHash
+      properties:
+        templateProfileId:
+          type: string
+          format: uuid
+        profileVersion:
+          type: integer
+          minimum: 1
+        verdict:
+          type: string
+          enum:
+          - AUTO
+          - CONFIRM
+          - LIMITED
+          - REJECT
+          description: |-
+            문서 단위 판정(ADR v1.1 §8.6 G15-1, 롤업 규칙은 ADR-29 D2).
+            `template_profile.analysis_status`에 그대로 저장된다 — ADR-31 D12가
+            이 컬럼을 판정 축으로 확정했으므로 변환하지 않는다.
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        objectCounts:
+          type: object
+          additionalProperties: false
+          required:
+          - NATIVE_EDIT
+          - PRESERVE_ONLY
+          - FLATTEN_EXPORT_ONLY
+          - REJECT
+          properties:
+            NATIVE_EDIT:
+              type: integer
+              minimum: 0
+            PRESERVE_ONLY:
+              type: integer
+              minimum: 0
+            FLATTEN_EXPORT_ONLY:
+              type: integer
+              minimum: 0
+            REJECT:
+              type: integer
+              minimum: 0
+        prototypeCount:
+          type: integer
+          minimum: 0
+        unsupportedObjectCount:
+          type: integer
+          minimum: 0
+        warnings:
+          type: array
+          items:
+            type: string
+        analysisHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        elapsedMs:
+          type: integer
+          minimum: 0
+          description: 분석 소요 시간. 성능 기준선(ADR G15-5) 관측점이다.
+    ImportedDocumentResource:
+      type: object
+      required:
+      - documentId
+      - title
+      - documentType
+      - status
+      - sourceFileId
+      - revisionId
+      - revisionNo
+      - irHash
+      - analysis
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        planId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        title:
+          type: string
+          maxLength: 300
+        documentType:
+          type: string
+          enum:
+          - PLAN
+          - JOURNAL
+        status:
+          type: string
+          enum:
+          - EDITING
+          - REVIEW
+          - APPROVED
+        sourceFileId:
+          type: string
+          format: uuid
+        revisionId:
+          type: string
+          format: uuid
+        revisionNo:
+          type: integer
+          minimum: 1
+        irHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        analysis:
+          $ref: '#/components/schemas/DocumentAnalysisSummary'
+    HwpImportResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/ImportedDocumentResource'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    DocumentAnalysisResource:
+      type: object
+      required:
+      - documentId
+      - analysis
+      - unsupportedObjects
+      - profile
+      - createdAt
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        analysis:
+          $ref: '#/components/schemas/DocumentAnalysisSummary'
+        unsupportedObjects:
+          type: array
+          description: NATIVE_EDIT가 아닌 객체의 분류 결과. 어떤 객체가 저장을 차단하는지의 근거다(ADR-29 D4, ADR-31 D7).
+          items:
+            type: object
+            additionalProperties: true
+            required:
+            - objectClass
+            - elementName
+            properties:
+              objectClass:
+                type: string
+                enum:
+                - PRESERVE_ONLY
+                - FLATTEN_EXPORT_ONLY
+                - REJECT
+              elementName:
+                type: string
+              locator:
+                type: string
+              reason:
+                type: string
+        profile:
+          type: object
+          additionalProperties: true
+          description: |-
+            TemplateProfile 전문. 정본 스키마는
+            `contracts/schemas/template-profile.schema.json`이며 여기서는 통과시킨다.
+        createdAt:
+          type: string
+          format: date-time
+    DocumentAnalysisResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/DocumentAnalysisResource'
+        meta:
+          $ref: '#/components/schemas/Meta'
     HwpImportRequest:
       type: object
+      additionalProperties: false
       required:
       - fileId
       properties:
         fileId:
           type: string
           format: uuid
+          description: UNE-DOC-002를 통과한(uploadState=VERIFIED) 파일이어야 한다.
         planId:
           type: string
           format: uuid
           nullable: true
+          description: 주면 plan.document_id에 이 문서가 기록된다(ADR-32 D9). 이미 문서를 가진 계획서는 409, 다른 테넌트·삭제된 계획서는 404다.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: 생략하면 원본 파일명을 쓴다.
     # 전체 형태는 contracts/schemas/change-set.schema.json이 정본이다(SelectionEnvelope
     # 5종 · 8종 연산 · materialize 소스 변형). 여기에는 OpenAPI 소비자가 필요로 하는
     # 최소 형태만 두고, 연산 내부는 그 스키마를 참조한다 — 같은 어휘를 두 벌로 적으면

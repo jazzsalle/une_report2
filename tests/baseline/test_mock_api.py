@@ -190,3 +190,64 @@ def test_situation_sop_task_journal_flow():
 def test_idempotency_header_required():
     r=client.post("/api/v1/plans",json={"title":"x","startMode":"BLANK"})
     assert r.status_code==400
+
+# --- CC-170 UNE-DOC-001~004: 3단 업로드와 반입 ------------------------------
+import hashlib
+
+HWPX_BYTES=b"PK\x03\x04" + b"mock hwpx package bytes" * 4
+
+def register_upload(idem, payload=None):
+    body={"fileName":"보고서 양식.hwpx","sizeBytes":len(HWPX_BYTES),
+          "mimeType":"application/hwp+zip","sha256":hashlib.sha256(HWPX_BYTES).hexdigest(),
+          "purpose":"HWPX_IMPORT"}
+    body.update(payload or {})
+    return data(client.post("/api/v1/files",json=body,headers={"Idempotency-Key":idem}))
+
+def test_upload_three_steps_then_import():
+    reg=register_upload("test-020")
+    assert reg["file"]["uploadState"]=="PENDING" and reg["file"]["scanStatus"]=="PENDING"
+    # driver는 진단용이며 클라이언트는 url/method/headers만 쓴다.
+    assert reg["upload"]["method"]=="PUT" and reg["upload"]["driver"]=="API_DIRECT"
+    file_id=reg["file"]["fileId"]
+    token=reg["upload"]["url"].split("token=")[1]
+    assert client.put(f"/api/v1/files/{file_id}/content?token={token}",content=HWPX_BYTES).status_code==204
+    # 티켓은 1회용이다.
+    assert client.put(f"/api/v1/files/{file_id}/content?token={token}",content=HWPX_BYTES).status_code==403
+    done=data(client.post(f"/api/v1/files/{file_id}/complete",json={"etag":'"abc"'},headers={"Idempotency-Key":"test-021"}))
+    # 검증을 통과해도 AV 스캔은 하지 않았으므로 scanStatus는 PENDING이다.
+    assert done["uploadState"]=="VERIFIED" and done["scanStatus"]=="PENDING" and done["verifiedAt"]
+    p=create_plan("test-022","폭염 대응계획")
+    doc=data(client.post("/api/v1/documents/import-hwpx",
+                         json={"fileId":file_id,"planId":p["planId"]},
+                         headers={"Idempotency-Key":"test-023"}))
+    assert doc["planId"]==p["planId"] and doc["revisionNo"]==1 and doc["sourceFileId"]==file_id
+    assert doc["analysis"]["verdict"] in ("AUTO","CONFIRM","LIMITED","REJECT")
+    got=data(client.get(f"/api/v1/documents/{doc['documentId']}/analysis"))
+    assert got["analysis"]["templateProfileId"]==doc["analysis"]["templateProfileId"]
+    assert got["unsupportedObjects"][0]["objectClass"]=="PRESERVE_ONLY"
+
+def test_complete_rejects_bytes_that_do_not_match_the_declaration():
+    reg=register_upload("test-024",{"sha256":"0"*64})
+    file_id=reg["file"]["fileId"]
+    token=reg["upload"]["url"].split("token=")[1]
+    client.put(f"/api/v1/files/{file_id}/content?token={token}",content=HWPX_BYTES)
+    r=client.post(f"/api/v1/files/{file_id}/complete",json={},headers={"Idempotency-Key":"test-025"})
+    assert r.status_code==422 and "sha256 mismatch" in r.text
+    # 거절은 종단이다 — 재확정도 다시 422다.
+    assert DB["files"][file_id]["uploadState"]=="ABORTED"
+    again=client.post(f"/api/v1/files/{file_id}/complete",json={},headers={"Idempotency-Key":"test-026"})
+    assert again.status_code==422
+    # 검증되지 않은 파일은 반입할 수 없다.
+    imported=client.post("/api/v1/documents/import-hwpx",json={"fileId":file_id},headers={"Idempotency-Key":"test-027"})
+    assert imported.status_code==422 and "HWPX-422-001" in imported.text
+
+def test_register_rejects_non_hwpx_media_type_and_unimplemented_purpose():
+    sha=hashlib.sha256(HWPX_BYTES).hexdigest()
+    base={"fileName":"a.pdf","sizeBytes":len(HWPX_BYTES),"sha256":sha}
+    r=client.post("/api/v1/files",json={**base,"mimeType":"application/pdf"},headers={"Idempotency-Key":"test-028"})
+    assert r.status_code==422 and "FILE-422-001" in r.text
+    r=client.post("/api/v1/files",json={**base,"mimeType":"application/hwp+zip","purpose":"ATTACHMENT"},headers={"Idempotency-Key":"test-029"})
+    assert r.status_code==422 and "FILE-422-001" in r.text
+
+def test_analysis_is_404_before_import():
+    assert client.get("/api/v1/documents/00000000-0000-4000-8000-0000000000ff/analysis").status_code==404

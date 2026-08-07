@@ -6,11 +6,18 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="UNE Platform Mock", version="1.0.0")
-DB: dict[str, dict[str, Any]] = {"plans": {}, "planSnapshots": {}, "tocVersions": {}, "jobs": {}, "blocks": {}, "situations": {}, "snapshots": {}, "sops": {}, "runs": {}, "tasks": {}, "journals": {}, "documents": {}, "revisions": {}, "changeSets": {}, "autosaves": {}}
+DB: dict[str, dict[str, Any]] = {"plans": {}, "planSnapshots": {}, "tocVersions": {}, "jobs": {}, "blocks": {}, "situations": {}, "snapshots": {}, "sops": {}, "runs": {}, "tasks": {}, "journals": {}, "documents": {}, "revisions": {}, "changeSets": {}, "autosaves": {}, "files": {}, "analyses": {}}
+# Uploaded bytes per fileId. The mock keeps them so UNE-DOC-002 can do the real
+# check (recompute SHA-256, look for the ZIP magic) instead of answering 200 to
+# anything — a mock that always verifies teaches the client the wrong contract.
+FILE_BYTES: dict[str, bytes] = {}
+# One-time upload tickets: token -> fileId. API_DIRECT is the only driver the
+# mock can offer; it has no object storage to presign against.
+UPLOAD_TICKETS: dict[str, str] = {}
 # Snapshot version counter per plan (UNE-PLAN-007 version_no = max+1).
 PLAN_SNAPSHOT_SEQ: dict[str, int] = {}
 # TOC version counter per plan (UNE-PLAN-014 version_no = max+1).
@@ -391,7 +398,12 @@ def etag(revision_no: int) -> dict[str, str]:
     return {"ETag": '"' + str(revision_no) + '"'}
 
 def get_document_or_404(document_id: str) -> dict[str, Any]:
-    """문서가 없으면 첫 조회에서 즉석 생성한다(mock은 업로드 API를 갖지 않는다)."""
+    """문서가 없으면 첫 조회에서 즉석 생성한다.
+
+    UNE-DOC-003(반입)이 만든 문서는 DB에 있으므로 이 경로를 지나지 않는다.
+    편집·Export 계약만 보려는 클라이언트가 업로드 3단을 먼저 통과하지 않아도
+    되도록 남겨 둔 편의 경로다.
+    """
     doc = DB["documents"].get(document_id)
     if doc: return doc
     rid = str(uuid4())
@@ -445,6 +457,125 @@ def conflict_response(head: dict[str, Any], code: str):
                                   "currentRevisionNo": head["revisionNo"],
                                   "headIrHash": head["irHash"]}}}
     return JSONResponse(body, status_code=409, headers=etag(head["revisionNo"]))
+
+# ---------------------------------------------------------------------------
+# UNE-DOC-001~004: 3단 업로드와 HWPX 반입 (CC-170)
+# ---------------------------------------------------------------------------
+# mock에는 저장소가 없으므로 presign을 흉내내지 않는다 — driver는 항상
+# API_DIRECT이고 uploadUrl은 이 서버 자신의 전송 라우트를 가리킨다.
+ALLOWED_UPLOAD_MIME = {"application/hwp+zip", "application/vnd.hancom.hwpx"}
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+def get_file_or_404(file_id: str) -> dict[str, Any]:
+    if file_id not in DB["files"]: raise HTTPException(404, "FILE-404-001: file not found")
+    return DB["files"][file_id]
+
+@app.post("/api/v1/files")
+def register_file(body: dict[str, Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    name, size = body.get("fileName"), body.get("sizeBytes")
+    mime, sha = body.get("mimeType"), body.get("sha256")
+    if not name or not isinstance(size, int) or size < 1 or not mime or not sha:
+        raise HTTPException(400, "COM-0400: fileName, sizeBytes, mimeType, sha256 are required")
+    if len(str(sha)) != 64 or any(c not in "0123456789abcdef" for c in str(sha)):
+        raise HTTPException(400, "COM-0400: sha256 must be 64 lowercase hex characters")
+    purpose = body.get("purpose", "HWPX_IMPORT")
+    if purpose != "HWPX_IMPORT":
+        raise HTTPException(422, "FILE-422-001: only HWPX_IMPORT is implemented")
+    if mime not in ALLOWED_UPLOAD_MIME:
+        raise HTTPException(422, "FILE-422-001: mimeType is not an HWPX media type")
+    if size > MAX_UPLOAD_BYTES:
+        raise HTTPException(422, "FILE-422-001: declared size exceeds the upload limit")
+    fid, token = str(uuid4()), uuid4().hex
+    file_obj = {"fileId": fid, "originalName": name, "mimeType": mime, "sizeBytes": size,
+                "sha256": sha, "uploadState": "PENDING", "scanStatus": "PENDING",
+                "verifiedAt": None, "createdBy": MOCK_USER_ID, "createdAt": now()}
+    DB["files"][fid] = file_obj
+    UPLOAD_TICKETS[token] = fid
+    ticket = {"url": f"http://127.0.0.1:8000/api/v1/files/{fid}/content?token={token}",
+              "method": "PUT", "headers": {"Content-Type": mime},
+              "expiresAt": now(), "maxSizeBytes": MAX_UPLOAD_BYTES, "driver": "API_DIRECT"}
+    return JSONResponse(envelope({"file": file_obj, "upload": ticket}), status_code=201)
+
+@app.put("/api/v1/files/{file_id}/content")
+async def upload_file_content(file_id: str, request: Request, token: str = ""):
+    if UPLOAD_TICKETS.get(token) != file_id:
+        raise HTTPException(403, "FILE-403-001: upload ticket is not valid for this file")
+    file_obj = get_file_or_404(file_id)
+    if file_obj["uploadState"] != "PENDING":
+        raise HTTPException(409, "FILE-409-001: this file is already settled")
+    body = await request.body()
+    if len(body) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "FILE-413-001: body exceeds the upload limit")
+    FILE_BYTES[file_id] = body
+    del UPLOAD_TICKETS[token]  # 1회용
+    return Response(status_code=204)
+
+@app.post("/api/v1/files/{file_id}/complete")
+def complete_file(file_id: str, body: dict[str, Any] | None = None,
+                  idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    file_obj = get_file_or_404(file_id)
+    if file_obj["uploadState"] == "VERIFIED": return envelope(file_obj)
+    if file_obj["uploadState"] == "ABORTED":
+        raise HTTPException(422, "FILE-422-002: this upload was already rejected")
+    raw = FILE_BYTES.get(file_id)
+    if raw is None:
+        raise HTTPException(409, "FILE-409-002: no bytes were uploaded for this file")
+    # 선언과 실제를 대조한다. 확장자·Content-Type은 근거가 아니다 — ZIP 매직과
+    # 재계산한 SHA-256이 근거다(mock도 같은 규칙을 지켜야 클라이언트가 배운다).
+    actual = hashlib.sha256(raw).hexdigest()
+    reasons = []
+    if len(raw) != file_obj["sizeBytes"]: reasons.append("size mismatch")
+    if actual != file_obj["sha256"]: reasons.append("sha256 mismatch")
+    if raw[:2] != b"PK": reasons.append("not a ZIP package")
+    if reasons:
+        file_obj["uploadState"] = "ABORTED"
+        raise HTTPException(422, "FILE-422-002: " + ", ".join(reasons))
+    file_obj.update({"uploadState": "VERIFIED", "verifiedAt": now()})
+    return envelope(file_obj)
+
+@app.post("/api/v1/documents/import-hwpx")
+def import_hwpx(body: dict[str, Any], idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    require_idempotency(idempotency_key)
+    file_obj = get_file_or_404(body.get("fileId", ""))
+    if file_obj["uploadState"] != "VERIFIED":
+        raise HTTPException(422, "HWPX-422-001: the file has not passed UNE-DOC-002")
+    plan_id = body.get("planId")
+    if plan_id: get_plan_or_404(plan_id)
+    did, rid = str(uuid4()), str(uuid4())
+    ir = {**EMPTY_IR, "documentId": did, "sourceHash": file_obj["sha256"]}
+    DB["revisions"][rid] = {"revisionId": rid, "documentId": did, "revisionNo": 1,
+                            "parentRevisionId": None, "irHash": content_hash(ir),
+                            "changeSummary": "HWPX 가져오기", "origin": "IMPORT",
+                            "checkpointLabel": "생성전", "createdBy": MOCK_USER_ID,
+                            "createdAt": now(), "ir": ir}
+    DB["documents"][did] = {"documentId": did, "headRevisionId": rid, "revisionIds": [rid]}
+    analysis = {"templateProfileId": str(uuid4()), "profileVersion": 1, "verdict": "CONFIRM",
+                "confidence": 0.72,
+                "objectCounts": {"NATIVE_EDIT": 41, "PRESERVE_ONLY": 3,
+                                 "FLATTEN_EXPORT_ONLY": 0, "REJECT": 0},
+                "prototypeCount": 5, "unsupportedObjectCount": 3,
+                "warnings": ["mock 분석입니다 — 실제 판정은 엔진이 냅니다"],
+                "analysisHash": content_hash([file_obj["sha256"], "mock-profile"]),
+                "elapsedMs": 12}
+    DB["analyses"][did] = {"documentId": did, "analysis": analysis,
+                           "unsupportedObjects": [{"objectClass": "PRESERVE_ONLY",
+                                                   "elementName": "hp:pic",
+                                                   "locator": "Contents/section0.xml#el[214]",
+                                                   "reason": "그림은 원문 그대로 보존한다"}],
+                           "profile": {"profileVersion": "1", "sourceHash": file_obj["sha256"]},
+                           "createdAt": now()}
+    data = {"documentId": did, "planId": plan_id, "title": body.get("title") or file_obj["originalName"],
+            "documentType": "PLAN", "status": "EDITING", "sourceFileId": file_obj["fileId"],
+            "revisionId": rid, "revisionNo": 1, "irHash": DB["revisions"][rid]["irHash"],
+            "analysis": analysis}
+    return JSONResponse(envelope(data), status_code=201)
+
+@app.get("/api/v1/documents/{document_id}/analysis")
+def get_document_analysis(document_id: str):
+    if document_id not in DB["analyses"]:
+        raise HTTPException(404, "HWPX-404-001: this document has no analysis")
+    return envelope(DB["analyses"][document_id])
 
 @app.get("/api/v1/documents/{document_id}/ir")
 def get_document_ir(document_id: str, revisionId: str | None = None):
