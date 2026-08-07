@@ -160,6 +160,10 @@ export async function startHarness(label: string): Promise<Harness> {
     uploadMaxBytes: 50 * 1024 * 1024,
     uploadTicketTtlSec: 900,
     corsAllowedOrigins: [],
+    // CC-200: 이 슬라이스는 상황 수집을 지나지 않지만 ApiConfig는 전 필드를
+    // 요구한다. 목업 시나리오 훅은 운영 기본값 그대로 끈 채로 둔다(ADR-33 D19).
+    situationMockScenarios: false,
+    situationProviderTimeoutMs: 10_000,
   };
   const app = await createApp(config);
   await app.listen(0);

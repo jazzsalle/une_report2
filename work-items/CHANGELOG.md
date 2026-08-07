@@ -2,6 +2,101 @@
 
 ## Unreleased
 
+- CC-200 (2026-08-08): Situation and candidate SituationFact ingestion (ADR-33).
+  Two things were broken before a line was written. Migration 0023 (previous
+  session) already **cited "ADR-33 D2" and "ADR-33 수용 한계" in its comments
+  while no such file existed** — the constraints were enforced but their reasons
+  were unreadable. And `Situation` was an `additionalProperties: true`
+  placeholder, so the example gate (ADR-24) validated nothing; SIT-002 pointed at
+  a single `Situation` where the design says `Page<Situation>`, and SIT-004/007/
+  008 took `GenericRequest`, which accepts anything.
+  **Provider collection is synchronous** (user decision). Every adapter is a mock
+  today, so an asynchronous design would build a queue, a lease and a poller that
+  wait for nothing. `provider_job` therefore has three states — SUCCEEDED /
+  PARTIAL / FAILED — and no QUEUED/RUNNING, and `finished_at` is NOT NULL: rows
+  are born already finished. The transaction boundary carries the weight: a short
+  read to check the situation, **provider calls outside any transaction**, then
+  one write transaction for jobs, raw payloads, sources, facts, the state
+  transition and the audit. The write transaction re-locks the situation and
+  re-checks it, because it can be closed while the providers are being called;
+  on 412 nothing partial is left behind.
+  Partial failure is a 200. Design 06 US-SIT-005 requires that a partial outage
+  not block the flow, and E-01 (every provider down) still expects "사용자
+  입력만으로 계속 가능" — so even total failure answers 200 with FAILED jobs, and
+  a manual fact can still be registered afterwards. Failures are split eight ways
+  so the screen can say what to do: `DISABLED` (flag off — SafeKorea/Naver,
+  pending legal approval, OB-05) is not `NOT_CONTRACTED` (nothing to call at all —
+  T3Q situation API, OB-02) is not a timeout. **Turning a flag on does not create
+  a capability**: SafeKorea/Naver still answer `NOT_CONTRACTED` because the web
+  collector is a separate component (design 01 §20.3), and disabled providers
+  still write a FAILED row rather than being skipped silently.
+  Normalization is a three-way discriminated union taken straight from design 06
+  US-SIT-006 — `NORMALIZED`, `ORIGINAL_KEPT` (A-01: unit unconvertible, original
+  value kept), `INVALID` (E-01/E-02: quarantined). The raw item rides on all
+  three; nothing is ever discarded. Manual entry and corrections go through the
+  **same** normalizer as provider collection, so a `3 cm` correction is stored as
+  `30 mm` regardless of which door it came in. Timestamps demand an explicit
+  offset: a naive `2026-08-08T09:00:00` is quarantined rather than guessed,
+  because either guess writes a fact that is nine hours wrong.
+  Three defects found by running the code. `new Date('2026-02-30T00:00:00Z')`
+  **rolls over to March 2** instead of being NaN — a calendar date that does not
+  exist was being stored silently, so the normalizer now validates month, day,
+  time and offset range from the regex captures. Migration 0023 added
+  `updated_at` to `situation` and `situation_fact` but **not** the repository's
+  customary `trg_<table>_updated_at` triggers (verified against the dev database:
+  `plan` has one, these two did not), which froze both columns at insert time and
+  made their own comments false — closed by forward migration **0024**, never by
+  editing 0023. And SIT-005 was answering 201 because NestJS defaults POST that
+  way, where the contract says 200.
+  A contract test now reads **the 0023 SQL itself** and compares the migration
+  CHECKs, the domain constants and the contract enums in one place, because the
+  same vocabulary lives in three files and fixing two of them either breaks
+  INSERT with 23514 or promises values the database cannot store. Tenant
+  isolation gets the regression file 0023's own comment already named:
+  `situation` was the only table with RLS on, the other six had never had a
+  policy, and 0011 grants `une_app` DML on every table — so "no policy" meant
+  "visible to every tenant". `une_worker` is asserted to be blocked with 42501 on
+  all seven, since collection is synchronous and the worker never touches them.
+  Two contract gaps closed: **UNE-SIT-014** (candidate fact list — without it
+  there is no way to obtain the `factId` that SIT-008 requires, so the candidate
+  review screen cannot exist) and **UNE-SIT-015** (provider job status, the
+  polling substitute for the SSE endpoint, following the CC-170 precedent).
+  SSE itself stays in the contract for the asynchronous move. `SituationSnapshot`
+  stays a placeholder **on purpose** — guessing its shape would pre-empt CC-210,
+  which owns confirmation — and a test pins that it was left deliberately.
+  New OPEN binding **OB-16**: `provider_result` and `provider_job.request_json`
+  have no retention/TTL policy and both may contain personal data.
+  The parallel dual review (architecture + QA, opus) opened 1 BLOCKER / 6 MAJOR /
+  8 MINOR and PASS WITH CONDITIONS, and **both reviews independently named the
+  same two things**: response schemas had no `additionalProperties` at all, so
+  the contract test's `.not.toBe(true)` blocked nothing; and error codes carried
+  meanings the design had assigned elsewhere. All applied the same day.
+  The substantive ones were each reproducible. The controller held a **second
+  copy** of the timestamp rule and that copy had no calendar check, so
+  `occurredAt: 2026-02-30` was stored as March 2 — `observedAt` survived only
+  because the domain filtered it later; the copy is gone and one domain function
+  remains. `Promise.all` called adapters unguarded: a single throwing adapter
+  would discard the raw payloads and candidates already collected from every
+  other provider and leave **no `provider_job` row at all**, breaking both "always
+  leave a row" and "total failure is still 200". `query.mockScenario` was read
+  unconditionally on the production request path and the contract documented it;
+  it now lives behind an injected `SITUATION_PROVIDERS` factory with
+  `scenariosEnabled` defaulting off. Unit-less numeric values were **guessed**
+  into the canonical unit and reported as `NORMALIZED`, which showed a user who
+  typed Fahrenheit 77 "normalized, 77 degC" with no review signal — the exact
+  inverse of the timestamp rule, and it rated *less* information higher than
+  more. `findFactKeySpec` ignored `factType`, so `FIELD_REPORT.text` inherited
+  `DISASTER_MESSAGE.text`'s string constraint. And there was **no timeout of any
+  kind**: on a synchronous path one slow provider holds the HTTP request forever.
+  The renaming of `PROV-503-001` to `PROV-400-001` passed with **zero test
+  failures**, because nothing asserted the SIT-family 400 codes — so a gate now
+  extracts codes from `situation-errors.ts` and compares them against
+  `x-error-codes`, requiring `COM-0400` on every implemented path-parameter API
+  and `COM-0409` on every idempotent one. Response schemas are closed, three
+  response examples now run through the example gate, and six empty testing-rule
+  axes were filled — including proof that the idempotency key the acceptance
+  limits lean on actually prevents a second batch of candidates.
+
 - CC-170 (2026-08-05): Plan vertical slice E2E — **SSO mock to HWPX download**
   (ADR-32). The item turned out to be an implementation item, not an integration
   one: the path the acceptance criteria describe **could not be walked over

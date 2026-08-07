@@ -48,4 +48,29 @@ describe('loadApiConfig', () => {
     expect(config.accessTtlSec).toBe(900);
     expect(config.refreshTtlSec).toBe(43200);
   });
+
+  // ── CC-200 (ADR-33 D19 / 수용 한계 2) ──
+  it('상황 목업 시나리오 훅은 기본값이 꺼짐이다', () => {
+    // 시험 훅이 기본으로 켜지면 운영 요청이 그것을 탈 수 있다.
+    expect(loadApiConfig(BASE).situationMockScenarios).toBe(false);
+    expect(
+      loadApiConfig({ ...BASE, UNE_SITUATION_MOCK_SCENARIOS: 'true' }).situationMockScenarios,
+    ).toBe(true);
+    // 'true' 문자열만 켠다 — '1'이나 'yes'로 우연히 켜지지 않는다.
+    expect(
+      loadApiConfig({ ...BASE, UNE_SITUATION_MOCK_SCENARIOS: '1' }).situationMockScenarios,
+    ).toBe(false);
+  });
+
+  it('Provider 수집 제한시간에 기본값이 있다 (무기한 대기가 아니다)', () => {
+    expect(loadApiConfig(BASE).situationProviderTimeoutMs).toBe(10_000);
+    expect(
+      loadApiConfig({ ...BASE, UNE_SITUATION_PROVIDER_TIMEOUT_MS: '2500' })
+        .situationProviderTimeoutMs,
+    ).toBe(2500);
+    // 0이나 음수로 꺼 버릴 수 없다.
+    expect(
+      loadApiConfig({ ...BASE, UNE_SITUATION_PROVIDER_TIMEOUT_MS: '0' }).situationProviderTimeoutMs,
+    ).toBe(10_000);
+  });
 });

@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 62
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers
 
 ## api_idempotency
 

@@ -70,11 +70,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 23 baseline migrations', async () => {
+  it('applies all 24 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(23);
+    expect(applied.rows).toHaveLength(24);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -89,6 +89,10 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     expect(applied.rows[20].name).toBe('0021_export_lease_and_file_immutability');
     expect(applied.rows[21].name).toBe('0022_upload_state_and_plan_document_link');
     expect(applied.rows[22].name).toBe('0023_situation_fact_ingestion');
+    // 0024 (CC-200): 0023이 situation/situation_fact에 updated_at을 추가하면서
+    // 이 저장소의 관례인 trg_*_updated_at 트리거를 빠뜨렸다. 컬럼만 있고
+    // 트리거가 없으면 '마지막 수정 시각'이 INSERT 시각에 고정된다.
+    expect(applied.rows[23].name).toBe('0024_situation_updated_at_triggers');
   });
 
   // 61 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
@@ -184,11 +188,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0023 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0024 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0023
+    await migrate(db.url); // remaining: 0011 ~ 0024
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -203,7 +207,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(23);
+    expect(applied.rows[0].n).toBe(24);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

@@ -169,7 +169,8 @@ describe('계약의 x-db-tables는 실제 테이블만 가리킨다', () => {
       }
     }
     // 검사 대상이 0이면 통과가 아니라 유도가 깨진 것이다.
-    expect(checked).toBeGreaterThanOrEqual(31);
+    // CC-200이 UNE-SIT-001~005/007/008/014/015 아홉을 더했다(31 → 40).
+    expect(checked).toBeGreaterThanOrEqual(40);
     expect(phantom).toEqual([]);
   });
 

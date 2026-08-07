@@ -15,3 +15,6 @@ export * from './document/ir-hash';
 export * from './document/selection';
 export * from './document/change-set';
 export * from './document/export';
+export * from './situation/situation-status';
+export * from './situation/fact-vocabulary';
+export * from './situation/fact-normalization';
