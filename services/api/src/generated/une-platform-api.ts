@@ -3688,14 +3688,6 @@ export type components = {
             format: "HWPX" | "PDF" | "DOCX";
             /** Format: uuid */
             revisionId?: string | null;
-            /** @description 저장 모드 등 산출 옵션 (설계 07 §1.10 저장 모드표) */
-            options?: {
-                /**
-                 * @default SAVE_AS
-                 * @enum {string}
-                 */
-                saveMode: "SAVE_AS" | "SAVE_REVISION" | "EXPORT_COPY";
-            };
         };
         SituationCreateRequest: {
             /** @enum {string} */
@@ -3835,7 +3827,7 @@ export type components = {
             checks: {
                 code: string;
                 /** @enum {string} */
-                layer: "PACKAGE" | "REFERENCE" | "SEMANTIC" | "STYLE" | "VISUAL" | "HANCOM" | "EDIT";
+                layer?: "PACKAGE" | "REFERENCE" | "SEMANTIC" | "STYLE" | "VISUAL" | "HANCOM" | "EDIT";
                 /** @enum {string} */
                 outcome: "PASS" | "WARN" | "FAIL" | "NOT_RUN";
                 detail: string;
@@ -3885,6 +3877,15 @@ export type components = {
         };
         /** @description Not Found */
         NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Gone — 자원이 있었으나 더 이상 존재하지 않는다 */
+        Gone: {
             headers: {
                 [name: string]: unknown;
             };
@@ -5368,6 +5369,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/hwp+zip": string;
                     "application/octet-stream": string;
                 };
             };
@@ -5376,6 +5378,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            410: components["responses"]["Gone"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };
