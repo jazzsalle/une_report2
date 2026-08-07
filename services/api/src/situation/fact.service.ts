@@ -33,7 +33,10 @@ export interface FactPatchInput {
   unit?: string | null;
   observedAt?: string | null;
   confidence?: number | null;
-  reason?: string;
+  /** **필수다.** 파생 Fact는 사유 없이 만들 수 없다 — 설계 06 US-SIT-007
+   * 완료조건("모든 선택에 actor/time/source 추적")이고 0025 §2의
+   * `ck_situation_fact_derivation_shape`가 DB에서도 강제한다. */
+  reason: string;
 }
 
 /** UNE-SIT-007 / 008 / 014 (CC-200).
@@ -174,7 +177,26 @@ export class FactService {
     });
   }
 
-  /** UNE-SIT-008. 보정도 정규화를 다시 지난다. */
+  /**
+   * UNE-SIT-008 후보 Fact 보정 — **파생 Fact를 만든다.**
+   *
+   * CC-200은 이 자리를 제자리 UPDATE로 구현했고 ADR-33 수용 한계 12가 그것이
+   * 설계와 어긋난다고 기록했다. 사용자 결정(2026-08-08)으로 설계 쪽에 맞춘다.
+   *
+   * 근거는 세 곳이 같은 말을 한다.
+   *   - 설계 06 US-SIT-007 #3: "수정 시 derived Fact를 생성한다.
+   *     originalFactId·actor·reason 기록", 완료조건 "원천 불변"
+   *   - 설계 06 §7.1 주요 데이터: "원천 Fact 불변. 수정 시 파생 Fact 생성"
+   *   - CLAUDE.md 비협상 규칙: "Corrections are new versions or correction
+   *     events; never overwrite audit history"
+   *
+   * 실질적 이득이 하나 더 있다: 확정된 Snapshot이 가리키는 근거의 값이 사후에
+   * 바뀌지 않는다. 제자리 UPDATE에서는 바뀔 수 있었다.
+   *
+   * 출처는 **새로 만든다**(MANUAL/USER). 같은 source_id를 물려주면 사용자가
+   * 고친 숫자가 기상청이 준 값으로 보인다 — 원본의 출처는 `original_fact_id`를
+   * 따라가면 그대로 있다.
+   */
   async patch(
     auth: AuthContext,
     situationId: string,
@@ -214,7 +236,8 @@ export class FactService {
           unit: nextUnit,
           observedAt: nextObservedAt,
           correctedBy: auth.userId,
-          ...(patch.reason === undefined ? {} : { reason: patch.reason }),
+          derivedFrom: factId,
+          reason: patch.reason,
         },
       });
       if (!isNormalized(normalized)) {
@@ -223,38 +246,60 @@ export class FactService {
         );
       }
 
-      const updated = await this.repo.updateFact(
+      // 원본을 먼저 내린다. 여기서 0행이면 다른 요청이 앞섰다는 뜻이고,
+      // 그 경우 파생을 만들지 않는다 — 같은 원본에서 파생이 둘 생기면
+      // 어느 쪽이 최신인지 답할 수 없다.
+      const superseded = await this.repo.markFactSuperseded(
         c,
         auth.tenantId,
         situationId,
         factId,
         expectedVersion,
-        {
-          valueJson: toFactValueEnvelope(normalized),
-          observedAt: normalized.observedAt,
-          ...(Object.prototype.hasOwnProperty.call(patch, 'confidence')
-            ? { confidence: patch.confidence ?? null }
-            : {}),
-        },
       );
-      if (!updated) throw factErrors.versionConflict(current.versionNo);
+      if (!superseded) throw factErrors.versionConflict(current.versionNo);
+
+      const collectedAt = new Date().toISOString();
+      const source = await this.repo.insertFactSource(c, auth.tenantId, {
+        providerCode: 'MANUAL',
+        sourceType: 'USER',
+        sourceName: '사용자 보정',
+        sourceUri: null,
+        retrievedAt: collectedAt,
+      });
+
+      const created = await this.repo.insertFact(c, situationId, {
+        factType: current.factType,
+        factKey: current.factKey,
+        valueJson: toFactValueEnvelope(normalized),
+        sourceId: source.sourceId,
+        observedAt: normalized.observedAt,
+        collectedAt,
+        confidence: Object.prototype.hasOwnProperty.call(patch, 'confidence')
+          ? (patch.confidence ?? null)
+          : (before.confidence ?? null),
+        originalFactId: factId,
+        derivedBy: auth.userId,
+        derivedReason: patch.reason,
+      });
 
       await this.insertFactAudit(
         c,
         auth,
         meta,
-        'FACT_UPDATED',
-        factId,
+        // 설계 06 US-SIT-007 감사 이벤트: FACT_SELECTED/EXCLUDED/**CORRECTED**.
+        'FACT_CORRECTED',
+        created.factId,
         {
           situationId,
+          originalFactId: factId,
           changed: Object.keys(patch),
           normalizationOutcome: normalized.outcome,
-          ...(patch.reason === undefined ? {} : { reason: patch.reason }),
+          reason: patch.reason,
         },
-        { value: before.value, unit: before.unit, observedAt: before.observedAt },
+        { factId, value: before.value, unit: before.unit, observedAt: before.observedAt },
       );
 
-      const row = await this.repo.findFact(c, auth.tenantId, situationId, factId);
+      const row = await this.repo.findFact(c, auth.tenantId, situationId, created.factId);
       if (!row) throw factErrors.notFound();
       return toFactResource(row);
     });

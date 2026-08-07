@@ -641,22 +641,70 @@ describe.skipIf(!ADMIN_URL)('CC-200 situation / candidate fact e2e', () => {
         { ifMatch: `"${fact.versionNo}"`, body: { value: 3, unit: 'cm', reason: '현장 재확인' } },
       );
       expect(res.status).toBe(200);
-      const updated = ((await res.json()) as Envelope<FactBody>).data;
-      expect(updated.versionNo).toBe(fact.versionNo + 1);
+      const derived = ((await res.json()) as Envelope<FactBody>).data;
+
+      // CC-210: 보정은 **파생 Fact를 만든다**(설계 06 US-SIT-007 #3).
+      // 응답은 새 Fact이고 원본은 SUPERSEDED로 남는다.
+      expect(derived.factId).not.toBe(fact.factId);
+      expect(derived.versionNo).toBe(1);
+      expect(derived.status).toBe('CANDIDATE');
       // 보정도 정규화를 지난다: 3 cm → 30 mm.
-      expect(updated.value).toBe(30);
-      expect(updated.unit).toBe('mm');
+      expect(derived.value).toBe(30);
+      expect(derived.unit).toBe('mm');
+      // 사용자가 고친 숫자가 원래 출처의 값으로 보이면 안 된다.
+      expect(derived.source.providerCode).toBe('MANUAL');
+
+      const rows = await withClient(dbUrl, (c) =>
+        c.query(
+          `SELECT fact_id, status, original_fact_id, derived_by, derived_reason
+           FROM situation_fact WHERE fact_id = ANY($1::uuid[]) ORDER BY original_fact_id NULLS FIRST`,
+          [[fact.factId, derived.factId]],
+        ),
+      );
+      expect(rows.rows).toHaveLength(2);
+      // 원본: 불변, SUPERSEDED, 계보 없음.
+      expect(rows.rows[0].fact_id).toBe(fact.factId);
+      expect(rows.rows[0].status).toBe('SUPERSEDED');
+      expect(rows.rows[0].original_fact_id).toBeNull();
+      // 파생: 원본을 가리키고 actor·사유를 갖는다.
+      expect(rows.rows[1].fact_id).toBe(derived.factId);
+      expect(rows.rows[1].original_fact_id).toBe(fact.factId);
+      expect(rows.rows[1].derived_by).toBe(fx.adminA);
+      expect(rows.rows[1].derived_reason).toBe('현장 재확인');
 
       const audit = await withClient(dbUrl, (c) =>
         c.query(
           `SELECT before_json, after_json FROM audit_log
-           WHERE action = 'FACT_UPDATED' AND resource_id = $1`,
-          [fact.factId],
+           WHERE action = 'FACT_CORRECTED' AND resource_id = $1`,
+          [derived.factId],
         ),
       );
       expect(audit.rowCount).toBe(1);
       expect(audit.rows[0].before_json.value).toBe(10);
+      expect(audit.rows[0].before_json.factId).toBe(fact.factId);
       expect(audit.rows[0].after_json.reason).toBe('현장 재확인');
+      expect(audit.rows[0].after_json.originalFactId).toBe(fact.factId);
+    });
+
+    it('보정 사유는 필수다 (파생은 사유 없이 만들 수 없다)', async () => {
+      const situation = await createSituation();
+      const created = await call(
+        'POST',
+        `/api/v1/situations/${situation.situationId}/facts`,
+        tokenA,
+        {
+          idempotencyKey: `key_${randomUUID()}`,
+          body: { factType: 'FIELD_REPORT', factKey: 'reporter', value: '홍길동' },
+        },
+      );
+      const fact = ((await created.json()) as Envelope<FactBody>).data;
+      const res = await call(
+        'PATCH',
+        `/api/v1/situations/${situation.situationId}/facts/${fact.factId}`,
+        tokenA,
+        { ifMatch: `"${fact.versionNo}"`, body: { value: '임꺽정' } },
+      );
+      expect(res.status).toBe(400);
     });
 
     it('확정·거부된 Fact는 보정할 수 없다 (412, 원천 Fact 불변)', async () => {
@@ -678,7 +726,7 @@ describe.skipIf(!ADMIN_URL)('CC-200 situation / candidate fact e2e', () => {
         'PATCH',
         `/api/v1/situations/${situation.situationId}/facts/${fact.factId}`,
         tokenA,
-        { ifMatch: `"${fact.versionNo}"`, body: { value: '임꺽정' } },
+        { ifMatch: `"${fact.versionNo}"`, body: { value: '임꺽정', reason: '재확인' } },
       );
       expect(res.status).toBe(412);
     });
@@ -719,7 +767,7 @@ describe.skipIf(!ADMIN_URL)('CC-200 situation / candidate fact e2e', () => {
       expect(res.status).toBe(404);
     });
 
-    it('낡은 If-Match 보정은 409 FACT-409-001이다', async () => {
+    it('같은 원본을 두 번 보정하면 두 번째는 409다 (파생이 둘 생기지 않는다)', async () => {
       const situation = await createSituation();
       const created = await call(
         'POST',
@@ -732,25 +780,32 @@ describe.skipIf(!ADMIN_URL)('CC-200 situation / candidate fact e2e', () => {
       );
       const fact = ((await created.json()) as Envelope<FactBody>).data;
 
-      // 먼저 한 번 보정해 버전을 올린다.
+      // 첫 보정은 파생을 만들고 원본을 SUPERSEDED로 내린다.
       const first = await call(
         'PATCH',
         `/api/v1/situations/${situation.situationId}/facts/${fact.factId}`,
         tokenA,
-        { ifMatch: `"${fact.versionNo}"`, body: { value: '임꺽정' } },
+        { ifMatch: `"${fact.versionNo}"`, body: { value: '임꺽정', reason: '재확인' } },
       );
       expect(first.status).toBe(200);
 
-      // 같은(이제는 낡은) 버전으로 다시 보정하면 충돌이다.
+      // 같은 원본을 같은 버전으로 다시 보정하면 충돌이다 — 한 원본에서 파생이
+      // 둘 생기면 어느 쪽이 최신인지 답할 수 없다. 412(후보 아님)가 아니라
+      // 409인 이유는 사용자가 낡은 판을 들고 있다는 것이 요점이기 때문이다.
       const stale = await call(
         'PATCH',
         `/api/v1/situations/${situation.situationId}/facts/${fact.factId}`,
         tokenA,
-        { ifMatch: `"${fact.versionNo}"`, body: { value: '장길산' } },
+        { ifMatch: `"${fact.versionNo}"`, body: { value: '장길산', reason: '재확인' } },
       );
-      expect(stale.status).toBe(409);
-      const body = (await stale.json()) as { error: { code: string } };
-      expect(body.error.code).toBe('FACT-409-001');
+      expect(stale.status).toBe(412);
+
+      const derived = await withClient(dbUrl, (c) =>
+        c.query(`SELECT count(*)::int n FROM situation_fact WHERE original_fact_id = $1`, [
+          fact.factId,
+        ]),
+      );
+      expect(derived.rows[0].n).toBe(1);
     });
 
     it('종결된 상황에는 수동 Fact도 등록할 수 없다 (412)', async () => {

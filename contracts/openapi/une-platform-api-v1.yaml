@@ -4199,6 +4199,8 @@ paths:
                     originalValue: 36
                     originalUnit: km/h
                     notes: []
+                  originalFactId: null
+                  derivedReason: null
                   versionNo: 1
                   updatedAt: '2026-08-08T00:20:00.000Z'
                 meta:
@@ -4436,6 +4438,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
@@ -4443,7 +4446,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Situation'
+                $ref: '#/components/schemas/DeduplicateResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4454,6 +4457,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -4462,14 +4467,23 @@ paths:
       x-permission: SITUATION_FACT_EDIT
       x-db-tables:
       - fact_duplicate_group
+      - fact_conflict
+      - situation_fact
+      - fact_source
+      - situation
+      - audit_log
       x-error-codes:
-      - FACT-422-002
+      - FACT-400-002
+      - SIT-404-001
+      - SIT-412-001
+      - COM-0400
+      - COM-0409
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/DeduplicateRequest'
       security:
       - BearerAuth: []
   /situations/{id}/conflicts:
@@ -4495,13 +4509,24 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
+      - name: status
+        in: query
+        required: false
+        description: 생략하면 전부. 설계 10 SIT 표가 요청 요약에 status를 적었다.
+        schema:
+          type: string
+          enum:
+          - OPEN
+          - RESOLVED
+          - OBSOLETE
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Situation'
+                $ref: '#/components/schemas/FactConflictListResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4520,8 +4545,12 @@ paths:
       x-permission: SITUATION_READ
       x-db-tables:
       - fact_conflict
+      - situation
       x-error-codes:
+      - FACT-400-002
       - FACT-404-002
+      - SIT-404-001
+      - COM-0400
       security:
       - BearerAuth: []
   /situations/{id}/conflicts/{conflictId}/resolve:
@@ -4547,11 +4576,13 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       - name: conflictId
         in: path
         required: true
         schema:
           type: string
+          format: uuid
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
@@ -4559,7 +4590,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Situation'
+                $ref: '#/components/schemas/ConflictResolutionResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4570,6 +4601,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -4578,14 +4611,24 @@ paths:
       x-permission: SITUATION_CONFIRM
       x-db-tables:
       - conflict_resolution
+      - fact_conflict
+      - situation_fact
+      - situation
+      - audit_log
       x-error-codes:
-      - SIT-412-003
+      - FACT-400-002
+      - FACT-404-002
+      - FACT-409-002
+      - FACT-422-002
+      - SIT-412-001
+      - COM-0400
+      - COM-0409
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/ConflictResolveRequest'
       security:
       - BearerAuth: []
   /situations/{id}/snapshots:
@@ -4597,7 +4640,7 @@ paths:
       description: '권한: SITUATION_CONFIRM
 
 
-        핵심 요청: factIds,resolutionIds,effectiveAt,reason
+        핵심 요청: factIds,effectiveAt,reason (resolutionIds는 받지 않는다 — ADR-34 D6)
 
 
         핵심 응답: SituationSnapshot
@@ -4611,14 +4654,18 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
-          description: Success
+        '201':
+          description: >-
+            확정된 Snapshot. **자원 생성이므로 201이다** — 재확정도 새
+            snapshotId를 만든다(설계 06 US-SIT-008 인수기준). 멱등 재생도
+            같은 코드로 나간다.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SituationSnapshot'
+                $ref: '#/components/schemas/SituationSnapshotResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4629,6 +4676,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -4637,12 +4686,22 @@ paths:
       x-permission: SITUATION_CONFIRM
       x-db-tables:
       - situation_snapshot
+      - situation_fact
+      - fact_conflict
+      - situation
       - audit_log
       x-error-codes:
+      - SIT-400-003
+      - SIT-404-001
+      - SIT-404-003
+      - SIT-409-003
       - SIT-412-003
       - SIT-422-006
+      - SIT-412-001
+      - COM-0400
+      - COM-0409
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -4671,13 +4730,23 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
+      - name: compareTo
+        in: query
+        required: false
+        description: >-
+          비교 기준 Snapshot. 주면 최신판과의 Diff를 함께 준다(인수기준
+          "change comparison"). 생략하면 목록만 준다.
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SituationSnapshot'
+                $ref: '#/components/schemas/SituationSnapshotListResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4696,8 +4765,12 @@ paths:
       x-permission: SITUATION_READ
       x-db-tables:
       - situation_snapshot
+      - situation
       x-error-codes:
+      - SIT-400-003
+      - SIT-404-001
       - SIT-404-003
+      - COM-0400
       security:
       - BearerAuth: []
   /situations/{id}/knowledge-documents:
@@ -10515,7 +10588,9 @@ components:
     # factType/factKey를 바꾸면 다른 사실이 되지 보정이 아니다.
     SituationFactPatchRequest:
       type: object
-      minProperties: 1
+      required:
+      - reason
+      minProperties: 2
       additionalProperties: false
       properties:
         value: {}
@@ -10537,22 +10612,26 @@ components:
           maximum: 1
         reason:
           type: string
+          minLength: 1
           maxLength: 500
-          description: 보정 사유. 감사에 남는다(설계 06 US-SIT-007 완료조건).
+          description: >-
+            보정 사유. **필수다** — CC-210부터 보정은 파생 Fact를 만들고
+            (설계 06 US-SIT-007 #3) 파생은 actor·사유 없이 만들 수 없다
+            (0025 §2 ck_situation_fact_derivation_shape).
+    # CC-210/ADR-34 D6: `conflictResolutionIds`를 뺐다. 해소는 UNE-SIT-011이
+    # 이미 저장하고 확정은 **OPEN 충돌의 유무**만 본다 — 받아서 버리면
+    # 클라이언트가 보낸 값이 조용히 무시되므로 계약에서도 닫는다.
     SituationSnapshotCreateRequest:
       type: object
       required:
       - factIds
       - effectiveAt
+      additionalProperties: false
       properties:
         factIds:
           type: array
           minItems: 1
-          items:
-            type: string
-            format: uuid
-        conflictResolutionIds:
-          type: array
+          uniqueItems: true
           items:
             type: string
             format: uuid
@@ -10560,8 +10639,44 @@ components:
           type: string
           format: date-time
         reason:
+          type:
+          - string
+          - 'null'
+          maxLength: 1000
+    DeduplicateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        strategy:
+          $ref: '#/components/schemas/DuplicateStrategy'
+        threshold:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+          description: 지금 두 전략은 쓰지 않지만 값을 버리지 않고 그대로 기록한다.
+        timeWindowMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          description: KEY_TIME_WINDOW의 창(분). 기본 60.
+    ConflictResolveRequest:
+      type: object
+      required:
+      - selectedFactId
+      - reason
+      additionalProperties: false
+      properties:
+        selectedFactId:
           type: string
-          nullable: true
+          format: uuid
+          description: 이 충돌의 후보 중 하나여야 한다. 그 밖은 422다.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: 설계 06 US-SIT-007 완료조건("모든 선택에 actor/time/source 추적").
     KnowledgeDocumentCreateRequest:
       type: object
       required:
@@ -10736,11 +10851,15 @@ components:
       - USER_ASSERTED
     SituationFactStatus:
       type: string
-      description: 0023 ck_situation_fact_status. CC-200은 CANDIDATE만 만든다.
+      description: >-
+        0023 + **0025**의 ck_situation_fact_status. `SUPERSEDED`는 보정이 파생
+        Fact를 만들면서 원본이 내려가는 자리다(ADR-34 D3). 마이그레이션만
+        넓히고 여기를 두면 삼중 대조가 갈라진다.
       enum:
       - CANDIDATE
       - CONFIRMED
       - REJECTED
+      - SUPERSEDED
     ProviderCode:
       type: string
       description: situation-fact.schema.json source.providerCode enum과 같은 일곱 값
@@ -10967,6 +11086,7 @@ components:
       - source
       - collectedAt
       - status
+      - originalFactId
       - versionNo
       - updatedAt
       properties:
@@ -11008,6 +11128,19 @@ components:
           $ref: '#/components/schemas/SituationFactStatus'
         normalization:
           $ref: '#/components/schemas/FactNormalization'
+        originalFactId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: >-
+            파생 원본(0025 §2). 원천이면 null이다. 보정은 제자리 수정이 아니라
+            파생 생성이므로 화면이 계보를 그릴 수 있어야 한다(ADR-34 D3).
+        derivedReason:
+          type:
+          - string
+          - 'null'
+          maxLength: 500
         versionNo:
           type: integer
           minimum: 1
@@ -11238,6 +11371,114 @@ components:
           $ref: '#/components/schemas/ProviderQueryJob'
         meta:
           type: object
+    DeduplicateResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          required:
+          - groups
+          - conflicts
+          - conflictsOpened
+          - conflictsObsoleted
+          additionalProperties: false
+          properties:
+            groups:
+              type: array
+              items:
+                $ref: '#/components/schemas/DuplicateGroup'
+            conflicts:
+              type: array
+              description: 계산 후의 OPEN 충돌 전부(이번에 새로 연 것만이 아니다).
+              items:
+                $ref: '#/components/schemas/FactConflict'
+            conflictsOpened:
+              type: integer
+              minimum: 0
+              description: 이번 계산이 **새로** 연 충돌 수. 기존 OPEN은 세지 않는다.
+            conflictsObsoleted:
+              type: integer
+              minimum: 0
+              description: >-
+                이번 계산에 더 이상 나타나지 않아 OBSOLETE로 닫힌 충돌 수.
+                보정으로 값이 같아진 경우가 대표적이다.
+        meta:
+          type: object
+    FactConflictListResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/FactConflict'
+        meta:
+          type: object
+    ConflictResolutionResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/ConflictResolution'
+        meta:
+          type: object
+    SituationSnapshotResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/SituationSnapshot'
+        meta:
+          type: object
+    SituationSnapshotListResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          required:
+          - items
+          - diff
+          additionalProperties: false
+          properties:
+            items:
+              type: array
+              description: 최신 버전부터.
+              items:
+                $ref: '#/components/schemas/SituationSnapshot'
+            diff:
+              description: compareTo가 없으면 null.
+              anyOf:
+              - $ref: '#/components/schemas/SnapshotDiff'
+              - type: 'null'
+        meta:
+          type: object
     ProviderJobResponse:
       type: object
       required:
@@ -11251,9 +11492,341 @@ components:
           $ref: '#/components/schemas/ProviderJob'
         meta:
           type: object
+    # ── CC-210/ADR-34: 마지막 상황 자리표시자를 채운다 ─────────────────────
+    # CC-200이 "확정 경로를 쥔 CC-210이 채운다"며 의도적으로 남긴 자리다.
+    # `contracts/schemas/situation-snapshot.schema.json`과 같은 형태이며,
+    # `facts[]`는 확정 시점의 **사본**이다(설계 06 A-02: 확정 후 자동변경 금지).
     SituationSnapshot:
       type: object
-      additionalProperties: true
+      required:
+      - snapshotId
+      - situationId
+      - versionNo
+      - effectiveAt
+      - facts
+      - contentHash
+      - confirmedBy
+      - confirmedAt
+      additionalProperties: false
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        situationId:
+          type: string
+          format: uuid
+        versionNo:
+          type: integer
+          minimum: 1
+          description: 상황 안에서 유일하다(0025 §6). 재확정은 새 snapshotId + v+1.
+        effectiveAt:
+          type: string
+          format: date-time
+        facts:
+          type: array
+          minItems: 1
+          description: >-
+            확정 시점의 Fact 사본. 참조가 아니라 사본인 이유는 설계 06 A-02다 —
+            확정 후 원천이 바뀌어도 Snapshot은 움직이지 않아야 한다.
+          items:
+            $ref: '#/components/schemas/SnapshotFact'
+        contentHash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: >-
+            정규화 JSON의 SHA-256. 사실과 effectiveAt만 들어가고 확정자·시각·
+            사유·버전은 빠진다 — 그래야 "내용이 같은가"를 물을 수 있다.
+        supersedesSnapshotId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        confirmedBy:
+          type: string
+          format: uuid
+        confirmedAt:
+          type: string
+          format: date-time
+    SnapshotFact:
+      type: object
+      required:
+      - factId
+      - factType
+      - factKey
+      - value
+      - source
+      - collectedAt
+      - status
+      additionalProperties: false
+      properties:
+        factId:
+          type: string
+          format: uuid
+        factType:
+          $ref: '#/components/schemas/SituationFactType'
+        factKey:
+          type: string
+          pattern: '^[a-z][a-z0-9_.-]{1,99}$'
+        value: {}
+        unit:
+          type:
+          - string
+          - 'null'
+          maxLength: 30
+        source:
+          type: object
+          required:
+          - providerCode
+          - sourceName
+          - collectedAt
+          additionalProperties: false
+          properties:
+            providerCode:
+              $ref: '#/components/schemas/ProviderCode'
+            sourceName:
+              type: string
+            sourceUrl:
+              type:
+              - string
+              - 'null'
+            collectedAt:
+              type: string
+              format: date-time
+        observedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        collectedAt:
+          type: string
+          format: date-time
+        confidence:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+        status:
+          type: string
+          description: 확정 시점의 상태를 박는다. 사본은 이후 UPDATE를 따라가지 않는다.
+          enum:
+          - CONFIRMED
+    DuplicateGroup:
+      type: object
+      required:
+      - groupId
+      - situationId
+      - factType
+      - factKey
+      - groupKey
+      - strategy
+      - memberFactIds
+      - memberCount
+      - computedAt
+      additionalProperties: false
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        situationId:
+          type: string
+          format: uuid
+        factType:
+          $ref: '#/components/schemas/SituationFactType'
+        factKey:
+          type: string
+        groupKey:
+          type: string
+          description: >-
+            전략이 만든 그룹화 키(범주+Key+시간창). 같은 상황 안에서
+            유일하다(0025 §1). **범주가 들어간다** — 빼면 범주가 다른 동명
+            Key가 한 그룹이 되어 허위 충돌이 열린다(ADR-34 D5 따름정리).
+        strategy:
+          $ref: '#/components/schemas/DuplicateStrategy'
+        threshold:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+        memberFactIds:
+          type: array
+          minItems: 2
+          description: 묶인 Fact. **원천은 각각 유지된다**(설계 06 US-SIT-006 #3).
+          items:
+            type: string
+            format: uuid
+        memberCount:
+          type: integer
+          minimum: 2
+        computedAt:
+          type: string
+          format: date-time
+    DuplicateStrategy:
+      type: string
+      description: 0025 §1 ck_fact_duplicate_group_strategy와 같은 어휘
+      enum:
+      - KEY_TIME_WINDOW
+      - KEY_ONLY
+    FactConflict:
+      type: object
+      required:
+      - conflictId
+      - situationId
+      - groupKey
+      - factKey
+      - conflictType
+      - status
+      - candidateFactIds
+      - detectedAt
+      additionalProperties: false
+      properties:
+        conflictId:
+          type: string
+          format: uuid
+        situationId:
+          type: string
+          format: uuid
+        factKey:
+          type: string
+        conflictType:
+          type: string
+          description: >-
+            VALUE(값이 다름) / TIME(값은 같고 시각이 다름) / SOURCE.
+            **값도 시각도 같으면 충돌이 아니라 중복이다**(설계 06 US-SIT-006 #3).
+          enum:
+          - VALUE
+          - TIME
+          - SOURCE
+        status:
+          type: string
+          description: >-
+            `OBSOLETE`는 재계산이 "더 이상 존재하지 않는 충돌"을 닫은 것이다 —
+            보정으로 값이 같아졌는데 OPEN으로 두면 확정이 영구 차단되고,
+            RESOLVED로 적으면 하지 않은 선택을 기록하게 된다(ADR-34 D6).
+          enum:
+          - OPEN
+          - RESOLVED
+          - OBSOLETE
+        groupKey:
+          type:
+          - string
+          - 'null'
+          description: 충돌의 단위는 그룹의 단위와 같다(0025 §4).
+        candidateFactIds:
+          type: array
+          minItems: 2
+          items:
+            type: string
+            format: uuid
+        detectedAt:
+          type: string
+          format: date-time
+    ConflictResolution:
+      type: object
+      required:
+      - resolutionId
+      - conflictId
+      - factKey
+      - selectedFactId
+      - reason
+      - resolvedBy
+      - resolvedAt
+      additionalProperties: false
+      properties:
+        resolutionId:
+          type: string
+          format: uuid
+        conflictId:
+          type: string
+          format: uuid
+        factKey:
+          type: string
+        selectedFactId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          maxLength: 1000
+        resolvedBy:
+          type: string
+          format: uuid
+        resolvedAt:
+          type: string
+          format: date-time
+    SnapshotDiff:
+      type: object
+      required:
+      - fromSnapshotId
+      - toSnapshotId
+      - added
+      - removed
+      - changed
+      - unchanged
+      - entries
+      additionalProperties: false
+      properties:
+        fromSnapshotId:
+          type: string
+          format: uuid
+        toSnapshotId:
+          type: string
+          format: uuid
+        added:
+          type: integer
+          minimum: 0
+        removed:
+          type: integer
+          minimum: 0
+        changed:
+          type: integer
+          minimum: 0
+        unchanged:
+          type: integer
+          minimum: 0
+        entries:
+          type: array
+          items:
+            type: object
+            required:
+            - factKey
+            - kind
+            additionalProperties: false
+            properties:
+              factKey:
+                type: string
+              kind:
+                type: string
+                enum:
+                - ADDED
+                - REMOVED
+                - CHANGED
+                - UNCHANGED
+              from:
+                $ref: '#/components/schemas/SnapshotDiffSide'
+              to:
+                $ref: '#/components/schemas/SnapshotDiffSide'
+    SnapshotDiffSide:
+      type:
+      - object
+      - 'null'
+      required:
+      - factId
+      additionalProperties: false
+      properties:
+        factId:
+          type: string
+          format: uuid
+        value: {}
+        unit:
+          type:
+          - string
+          - 'null'
+        observedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
     SopRun:
       type: object
       additionalProperties: true

@@ -392,7 +392,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-200
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - unresolved conflict block
   - immutable snapshot
@@ -402,7 +402,15 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-34-cc210-duplicate-conflict-and-snapshot.md
+  - docs/evidence/CC-210-duplicate-conflict-and-snapshot.md
+  - database/migrations/0025_duplicate_conflict_and_snapshot.sql
+  - packages/domain/src/situation/duplicate-conflict.ts
+  - packages/domain/src/situation/snapshot.ts
+  - services/api/src/situation/resolution.service.ts
+  - services/api/src/situation/snapshot.service.ts
+  - services/api/src/e2e/situation-resolution.e2e.test.ts
 - id: CC-220
   title: Implement knowledge document upload and UNI mock adapter
   gate: G3

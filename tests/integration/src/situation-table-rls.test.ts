@@ -35,6 +35,10 @@ const PARENT_SCOPED_TABLES = [
   'fact_conflict',
   'conflict_resolution',
   'situation_snapshot',
+  // 0025 (CC-210). 상황 계열에서 **유일하게 une_app에 DELETE가 열려 있는 곳**
+  // 이므로(재계산이 지우고 다시 넣는다) 정책이 잘못되면 남의 계산 결과를 지울
+  // 수 있다. 신설 테이블만 회귀 단언 밖에 있었다(아키텍처 리뷰 M-11).
+  'fact_duplicate_group',
 ] as const;
 const ALL_SITUATION_TABLES = [
   'situation',
@@ -103,13 +107,21 @@ async function insertSitFixture(c: Client, tenantCode: string): Promise<SitFixtu
   );
   const providerResultId = result.rows[0].provider_result_id as string;
 
-  // CC-210이 쓸 세 테이블. CC-200에는 쓰기 경로가 없지만 0023 §6이 격리를
-  // 미리 닫았으므로 정책이 실제로 도는지는 지금 확인해 둔다.
+  // 충돌은 둘 이상이어야 충돌이다(0025 §4 ck_fact_conflict_candidates).
+  const second = await c.query(
+    `INSERT INTO situation_fact
+       (situation_id, fact_type, fact_key, value_json, source_id, collected_at, status)
+     VALUES ($1, 'WEATHER_OBSERVATION', 'temperature', $2, $3, now(), 'CANDIDATE')
+     RETURNING fact_id`,
+    [base.situationId, JSON.stringify({ value: 27, unit: 'degC' }), sourceId],
+  );
+  const secondFactId = second.rows[0].fact_id as string;
+
   const conflict = await c.query(
     `INSERT INTO fact_conflict
        (situation_id, fact_key, candidate_fact_ids, conflict_type, status, detected_at)
      VALUES ($1, 'temperature', $2::uuid[], 'VALUE', 'OPEN', now()) RETURNING conflict_id`,
-    [base.situationId, [factId]],
+    [base.situationId, [factId, secondFactId]],
   );
   const conflictId = conflict.rows[0].conflict_id as string;
 
@@ -124,7 +136,8 @@ async function insertSitFixture(c: Client, tenantCode: string): Promise<SitFixtu
     `INSERT INTO situation_snapshot
        (situation_id, version_no, facts_json, content_hash, effective_at, confirmed_by)
      VALUES ($1, 1, $2, $3, now(), $4) RETURNING snapshot_id`,
-    [base.situationId, JSON.stringify({ tenant: tenantCode }), 'c'.repeat(64), base.userId],
+    // 확정된 Snapshot은 사실을 하나 이상 담는다(0025 §6).
+    [base.situationId, JSON.stringify([{ tenant: tenantCode }]), 'c'.repeat(64), base.userId],
   );
 
   return {
@@ -160,7 +173,7 @@ describe.skipIf(!ADMIN_URL)('CC-200 / 0023: 상황 계열 테넌트 격리', () 
     if (dbName) await dropTestDb(dbName);
   });
 
-  it('일곱 테이블 모두 RLS가 켜져 있고 FORCE다', async () => {
+  it('여덟 테이블 모두 RLS가 켜져 있고 FORCE다', async () => {
     const rows = await withClient(url, (c) =>
       c.query(
         `SELECT relname, relrowsecurity, relforcerowsecurity

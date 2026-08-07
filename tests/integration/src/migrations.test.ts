@@ -56,6 +56,8 @@ const RLS_TABLES = [
   'situation_snapshot',
   'provider_job',
   'provider_result',
+  // 0025 (CC-210): 중복군은 계산 결과지만 어느 상황의 것인지가 곧 테넌트다.
+  'fact_duplicate_group',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -70,11 +72,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 24 baseline migrations', async () => {
+  it('applies all 25 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(24);
+    expect(applied.rows).toHaveLength(25);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -93,6 +95,9 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     // 이 저장소의 관례인 trg_*_updated_at 트리거를 빠뜨렸다. 컬럼만 있고
     // 트리거가 없으면 '마지막 수정 시각'이 INSERT 시각에 고정된다.
     expect(applied.rows[23].name).toBe('0024_situation_updated_at_triggers');
+    // 0025 (CC-210): 중복군 테이블 신설(62→63), 파생 Fact 계보, 충돌·해소·
+    // Snapshot의 어휘/불변/버전 제약.
+    expect(applied.rows[24].name).toBe('0025_duplicate_conflict_and_snapshot');
   });
 
   // 61 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
@@ -106,7 +111,10 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
   // 62 = 61 + provider_result (0023/CC-200). 계약(UNE-SIT-006 x-db-tables)이
   // 이미 이름을 쓰고 있었고, 원문 페이로드 보존은 CLAUDE.md 비협상 규칙이라
   // 이름을 실체화하는 쪽이 맞다(ADR-33 D4 — malware_scan과 결론이 반대인 이유).
-  it('creates the 62-table baseline (+ generated_block, document_autosave, provider_result)', async () => {
+  // 63 = 62 + fact_duplicate_group (0025/CC-210). 계약 UNE-SIT-009의
+  // x-db-tables가 이 이름을 가리키는데 존재한 적이 없었다 — provider_result와
+  // 같은 유형이고 같은 결론이다(ADR-34 D1).
+  it('creates the 63-table baseline (+ generated_block, document_autosave, provider_result, fact_duplicate_group)', async () => {
     const tables = await withClient(db.url, (c) =>
       c.query(
         `SELECT count(*)::int AS n FROM information_schema.tables
@@ -114,7 +122,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
            AND table_name <> 'pgmigrations'`,
       ),
     );
-    expect(tables.rows[0].n).toBe(62);
+    expect(tables.rows[0].n).toBe(63);
   });
 
   it('enables and forces RLS on all tenant-isolated tables', async () => {
@@ -188,11 +196,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0024 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0025 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0024
+    await migrate(db.url); // remaining: 0011 ~ 0025
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -207,7 +215,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(24);
+    expect(applied.rows[0].n).toBe(25);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

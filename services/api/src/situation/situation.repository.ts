@@ -48,6 +48,8 @@ export interface SituationFactRow {
   collectedAt: Date;
   confidence: string | number | null;
   status: string;
+  originalFactId: string | null;
+  derivedReason: string | null;
   versionNo: number;
   updatedAt: Date;
   source: FactSourceRow;
@@ -116,12 +118,11 @@ export interface FactInsert {
   observedAt: string | null;
   collectedAt: string;
   confidence: number | null;
-}
-
-export interface FactPatch {
-  valueJson?: unknown;
-  observedAt?: string | null;
-  confidence?: number | null;
+  /** 파생 계보(0025 §2). 셋은 함께 있거나 함께 없어야 한다 —
+   * `ck_situation_fact_derivation_shape`가 DB에서 그것을 강제한다. */
+  originalFactId?: string;
+  derivedBy?: string;
+  derivedReason?: string;
 }
 
 export interface ProviderJobInsert {
@@ -146,6 +147,7 @@ const SITUATION_SELECT = `SELECT ${SITUATION_COLUMNS} FROM situation`;
 const FACT_SELECT = `
   SELECT f.fact_id, f.situation_id, f.fact_type, f.fact_key, f.value_json, f.source_id,
          f.observed_at, f.collected_at, f.confidence, f.status, f.version_no, f.updated_at,
+         f.original_fact_id, f.derived_reason,
          s.provider_code, s.source_type, s.source_name, s.source_uri, s.retrieved_at
   FROM situation_fact f
   JOIN fact_source s ON s.source_id = f.source_id`;
@@ -185,6 +187,8 @@ function toFactRow(row: Record<string, unknown>): SituationFactRow {
     collectedAt: row.collected_at as Date,
     confidence: (row.confidence as string | number | null) ?? null,
     status: row.status as string,
+    originalFactId: (row.original_fact_id as string | null) ?? null,
+    derivedReason: (row.derived_reason as string | null) ?? null,
     versionNo: row.version_no as number,
     updatedAt: row.updated_at as Date,
     source: {
@@ -406,8 +410,9 @@ export class SituationRepository {
     const result = await client.query(
       `INSERT INTO situation_fact
          (situation_id, fact_type, fact_key, value_json, source_id,
-          observed_at, collected_at, confidence, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'CANDIDATE')
+          observed_at, collected_at, confidence, status,
+          original_fact_id, derived_by, derived_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'CANDIDATE', $9, $10, $11)
        RETURNING fact_id`,
       [
         situationId,
@@ -418,9 +423,36 @@ export class SituationRepository {
         input.observedAt,
         input.collectedAt,
         input.confidence,
+        input.originalFactId ?? null,
+        input.derivedBy ?? null,
+        input.derivedReason ?? null,
       ],
     );
     return { factId: result.rows[0].fact_id as string };
+  }
+
+  /** 원본을 SUPERSEDED로 내린다(0025 §2).
+   *
+   * REJECTED가 아니다 — 거부는 "채택하지 않기로 한 판단"이고 SUPERSEDED는
+   * "더 최신 파생이 있다"이며 둘은 다른 사실이다. `status='CANDIDATE'`를 WHERE에
+   * 두어 경합에서도 한 번만 내려간다. */
+  async markFactSuperseded(
+    client: PoolClient,
+    tenantId: string,
+    situationId: string,
+    factId: string,
+    expectedVersion: number,
+  ): Promise<boolean> {
+    const result = await client.query(
+      `UPDATE situation_fact f
+       SET status = 'SUPERSEDED', version_no = f.version_no + 1
+       FROM situation sit
+       WHERE f.fact_id = $1 AND f.situation_id = $2
+         AND sit.situation_id = f.situation_id AND sit.tenant_id = $3
+         AND f.version_no = $4 AND f.status = 'CANDIDATE'`,
+      [factId, situationId, tenantId, expectedVersion],
+    );
+    return (result.rowCount ?? 0) === 1;
   }
 
   async findFact(
@@ -436,6 +468,27 @@ export class SituationRepository {
       [factId, situationId, tenantId],
     );
     return result.rows[0] ? toFactRow(result.rows[0]) : null;
+  }
+
+  /** 요청된 id만 읽는다(아키텍처 리뷰 M-10).
+   *
+   * 확정이 전수를 `page 1 / size 1000`으로 읽고 있었다. 1000건을 넘는 상황에서
+   * 뒤쪽 Fact를 확정하려 하면 "이 상황의 Fact가 아닙니다"로 412가 나고 실제
+   * 원인(페이징)은 응답 어디에도 드러나지 않는다. */
+  async findFactsByIds(
+    client: PoolClient,
+    tenantId: string,
+    situationId: string,
+    factIds: readonly string[],
+  ): Promise<SituationFactRow[]> {
+    if (factIds.length === 0) return [];
+    const result = await client.query(
+      `${FACT_SELECT}
+       JOIN situation sit ON sit.situation_id = f.situation_id
+       WHERE f.fact_id = ANY($1::uuid[]) AND f.situation_id = $2 AND sit.tenant_id = $3`,
+      [[...factIds], situationId, tenantId],
+    );
+    return result.rows.map(toFactRow);
   }
 
   async searchFacts(
@@ -466,40 +519,6 @@ export class SituationRepository {
       items: result.rows.map(toFactRow),
       totalElements: Number(count.rows[0].total),
     };
-  }
-
-  /** 보정(UNE-SIT-008). fact_type/fact_key/source_id는 건드리지 않는다 —
-   * 그것을 바꾸면 보정이 아니라 다른 사실이다. */
-  async updateFact(
-    client: PoolClient,
-    tenantId: string,
-    situationId: string,
-    factId: string,
-    expectedVersion: number,
-    patch: FactPatch,
-  ): Promise<boolean> {
-    const result = await client.query(
-      `UPDATE situation_fact f
-       SET value_json = coalesce($5::jsonb, f.value_json),
-           observed_at = CASE WHEN $6 THEN $7::timestamptz ELSE f.observed_at END,
-           confidence = CASE WHEN $8 THEN $9::numeric ELSE f.confidence END,
-           version_no = f.version_no + 1
-       FROM situation sit
-       WHERE f.fact_id = $1 AND f.situation_id = $2 AND sit.situation_id = f.situation_id
-         AND sit.tenant_id = $3 AND f.version_no = $4`,
-      [
-        factId,
-        situationId,
-        tenantId,
-        expectedVersion,
-        patch.valueJson === undefined ? null : JSON.stringify(patch.valueJson),
-        Object.prototype.hasOwnProperty.call(patch, 'observedAt'),
-        patch.observedAt ?? null,
-        Object.prototype.hasOwnProperty.call(patch, 'confidence'),
-        patch.confidence ?? null,
-      ],
-    );
-    return (result.rowCount ?? 0) === 1;
   }
 
   // ── provider_job / provider_result ───────────────────────────────────────

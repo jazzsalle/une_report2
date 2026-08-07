@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+- CC-210 (2026-08-08): duplicate grouping, conflict resolution and the immutable
+  SituationSnapshot (ADR-34). This closes the three decisions CC-200 deliberately
+  left open and one place where the implementation disagreed with the design.
+  `fact_duplicate_group` is created — the second contract pointing at a table
+  that existed in no migration, and the same answer as `provider_result`: design
+  06 US-SIT-006 asks for grouping explicitly, so the name gets a table rather
+  than the contract getting an edit. The **duplicate unique key is deliberately
+  not created**: a duplicate is a judgement, not a constraint. Two providers
+  sending the same fact is normal, and a unique key would make the second one
+  fail with 23505 — that does not prevent duplication, it prevents collection.
+  **UNE-SIT-008 changed meaning.** Corrections now create a derived fact and mark
+  the original SUPERSEDED instead of updating in place. Design 06 US-SIT-007 #3,
+  §7.1 and CLAUDE.md's "never overwrite audit history" all say the same thing,
+  and ADR-33 acceptance limit 12 had recorded the disagreement. The practical
+  gain is that a confirmed snapshot's evidence can no longer change underneath
+  it. The derived fact does **not** inherit the original's source — it gets a
+  fresh MANUAL/USER one, because a number a user corrected must not appear as
+  something the meteorological agency reported. `reason` became required, and
+  the database enforces it: the derivation columns are all-or-nothing.
+  Conflicts are detected when UNE-SIT-009 is called, not during collection —
+  design 10 put `strategy,threshold` on that endpoint, which means grouping is a
+  calculation the user chooses. **Same value and same time is a duplicate, not a
+  conflict** (US-SIT-006 #3); two agencies agreeing is evidence, not disagreement.
+  Resolution never touches the sources: the candidates that were not chosen stay
+  CANDIDATE, because A-01 allows several facts to coexist and what goes into a
+  snapshot is UNE-SIT-012's decision.
+  Confirmation **blocks on unresolved conflicts** and never picks one itself, and
+  the six blocking reasons are kept apart so a screen can say what to do. The
+  snapshot stores **copies** of the facts: references alone would follow the
+  sources, which is exactly what design 06 A-02 forbids — that plus the derived
+  facts are two independent defences. The hash covers the facts and
+  `effectiveAt` and excludes confirmer, time, version and reason, so it can still
+  answer "is this the same content"; the diff is keyed by **standard key**, since
+  comparing by factId would report a delete plus an add every time a different
+  provider's evidence is chosen.
+  Two defects surfaced by running it. A resolved conflict **came back to life on
+  recalculation** — the partial unique index only covers OPEN, so the resolution
+  row survived while the decision it recorded was undone and confirmation was
+  blocked again; the fix checks for a prior conflict over the same candidate set,
+  and still opens a new one when the candidates change. That fix then returned
+  500 with `inconsistent types deduced for parameter`, because the same parameter
+  appeared in both the INSERT target list and the NOT EXISTS comparison.
+  Migration 0025: 62 → 63 tables, derivation lineage plus SUPERSEDED, vocabulary
+  CHECKs and immutability on conflicts and resolutions, snapshot version
+  uniqueness, hash format and non-empty facts, and the FK on
+  `situation.current_snapshot_id` that had been missing since 0003.
+
 - CC-200 (2026-08-08): Situation and candidate SituationFact ingestion (ADR-33).
   Two things were broken before a line was written. Migration 0023 (previous
   session) already **cited "ADR-33 D2" and "ADR-33 수용 한계" in its comments

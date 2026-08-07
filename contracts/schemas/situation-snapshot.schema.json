@@ -5,6 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "snapshotId",
     "situationId",
     "versionNo",
     "effectiveAt",
@@ -14,6 +15,10 @@
     "confirmedAt"
   ],
   "properties": {
+    "snapshotId": {
+      "type": "string",
+      "format": "uuid"
+    },
     "situationId": {
       "type": "string",
       "format": "uuid"

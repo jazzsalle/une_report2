@@ -5,8 +5,8 @@
 적용된 마이그레이션에서 자동 생성된 데이터 사전이다 (G-DB 게이트 증거).
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
-- 테이블 수: 62
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers
+- 테이블 수: 63
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot
 
 ## api_idempotency
 
@@ -131,7 +131,7 @@
 - fk_conflict_resolution_conflict_id: FOREIGN KEY (conflict_id) REFERENCES fact_conflict(conflict_id) DEFERRABLE INITIALLY DEFERRED
 - fk_conflict_resolution_resolved_by: FOREIGN KEY (resolved_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_conflict_resolution_selected_fact_id: FOREIGN KEY (selected_fact_id) REFERENCES situation_fact(fact_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: conflict_resolution_pkey
+- 인덱스: conflict_resolution_pkey, uk_conflict_resolution_conflict
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -416,9 +416,13 @@
 ## fact_conflict
 
 - 격리: RLS enforced (FORCE)
+- ck_fact_conflict_candidates: CHECK ((COALESCE(array_length(candidate_fact_ids, 1), 0) >= 2))
+- ck_fact_conflict_group_key: CHECK (((group_key IS NULL) OR (length(group_key) > 0)))
+- ck_fact_conflict_status: CHECK (((status)::text = ANY ((ARRAY['OPEN'::character varying, 'RESOLVED'::character varying, 'OBSOLETE'::character varying])::text[])))
+- ck_fact_conflict_type: CHECK (((conflict_type)::text = ANY ((ARRAY['VALUE'::character varying, 'TIME'::character varying, 'SOURCE'::character varying])::text[])))
 - fact_conflict_pkey: PRIMARY KEY (conflict_id)
 - fk_fact_conflict_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: fact_conflict_pkey
+- 인덱스: fact_conflict_pkey, ix_fact_conflict_situation_status, uk_fact_conflict_open_per_group
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -429,6 +433,31 @@
 | conflict_type | character varying(30) | NN |  | VALUE/TIME/SOURCE |
 | status | character varying(20) | NN |  | OPEN/RESOLVED |
 | detected_at | timestamp with time zone | NN |  | 탐지 |
+| group_key | text | - |  | 그룹화 키 (충돌의 단위 = 그룹의 단위) |
+
+## fact_duplicate_group
+
+Fact 중복군 (계산 결과, UNE-SIT-009)
+- 격리: RLS enforced (FORCE)
+- ck_fact_duplicate_group_member_count: CHECK (((member_count >= 2) AND (member_count = COALESCE(array_length(member_fact_ids, 1), 0))))
+- ck_fact_duplicate_group_strategy: CHECK (((strategy)::text = ANY ((ARRAY['KEY_TIME_WINDOW'::character varying, 'KEY_ONLY'::character varying])::text[])))
+- ck_fact_duplicate_group_threshold: CHECK (((threshold IS NULL) OR ((threshold >= (0)::numeric) AND (threshold <= (1)::numeric))))
+- fact_duplicate_group_pkey: PRIMARY KEY (group_id)
+- fk_fact_duplicate_group_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
+- 인덱스: fact_duplicate_group_pkey, ix_fact_duplicate_group_situation_time, uk_fact_duplicate_group_situation_key
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| group_id | uuid | NN | gen_random_uuid() |  |
+| situation_id | uuid | NN |  | 상황 |
+| fact_key | character varying(120) | NN |  | 표준 Key |
+| group_key | text | NN |  | 그룹화 키 (전략이 만든 문자열) |
+| strategy | character varying(30) | NN |  | 그룹화 전략 |
+| threshold | numeric(5,4) | - |  | 임계값 (전략이 쓰지 않으면 null) |
+| member_fact_ids | uuid[] | NN |  | 묶인 Fact (원천은 각각 유지된다) |
+| member_count | integer | NN |  | 멤버 수 (array_length 사본 — 인덱스·정렬용) |
+| computed_at | timestamp with time zone | NN | now() | 계산 시각 |
+| computed_by | uuid | NN |  | 계산 요청자 |
 
 ## fact_source
 
@@ -966,12 +995,15 @@ Provider 원문 응답 보존 (추적성)
 
 - 격리: RLS enforced (FORCE)
 - ck_situation_fact_confidence: CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric))))
-- ck_situation_fact_status: CHECK (((status)::text = ANY ((ARRAY['CANDIDATE'::character varying, 'CONFIRMED'::character varying, 'REJECTED'::character varying])::text[])))
+- ck_situation_fact_derivation_not_self: CHECK (((original_fact_id IS NULL) OR (original_fact_id <> fact_id)))
+- ck_situation_fact_derivation_shape: CHECK ((((original_fact_id IS NULL) AND (derived_by IS NULL) AND (derived_reason IS NULL)) OR ((original_fact_id IS NOT NULL) AND (derived_by IS NOT NULL) AND (derived_reason IS NOT NULL))))
+- ck_situation_fact_status: CHECK (((status)::text = ANY ((ARRAY['CANDIDATE'::character varying, 'CONFIRMED'::character varying, 'REJECTED'::character varying, 'SUPERSEDED'::character varying])::text[])))
 - ck_situation_fact_version_no: CHECK ((version_no >= 1))
+- fk_situation_fact_original_fact_id: FOREIGN KEY (original_fact_id) REFERENCES situation_fact(fact_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_fact_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_fact_source_id: FOREIGN KEY (source_id) REFERENCES fact_source(source_id) DEFERRABLE INITIALLY DEFERRED
 - situation_fact_pkey: PRIMARY KEY (fact_id)
-- 인덱스: ix_fact_situation_key_time, ix_fact_value_json, ix_situation_fact_status_time, situation_fact_pkey
+- 인덱스: ix_fact_situation_key_time, ix_fact_value_json, ix_situation_fact_status_time, situation_fact_pkey, uk_situation_fact_original
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -987,15 +1019,21 @@ Provider 원문 응답 보존 (추적성)
 | status | character varying(20) | NN |  | CANDIDATE/CONFIRMED/REJECTED |
 | version_no | integer | NN | 1 | 버전 |
 | updated_at | timestamp with time zone | NN | now() | 마지막 보정 시각 (UNE-SIT-008) |
+| original_fact_id | uuid | - |  | 파생 원본 Fact (null이면 원천) |
+| derived_by | uuid | - |  | 파생을 만든 사용자 |
+| derived_reason | text | - |  | 보정 사유 (설계 06 US-SIT-007 완료조건) |
 
 ## situation_snapshot
 
 - 격리: RLS enforced (FORCE)
+- ck_situation_snapshot_content_hash: CHECK ((content_hash ~ '^[a-f0-9]{64}$'::text))
+- ck_situation_snapshot_facts_not_empty: CHECK (((jsonb_typeof(facts_json) = 'array'::text) AND (jsonb_array_length(facts_json) >= 1)))
+- ck_situation_snapshot_version_no: CHECK ((version_no >= 1))
 - fk_situation_snapshot_confirmed_by: FOREIGN KEY (confirmed_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_snapshot_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_snapshot_supersedes_id: FOREIGN KEY (supersedes_id) REFERENCES situation_snapshot(snapshot_id) DEFERRABLE INITIALLY DEFERRED
 - situation_snapshot_pkey: PRIMARY KEY (snapshot_id)
-- 인덱스: situation_snapshot_pkey, uk_situation_snapshot_version
+- 인덱스: ix_situation_snapshot_situation_version, situation_snapshot_pkey, uk_situation_snapshot_supersedes, uk_situation_snapshot_version
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
