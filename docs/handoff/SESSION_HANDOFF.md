@@ -1,7 +1,7 @@
 # Session Handoff
 
 - Date/time: 2026-08-08 (집 PC, 아홉 번째 세션 — 종료)
-- Branch: **main** @ `816a70a` (= PR #16 머지 커밋)
+- Branch: **main** @ 이 커밋 (PR #16 머지 커밋 `816a70a` 위의 문서 커밋들)
 - Current Work Item: **CC-200·CC-210 둘 다 DONE, 머지 완료.** 열린 PR 없음.
   **G3가 절반 진행됐다** — 다음은 **CC-220**.
 
@@ -81,20 +81,20 @@ CONDITIONS(필수 7). BLOCKER 둘이 **인수기준 1을 우회하고 있었다.
 
 ## ⚠️ 다음 세션에서 먼저 알아야 할 것
 
-1. **로컬 브랜치 정리.** `feature/CC-150`, `feature/CC-200`, `feature/CC-210`이
-   머지 후에도 로컬에 남아 있다.
-2. **`pnpm test`와 CI `verify`가 덮는 범위가 다르다.** 이번에도
+1. **`pnpm test`와 CI `verify`가 덮는 범위가 다르다.** 이번에도
    `pnpm test`는 통과하는데 `pnpm -r typecheck`가 깨진 순간이 있었다 —
    `tests/e2e/src/harness.ts`가 `ApiConfig` 리터럴을 따로 들고 있어 새 필드가
    빠졌고 **vitest는 타입검사를 하지 않는다.** 커밋 전 `-r typecheck` 필수.
-3. **WSL keepalive가 약 1시간마다 만료된다.** 이번 세션에 네 번 만료됐고 한
+2. **WSL keepalive가 약 1시간마다 만료된다.** 이번 세션에 네 번 만료됐고 한
    번은 전량 테스트 도중에 죽어 워커 e2e가 통째로 실패했다
    (`terminating connection due to administrator command`).
    **테스트가 무더기로 깨지면 코드 이전에 컨테이너를 의심할 것.**
    `MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- sleep 3500`을 별도 프로세스로 띄운다.
-4. **실행 중인 트리는 유효한 증거가 아니다.** QA 리뷰어의 첫 전량 실행이
+3. **실행 중인 트리는 유효한 증거가 아니다.** QA 리뷰어의 첫 전량 실행이
    내 편집과 겹쳐 `ReferenceError`로 실패했다. 수치는 편집을 끝낸 뒤 얼린
    트리에서 한 번에 얻을 것.
+4. 로컬 브랜치는 이번 세션에 정리했다(`feature/CC-150/200/210` 삭제).
+   origin의 머지된 브랜치는 남아 있다 — 이 저장소의 기존 관행 그대로다.
 
 ## 환경 재개 (이 PC면 부트스트랩 불필요)
 
