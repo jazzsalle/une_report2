@@ -145,6 +145,37 @@ build·typecheck·lint·format PASS. contracts·intake·handoff PASS.
   CC-240"이라고 이미 적어 두었다.
 - CC-170의 업로드 3단(UNE-DOC-001~004)이 본이 된다 — 파일 업로드는 이미 있다.
 
+### CC-220 착수 시점 실측 (이번 세션에 미리 재 두었다 — 다시 조사하지 말 것)
+
+**DB**
+- `knowledge_document`만 있다. `knowledge_chunk`·`uni_job`·`uni_document`는
+  **없다**(계약이 가리키는지 먼저 확인할 것 — `provider_result`/
+  `fact_duplicate_group`과 같은 유령 테이블 유형일 수 있다).
+- **RLS는 이미 켜져 있다**(`relrowsecurity`/`relforcerowsecurity` true, 정책 1개).
+  상황 계열과 달리 여기는 0008이 이미 닫아 두었다 — 0023 같은 격리 마이그레이션은
+  필요 없을 가능성이 높다.
+- 컬럼 10개: `knowledge_document_id, tenant_id, situation_id(nullable),
+  file_id, document_type, provider_document_id, status, metadata_json,
+  created_by, created_at`.
+- **CHECK 제약이 하나도 없다.** FK 3개와 PK뿐이다 — `document_type`·`status`
+  어휘가 열려 있고, 0023 §1이 `situation`에 한 것과 같은 처리가 필요하다.
+  어휘 정본을 설계에서 먼저 찾을 것(추측 금지).
+- `situation_id`가 nullable이다. `provider_job`과 같은 이유(상황 없는 지식문서)
+  이므로 격리 근거는 `tenant_id` 직접 보유다 — 이미 그렇게 돼 있다.
+
+**계약** — UNE-KNOW-001~007 일곱 개가 전부 자리표시자다.
+`001`·`004`는 응답이 엉뚱하게 `Situation`을 가리키고, 나머지 다섯은
+`GenericResponse`다. CC-200/210에서 SIT 계열에 한 것과 같은 작업이 필요하다.
+
+**UNI 자산** — `packages/provider-adapters/src/generated/uni-rag-adapter.ts`가
+계약에서 생성돼 있고(`contracts/openapi/uni-rag-adapter-v1.1.0-une1.yaml`),
+`src/index.ts`의 머리말이 "UNI adapter: CC-220 / CC-240"이라고 이미 배정해
+두었다. 포트·어댑터는 아직 없다.
+
+⚠️ **UNI의 base path·auth·TLS·한계·오류 계약은 OB-13으로 열려 있다.**
+추측하지 말 것 — CC-200의 `DisabledSituationProvider`처럼 **미계약을 명시적으로
+표현하는 어댑터**가 이 항목의 정답일 가능성이 높다.
+
 ## 알려진 미결 (ADR-33·34 수용 한계에서 무거운 것)
 
 - **`contextRevision`/`REVISION_CONFLICT`가 없다**(ADR-34 수용 한계 10).
