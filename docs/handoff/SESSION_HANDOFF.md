@@ -1,189 +1,155 @@
 # Session Handoff
 
-- Date/time: 2026-08-07 (회사 PC, 일곱 번째 세션 — 종료)
-- Branch: **feature/CC-170** @ 이 커밋 (origin 푸시됨)
-- 함께 열린 브랜치: **feature/CC-160** @ `3856084` (origin 푸시됨)
-- Current Work Item: **CC-160·CC-170 둘 다 PR 생성 완료, CI 녹색, 머지 대기.**
-  이번 세션은 코드가 아니라 **검증 경로를 여는 세션**이었다.
+- Date/time: 2026-08-07 (회사 PC, 여덟 번째 세션 — 종료)
+- Branch: **feature/CC-200** @ `24793ce` (**origin 미푸시**)
+- main: `0eabd59` (최신, CI PASS)
+- Current Work Item: **CC-200 착수 — 마이그레이션 0023까지 완료, 구현은 시작 전.**
 
-## ⚠️ 다음 세션에서 가장 먼저 할 일 — 머지 두 번
+## 이번 세션에 끝난 것
 
-**PR 두 개가 열려 있고 둘 다 CI 통과 상태다. 남은 것은 머지뿐이다.**
+### 1. PR 두 개 머지 — G2 종료
 
-| PR | 브랜치 | verify | db-verify | mergeable |
-|---|---|---|---|---|
-| [#13](https://github.com/jazzsalle/une_report2/pull/13) | feature/CC-160 | PASS | PASS | 예 |
-| [#14](https://github.com/jazzsalle/une_report2/pull/14) | feature/CC-170 | PASS | PASS | 예 |
+지난 세션의 유일한 미결이었다. **사람이 `!` 접두사로 직접 실행**해서 통과했다
+(`gh pr merge`는 Claude Code auto mode 분류기가 여전히 차단한다 — 이번에도 막혔다).
 
-```bash
-gh pr merge 13 --merge && gh pr merge 14 --merge
-```
+| PR | 머지 커밋 | 결과 |
+|---|---|---|
+| [#13](https://github.com/jazzsalle/une_report2/pull/13) CC-160 | `e8d8b78` | 머지 커밋 방식, main CI PASS |
+| [#14](https://github.com/jazzsalle/une_report2/pull/14) CC-170 | `0eabd59` | 머지 커밋 방식, main CI `verify`+`db-verify` PASS |
 
-**두 가지를 반드시 지킬 것.**
+순서(#13 → #14)와 방식(`--merge`) 모두 계획대로였다. 열린 PR 없음. **G2 닫힘.**
 
-1. **#13 → #14 순서.** 반대로 하면 CC-160이 main에 없는 상태에서 CC-170이 들어간다.
-2. **머지 커밋 방식**(`--merge`). 스쿼시·리베이스를 쓰면 CC-160 커밋들이 main의
-   조상이 되지 않아 #14의 diff가 CC-160까지 다시 끌어안는다. 이 저장소는 PR
-   #5~#12 모두 머지 커밋을 썼다. `git merge-tree`로 **충돌 없음은 확인했다**
-   (CC-170 트리에 이미 같은 재생성분이 있어 3-way가 자동 해소된다).
+- ⚠️ **`gh pr merge`는 출력이 비어 보여도 성공한 것이다.** 이번에 두 번 다 빈
+  출력이었고 `gh pr view <n> --json state`로 확인하니 MERGED였다. 실패로 오인하지 말 것.
 
-- ⚠️ **`gh pr merge`는 Claude Code auto mode 분류기가 차단한다.** 이번 세션에서
-  막혔다. 사람이 `!` 접두사로 직접 실행하거나, `gh pr merge:*` Bash 권한 규칙을
-  추가해야 Claude가 실행할 수 있다.
-- ⚠️ **이 핸드오프 커밋이 #14에 붙으므로 CI가 다시 돈다(약 2분).** #13을 먼저
-  머지하고 오면 대개 끝나 있다. `gh pr checks 14 --watch`로 확인.
+### 2. CC-200 마이그레이션 0023 (`24793ce`)
 
-머지가 끝나면: main 최신화 → 로컬 브랜치 정리 → 다음 Work Item **CC-200**
-(Situation과 후보 SituationFact 수집, G3 진입). CC-100 의존이므로 선행 조건은
-충족이고, **G2는 CC-170 머지로 닫힌다.**
+**0018 §9가 "각 도메인 Work Item이 닫는다"고 예고한 상황 계열 격리를 닫았다.**
+착수 시점 실측: `situation`만 RLS가 켜져 있었고 `fact_source`·`situation_fact`·
+`provider_job`·`fact_conflict`·`conflict_resolution`·`situation_snapshot`
+**여섯 테이블은 정책이 한 번도 없었다.** 0011이 `une_app`에 전 테이블 DML을
+일괄 부여하므로 **정책 없는 테이블 = 전 테넌트 공개**였고, CC-200이 첫 쓰기
+경로를 여는 순간 테넌트 격리 규칙이 깨지는 상태였다.
+
+- `fact_source`·`provider_job`은 **tenant_id를 직접 세웠다**(EXISTS(부모) 불가).
+  전자는 부모 애그리거트가 아예 없어 "아직 참조되지 않는 source 행"이
+  fail-open으로 노출된다. 후자는 `situation_id`가 **nullable**이다 —
+  UNE-KNOW-002/003이 상황 없는 UNI Job에 같은 테이블을 쓰므로, 상황 경유 정책은
+  그 정당한 행들을 전부 막는다.
+- **`provider_result` 신설** (테이블 61 → 62). 계약 UNE-SIT-006의 `x-db-tables`가
+  **존재하지 않는 이 이름**을 가리키고 있었다. CC-170의 `malware_scan`과 같은
+  드리프트지만 **결론은 반대다**: 원문 페이로드 보존은 CLAUDE.md 비협상 규칙이라
+  이름을 지우는 대신 실체화하는 쪽이 맞다. UPDATE/DELETE 회수(증거).
+- **CHECK 제약이 곧바로 실질 결함을 잡았다.** CC-004 픽스처가 설계 어디에도 없는
+  `mode='ACTUAL'`, `status='OPEN'`을 쓰고 있었다. 상태 어휘 정본은 **설계 06
+  §7.1**(`DRAFT → REGISTERED → CONTEXT_CONFIRMED → SOP_READY → RUNNING/PAUSED
+  → CLOSING → CLOSED`)이다. 픽스처를 설계에 맞췄다(LIVE/DRAFT).
+- `provider_job` 상태는 **SUCCEEDED/PARTIAL/FAILED 셋뿐**이다. 동기 수집이라
+  행이 종결된 채 태어나 QUEUED/RUNNING이 도달 불가능하다(0022 §1 원칙).
+
+**테스트**: `@une/db-integration` **11 파일 127 테스트 통과(skip 0)** — 빈 DB
+전체 적용과 0010→0023 업그레이드 둘 다 포함. 데이터 사전 재생성 완료(62/587).
+
+## ⚠️ 다음 세션에서 가장 먼저 할 일
+
+**1. 브랜치를 푸시하지 않았다.** `feature/CC-200` @ `24793ce`가 로컬에만 있다.
+
+**2. CC-200은 마이그레이션만 끝났고 구현은 0줄이다.** 승인된 계획은 아래와 같다.
+
+### CC-200 남은 작업 (사용자 승인 완료)
+
+이번 세션에 사용자가 두 가지를 결정했다.
+
+- **Provider 수집은 동기 방식**(어댑터 호출은 트랜잭션 밖, 결과는 한 트랜잭션에
+  기록, 이미 종결된 Job 반환). 지금 어댑터가 전부 목업이라 비동기로 만들면
+  큐·리스·폴링이 실제로는 아무것도 기다리지 않는 장치가 된다. 실 Provider가
+  붙으면 응답이 느려지는 한계는 ADR 수용 한계와 OB에 남긴다.
+- **계약 공백 두 곳을 CC-200에서 닫는다.** `UNE-SIT-014`(GET 후보 Fact 목록 —
+  없으면 SIT-008이 보정할 factId를 얻을 방법이 없다), `UNE-SIT-015`(GET Provider
+  Job 상태). SSE(SIT-006) 자체는 CC-170 선례대로 폴링으로 대체하고 수용 한계에 남긴다.
+
+**남은 항목:**
+
+1. **계약 동기화** — `Situation`이 `additionalProperties: true` **자리표시자**다
+   (CC-160/ADR-31이 같은 문제를 고치며 남긴 주석이 바로 위에 있다). 어떤 응답이든
+   통과하므로 예제 게이트가 아무것도 검증하지 못한다. 실제 형태로 채우고,
+   SIT-002 응답이 단건 `Situation`으로 잘못돼 있는 것(Page여야 함)을 고치고,
+   SIT-004/007/008의 `GenericRequest`를 전용 스키마로 바꾼다. SIT-014/015 신설.
+   **`pnpm generate:contract-types` 재실행 필수** — 지난 세션에 이걸 빠뜨려
+   CI가 15초 만에 잡았다.
+2. **`packages/domain/src/situation/`** — 상태기계(설계 06 §7.1), fact 표준 key,
+   **정규화**(단위·값 형태 — 인수기준 3번).
+3. **`packages/provider-adapters/src/situation/`** — `SituationFactProvider` 포트 +
+   KMA/MOIS 목업 + **비활성 어댑터**(OB-02 T3Q 상황 API) + **기능 플래그 off**
+   (OB-05 SafeKorea/Naver 법적 승인 전). 공식 데이터 수집 에이전트는 T3Q 소유이므로
+   UNE는 포트와 어댑터만 만든다.
+4. **`services/api/src/situation/`** — SIT-001~005, 007, 008, 014, 015.
+   `plan.controller/service/repository`가 그대로 본이 된다(If-Match=version_no
+   강한 ETag, `@Idempotent`, `db.withTenant`, audit).
+5. **테스트** — 도메인 단위, 어댑터 단위, API e2e, **RLS 통합 테스트 신설**
+   (`tests/integration/src/situation-table-rls.test.ts` — 0023 주석이 이 파일명을
+   이미 참조한다. `une_worker`가 이 테이블들에 42501로 막히는 것도 단언할 것).
+6. **ADR-33** — 0023 주석이 D2/D3/D4/D6을 이미 참조하고 있다. **아직 파일이 없다.**
+7. `IMPLEMENTATION_STATUS.md` / `CHANGELOG.md` / OPEN_BINDINGS(보존기간 TTL).
+8. 이중 리뷰(`architecture-guardian` + `qa-gate-reviewer` 병렬) — 필수.
+
+### CC-200 범위 밖 (경계)
+
+중복군·충돌 해소·SituationSnapshot 확정(`UNE-SIT-009~013`)은 **CC-210**이다.
+CC-200은 `status=CANDIDATE`까지만 만든다. `fact_duplicate_group` 테이블도
+만들지 않았다(0023 §8) — 계약의 그 드리프트는 CC-210이 닫는다.
 
 ## 환경 재개 (이 PC면 부트스트랩 불필요)
 
 ```bash
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- docker ps    # WSL 깨우기(컨테이너 자동 복구)
-pnpm db:migrate                                  # 22개 — 적용돼 있으면 "No migrations to run!"
 ```
 
-- **`pnpm db:migrate`도 `DATABASE_URL`이 필요하다**(이번 세션 실측 — 없으면
-  "The DATABASE_URL environment variable is not set"으로 exit 1). 아래 블록 먼저.
-- **keepalive는 포그라운드 형태여야 한다.** `wsl -d Ubuntu -- sleep 3500`을 별도
-  프로세스로 띄운다(WSL 안에서 nohup으로 던지면 wsl.exe가 즉시 끝나 VM이 유지되지
-  않는다). **약 1시간마다 만료되며 이번 세션에 두 번 만료됐다** — 한 번은 전체
-  `pnpm test` 도중에 죽어 API e2e 5개 파일이 통째로 실패했다
-  (`connect ECONNREFUSED 127.0.0.1:5432`, `the database system is shutting down`).
-  **테스트가 무더기로 깨지면 코드를 의심하기 전에 컨테이너부터 확인할 것.**
-  WSL이 죽어도 볼륨은 남아 `docker ps` 한 번으로 복구된다.
-- Git Bash에서 `wsl`에 경로를 넘길 때는 `MSYS_NO_PATHCONV=1`을 붙인다.
-- 통합·e2e 테스트는 아래 환경변수가 있어야 **실제로 돈다**. 없으면 조용히 skip되고
-  exit 0이다. **수치 인용 전 분모(`Test Files N passed (N)`)를 확인할 것.**
-  ```bash
-  set -a; . ./infrastructure/.env; set +a
-  export DATABASE_URL="postgres://$UNE_DB_USER:$UNE_DB_PASSWORD@127.0.0.1:$UNE_DB_PORT/$UNE_DB_NAME"
-  export OBJECT_STORAGE_ENDPOINT="http://127.0.0.1:$UNE_MINIO_API_PORT"
-  export OBJECT_STORAGE_BUCKET="$UNE_MINIO_BUCKET"
-  export OBJECT_STORAGE_ACCESS_KEY="$UNE_STORAGE_ACCESS_KEY"
-  export OBJECT_STORAGE_SECRET_KEY="$UNE_STORAGE_SECRET_KEY"
-  ```
+```bash
+set -a; . ./infrastructure/.env; set +a
+export DATABASE_URL="postgres://$UNE_DB_USER:$UNE_DB_PASSWORD@127.0.0.1:$UNE_DB_PORT/$UNE_DB_NAME"
+export OBJECT_STORAGE_ENDPOINT="http://127.0.0.1:$UNE_MINIO_API_PORT"
+export OBJECT_STORAGE_BUCKET="$UNE_MINIO_BUCKET"
+export OBJECT_STORAGE_ACCESS_KEY="$UNE_STORAGE_ACCESS_KEY"
+export OBJECT_STORAGE_SECRET_KEY="$UNE_STORAGE_SECRET_KEY"
+pnpm db:migrate     # 23개 — 적용돼 있으면 "No migrations to run!"
+```
 
-## gh CLI — 이제 있다 (이전 핸드오프의 "gh 없음"은 해소)
-
-- **GitHub CLI 2.97.0 설치됨** (`winget install --id GitHub.cli`),
-  `C:\Program Files\GitHub CLI\gh.exe`.
-- **설치 프로그램이 시스템(Machine) PATH에 이미 등록했다** — PowerShell로 확인.
-  다만 **이미 떠 있는 프로세스는 옛 PATH를 그대로 들고 가므로**, 설치한 세션
-  안에서는 전체 경로로 불러야 했다. **새 세션에서는 그냥 `gh`로 된다.**
-- **`gh auth login --web` 완료** — keyring 저장, 재시작해도 유지.
-  스코프: `gist`, `read:org`, `repo`, `workflow`.
-- 저장돼 있던 git 자격증명(40자 토큰)은 `read:org`가 없어 `gh auth login
-  --with-token`이 거부한다. 다만 **`GH_TOKEN` 환경변수로 넘기면 스코프 검증을
-  건너뛰고 `repo` 권한만으로 PR 생성·CI 조회가 됐다**(이번 세션에서 인증 전에
-  이 경로로 PR 두 개를 만들었다). 정식 로그인이 끝났으므로 **더는 필요 없다.**
-
-## Completed this session
-
-이번 세션은 새 기능을 만들지 않았다. **CC-160·CC-170이 한 번도 받지 못한 CI
-검증을 실제로 받게 했고, 그 과정에서 결함 2건을 잡아 고쳤다.**
-
-### 1. PR 두 개 생성 — 저장소에서 이 코드가 CI를 처음 거쳤다
-
-이전 두 세션의 최대 미결("CC-160·CC-170 둘 다 PR이 없어 CI 검증을 받지 않았다")을
-닫았다. `feature/CC-170`은 푸시조차 되지 않은 상태였다(사람 승인 후 푸시).
-
-**PR #14는 처음부터 `verify`·`db-verify` 둘 다 통과했다.** 슬라이스
-E2E(`@une/e2e`)가 CI에서 처음 돌아 녹색이다 — CC-170 리뷰 필수1의 목적이 실제로
-달성됐다.
-
-### 2. CI가 즉시 잡은 실질 결함 — 생성 타입 drift (`3856084`)
-
-PR #13의 `verify`가 **15초 만에 실패**했다. 계약(OpenAPI)을 고친 뒤
-`pnpm generate:contract-types`를 다시 돌리지 않아 커밋된 타입이 계약과 어긋나 있었다.
-
-- 타입에만 남아 있던 것: `DocumentExportRequest.options.saveMode`
-  (ADR-31 D14가 계약에서 닫았는데 타입에 남았다. **생성 코드 밖 참조 0건**)
-- 계약에만 있던 것: **410 `Gone`**(UNE-DOC-014 — 저장소에서 객체가 사라진 경우),
-  다운로드의 `application/hwp+zip`, Track A `checks[].layer` optional
-
-**이 대조 게이트는 `ci.yml`에만 있고 `pnpm test`에는 없다.** PR을 열지 않으면
-구조적으로 드러날 수 없는 유형이었다. CC-170 트리에는 재생성분이 이미 있어 #14는
-통과했고 **CC-160 단독 tip만 어긋나 있었다.** 재생성 후 build·typecheck·전체
-`pnpm test`(exit 0)·lint·format:check를 다시 확인하고 커밋했고, 재실행된 CI가
-통과했다.
-
-### 3. ADR-31이 스스로 경고한 함정을 밟고 있었다 (`2053e6d`)
-
-`docs/adr/ADR-31`이 git에서 **binary로 판정**되고 있었다. 수용 한계 절에서
-"XML 1.0 금지 제어문자를 거르지 않는다"를 설명하며 **예시 문자를 백틱 안에 실제
-NUL(U+0000)·백스페이스(U+0008) 바이트로** 적었기 때문이다. `.gitattributes`는
-`*.md`를 `text eol=lf`로 선언하는데 내용이 이진이라, grep에 잡히지 않고 GitHub
-diff도 렌더되지 않았다 — **CC-160 PR에서 결정 정본을 리뷰할 수 없는 상태였다.**
-
-표기를 `` `U+0000`~`U+0008` ``로 바꿨다. 추적 텍스트 파일 전수를 훑어 같은 문제가
-있는 파일은 이것 하나뿐임을 확인했다(나머지 탐지분은 정상 `.docx`/`.xlsx`).
-**한계 자체는 유효하며 그대로 남는다** — 편집 텍스트 경로의 제어문자 필터는 여전히
-없다(ADR-32 수용 한계 9).
-
-## 테스트 (feature/CC-160에서 재생성 후 재실행, 단일 `pnpm test` exit 0, skip 0)
-
-| 워크스페이스 | Test Files |
-|---|---|
-| @une/hwpx-engine | 23 |
-| @une/api | 22 |
-| @une/provider-adapters | 13 |
-| @une/db-integration | 10 |
-| @une/contract-tests | 11 |
-| @une/worker | 5 |
-| @une/domain / @une/web / @une/field-web | 10 / 1 / 1 |
-
-`build` `typecheck` `lint` `format:check` PASS. CC-170 쪽 수치는 이전 핸드오프와
-증거 문서를 그대로 유지한다(이번 세션에 CC-170 코드는 건드리지 않았다).
-
-**CI 실측**: #13 `verify` 1m57s / `db-verify` 1m32s, #14 `verify` 2m3s /
-`db-verify` 1m53s — 둘 다 PASS.
+- **`pnpm db:migrate`도 `DATABASE_URL`이 필요하다.** 위 블록 먼저.
+- **keepalive는 포그라운드 형태여야 한다**: `wsl -d Ubuntu -- sleep 3500`을 별도
+  프로세스로 띄운다. **약 1시간마다 만료된다.** 테스트가 무더기로 깨지면 코드를
+  의심하기 전에 컨테이너부터 확인할 것(`connect ECONNREFUSED 127.0.0.1:5432`).
+- 통합·e2e는 위 환경변수가 없으면 **조용히 skip되고 exit 0**이다. 수치 인용 전
+  분모(`Test Files N passed (N)`)를 확인할 것.
+- Git Bash에서 `wsl`에 경로를 넘길 때는 `MSYS_NO_PATHCONV=1`.
+- **gh CLI 2.97.0 설치·인증 완료**(keyring, 재시작해도 유지). 그냥 `gh`로 된다.
 
 ## Risks / OPEN
 
-- **머지가 아직 안 됐다** — 이번 세션의 유일한 미결이며, 위 "가장 먼저 할 일"이다.
+- **feature/CC-200 미푸시** — 이번 세션 최대 미결.
+- **CC-200 마이그레이션이 main에 없는 상태에서 다른 브랜치를 파면 안 된다** —
+  0023은 62 테이블 기준선을 바꾼다.
+- **ADR-33이 없는데 0023 주석이 이미 D2/D3/D4/D6을 참조한다.** 다음 세션에서
+  ADR을 쓰기 전까지 그 참조는 매달려 있다.
 - **`pnpm test`와 CI `verify`가 덮는 범위가 다르다.** 생성 타입 drift 게이트,
-  `validate:handoff`, baseline pytest는 CI에만 있다. **로컬 녹색이 CI 녹색을
-  뜻하지 않는다** — 이번 세션이 그 값을 실측했다.
-- **한/글에서 열린다는 증거는 없다** — Track B 환경 미확정(OB-08), rhwp
-  미반입(OB-12)이라 VISUAL 계층도 불가.
-- **XML 1.0 금지 제어문자를 거르지 않는다** — 편집 텍스트에 섞이면 그대로 기록되고
-  우리 리더가 관대해 Track A도 통과한다. Track B 미실행이므로 어떤 게이트도 잡지
-  못하는 유일한 경로다. (이번 세션에 고친 것은 **문서의 표기**이지 코드 경로가 아니다.)
-- **실체화 자리에 제약이 있다** — 표 뒤·정적영역 뒤에는 놓을 수 없고, 화면이 그
-  사실을 미리 말해 주지 못한다(ADR-32 수용 한계 1).
-- **AV 스캔 없음**(OB-15) — `scan_status`는 영구 PENDING.
-- **화면 캡처는 CI에서 돌지 않아 회귀를 잡지 못한다**(ADR-32 D13).
-- 성능 수치는 개발 PC 값이고 표본 3~5회다. 화면이 SSE(UNE-PLAN-011)를 쓰지 않는다
-  (폴링). 실제 T3Q SSO 없음(OB-01).
-- 자기닫힘 `<hp:t/>` 되쓰기 시 태그 밖에 문자가 들어간다(Track A가 폐기하므로
-  손상은 나가지 않으나 오류 코드가 부정확하다).
-- 정산 실패 시 저장소 고아 객체(내용 주소라 재시도는 안전, 보존 정책 미구현).
-- 엔진 공개 표면에 검증을 건너뛰는 진입점(`rewriteArchive`/`buildXmlDelta`).
-- PDF/DOCX 미구현(422), FLATTEN_EXPORT_ONLY 합성 검증만, 표·SPLIT/MERGE 되쓰기
-  미개방, 보존기간·TTL 없음.
-- **CI가 minio-init 결함 유형은 못 잡는다** — CI는 MinIO를 root로 띄우고 `mc mb`만
-  하며 `minio-init.sh`를 실행하지 않는다.
-- `canTransitionExport`/`TERMINAL_EXPORT_STATUSES`는 아직 호출자가 없다.
-- 미반영 리뷰 지적: 413 봉투 형태, 전송 라우트 감사, 요청 본문 strict 검증,
-  x-permission 인증수준 정본, 설정 진입점 이원화, `SliceWorkspace.tsx` 컴포넌트
-  테스트, 성능 표본 표기, OB 번호 순서(ADR-32 D17).
-- 기존 이월: IX-*-TENANT 10건 미구현, 0010 파티션 전환 시 append-only REVOKE
-  재적용, UNI_VERIFY_TLS=false POC-local, 설계 09 화면표의 카탈로그 외 역할.
+  `validate:handoff`, baseline pytest는 CI에만 있다. 로컬 녹색 ≠ CI 녹색.
+- **provider_result 보존기간·TTL 없음** — 원문에 개인정보가 섞일 수 있는데
+  보존 정책이 없다(0023 §8, OPEN 등재 필요).
+- **`situation.context_state` 컬럼을 만들지 않았다** — 설계 06의 SituationContext
+  상태기계는 파생으로 둔다(0023 §8). 비동기 전환 시 `PROVIDER_QUERYING`이 실재하게
+  되며 그때 재판단.
+- 기존 이월(변동 없음): 한/글 열림 증거 없음(OB-08, rhwp 미반입 OB-12),
+  XML 1.0 금지 제어문자 미필터, 실체화 자리 제약(ADR-32 한계 1), AV 스캔 없음(OB-15),
+  화면 캡처 CI 미실행, 성능 수치는 개발 PC 표본 3~5회, SSE 대신 폴링, T3Q SSO 없음(OB-01),
+  자기닫힘 `<hp:t/>` 되쓰기 오류코드 부정확, 정산 실패 시 고아 객체,
+  `rewriteArchive`/`buildXmlDelta` 검증 우회 진입점, PDF/DOCX 미구현(422),
+  표·SPLIT/MERGE 되쓰기 미개방, CI가 minio-init 결함 유형 미탐지,
+  `canTransitionExport` 호출자 없음, 미반영 리뷰 지적 8건(ADR-32 D17),
+  IX-*-TENANT 10건, 0010 파티션 전환 시 append-only REVOKE 재적용,
+  UNI_VERIFY_TLS=false POC-local.
 
 ## Notes
 
-- `git push`는 사람 승인 후 Claude가 실행 가능(이번 세션에서 두 브랜치 모두 푸시).
-  **`gh pr merge`는 승인이 있어도 분류기가 차단한다** — 위 참조.
+- `git push`는 사람 승인 후 Claude가 실행 가능. **`gh pr merge`는 승인이 있어도
+  분류기가 차단** — 사람이 `!` 접두사로 실행할 것.
 - DATABASE_URL: 마이그레이션·시드·테스트는 superuser(une), 런타임은 une_app.
-  워커 e2e는 admin URL + `UNE_DB_RUNTIME_ROLE=une_worker`.
-- 브랜치를 오가며 테스트할 때 주의: 로컬 DB에는 **0022까지 적용돼 있다.**
-  `feature/CC-160`(마이그레이션 21개)에서 테스트해도 추가 컬럼은 가산적이라
-  통과하지만, 엄밀한 검증은 CI가 매번 새 DB를 만들어 수행한다.
-- PR 본문 원본은 스크래치패드에 남아 있다(세션 종료 시 사라진다). 내용의 정본은
-  `docs/evidence/CC-160-*.md`, `docs/evidence/CC-170-*.md`와 ADR-31·ADR-32다.
-- Git Bash에서 `reg query`에 공백·백슬래시가 든 키를 넘기면 인자가 깨져 조용히
-  실패한다(이번 세션 실측 — 빈 결과를 "미등록"으로 오독할 뻔했다).
-  Windows 환경변수 조회는 `powershell.exe -NoProfile -Command
-  "[Environment]::GetEnvironmentVariable('Path','Machine')"`를 쓸 것.

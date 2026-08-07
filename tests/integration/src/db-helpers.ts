@@ -31,6 +31,11 @@ export const APPEND_ONLY_TABLES = [
   // 0020 (CC-160): 검증 보고서는 산출물이 어떤 근거로 나갔는지를 말하는
   // 감사 증거다. 재검증은 새 보고서이지 과거 판정의 덮어쓰기가 아니다.
   'validation_report',
+  // 0023 (CC-200): 수집 Job은 종결된 채로 태어나고(동기 수집), 원문 응답은
+  // 증거다. situation_fact는 여기 없다 — UNE-SIT-008 보정이 UPDATE를 쓰므로
+  // DELETE만 회수했다(거부는 status='REJECTED'이지 삭제가 아니다).
+  'provider_job',
+  'provider_result',
 ];
 
 export async function withClient<T>(url: string, fn: (c: Client) => Promise<T>): Promise<T> {
@@ -103,8 +108,12 @@ export async function insertFixture(c: Client, tenantCode: string): Promise<Fixt
   );
   const userId = user.rows[0].user_id as string;
   const situation = await c.query(
+    // mode/status는 0023(CC-200)이 CHECK로 굳힌 어휘를 쓴다. 이 픽스처는
+    // 'ACTUAL'/'OPEN'을 썼는데 설계 어디에도 없는 값이었다 — 0004의 컬럼
+    // 주석은 LIVE/EXERCISE이고 상태기계 정본은 설계 06 §7.1이다. 제약이
+    // 생기면서 드러났고, 픽스처 쪽을 설계에 맞춘다.
     `INSERT INTO situation (tenant_id, mode, title, hazard_type, status, created_by)
-     VALUES ($1, 'ACTUAL', 'CC-004 fixture situation', 'FLOOD', 'OPEN', $2)
+     VALUES ($1, 'LIVE', 'CC-004 fixture situation', 'FLOOD', 'DRAFT', $2)
      RETURNING situation_id`,
     [tenantId, userId],
   );

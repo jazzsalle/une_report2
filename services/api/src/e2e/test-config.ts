@@ -28,6 +28,10 @@ export function e2eApiConfig(
     uploadMaxBytes: 50 * 1024 * 1024,
     uploadTicketTtlSec: 900,
     corsAllowedOrigins: [],
+    // CC-200: 목업 시나리오 훅은 **설정으로만** 켜진다(ADR-33 D19). e2e가
+    // 부분 장애를 만들려면 여기서 켜야 하고, 운영 기본값은 false다.
+    situationMockScenarios: true,
+    situationProviderTimeoutMs: 5_000,
     ...overrides,
   };
 }

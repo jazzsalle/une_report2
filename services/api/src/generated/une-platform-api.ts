@@ -1297,6 +1297,32 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/provider-jobs/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Provider 수집 Job 상태
+         * @description 권한: SITUATION_READ
+         *
+         *     핵심 요청: jobId
+         *
+         *     핵심 응답: ProviderJob
+         *
+         *     오류: PROV-404-001
+         */
+        get: operations["une_sit_015"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/provider-jobs/{jobId}/events": {
         parameters: {
             query?: never;
@@ -1330,7 +1356,17 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * 후보 Fact 목록
+         * @description 권한: SITUATION_READ
+         *
+         *     핵심 요청: id,status,factType,page
+         *
+         *     핵심 응답: Page<SituationFact>
+         *
+         *     오류: FACT-404-001
+         */
+        get: operations["une_sit_014"];
         put?: never;
         /**
          * 수동 Fact 등록
@@ -3921,21 +3957,68 @@ export type components = {
             revisionId?: string | null;
         };
         SituationCreateRequest: {
-            /** @enum {string} */
-            mode: "LIVE" | "EXERCISE";
+            mode: components["schemas"]["SituationMode"];
             title: string;
             hazardType: string;
             /** Format: date-time */
             occurredAt?: string | null;
+            locationText?: string | null;
+            /**
+             * @deprecated
+             * @description 설계 10 SIT 표의 요청 요약이 쓴 이름. `locationText`와 같은 컬럼 (`situation.location_text`)이며 둘 다 오면 `locationText`가 이긴다. 신규 클라이언트는 `locationText`를 쓸 것.
+             */
             location?: string | null;
         };
         ProviderQueryRequest: {
             providers: ("KMA" | "MOIS" | "SAFEKOREA" | "NAVER" | "T3Q")[];
+            /** @description Provider별 해석이 다른 조회조건. 도메인은 들여다보지 않고 어댑터에 전달만 한다(예: `adminCode`). */
             query: Record<string, never>;
+            /** @description 조회할 Fact 범주(설계 01 §20.5). 생략·빈 배열이면 제한 없음. */
+            categories?: components["schemas"]["SituationFactType"][];
+            /** @description 보조 Provider 활성화(설계 10 SIT-005 "핵심 요청: providers,query, featureFlags"). 기본값은 전부 false다 — SafeKorea/Naver는 법적·운영 승인 전(OB-05)이고 T3Q 상황 API는 승인된 계약이 없다(OB-02). 켜도 어댑터가 없으면 NOT_CONTRACTED로 답하지 성공한 척하지 않는다. */
+            featureFlags?: {
+                safekorea?: boolean;
+                naver?: boolean;
+                t3q?: boolean;
+            };
+            requestReason?: string | null;
             /** Format: date-time */
             from?: string | null;
             /** Format: date-time */
             to?: string | null;
+        };
+        SituationPatchRequest: {
+            title?: string;
+            hazardType?: string;
+            /** Format: date-time */
+            occurredAt?: string | null;
+            locationText?: string | null;
+        };
+        SituationFactCreateRequest: {
+            factType: components["schemas"]["SituationFactType"];
+            factKey: string;
+            value: unknown;
+            unit?: string | null;
+            /**
+             * Format: date-time
+             * @description 명시적 오프셋이 필요하다. 오프셋이 없으면 422로 거부한다.
+             */
+            observedAt?: string | null;
+            confidence?: number | null;
+            /** @description 사용자 입력의 출처. providerCode는 MANUAL로 고정되고 sourceType은 USER다 — 사용자가 공식 Provider를 사칭할 수 없다. */
+            source?: {
+                sourceName?: string;
+                sourceUrl?: string | null;
+            };
+        };
+        SituationFactPatchRequest: {
+            value?: unknown;
+            unit?: string | null;
+            /** Format: date-time */
+            observedAt?: string | null;
+            confidence?: number | null;
+            /** @description 보정 사유. 감사에 남는다(설계 06 US-SIT-007 완료조건). */
+            reason?: string;
         };
         SituationSnapshotCreateRequest: {
             factIds: string[];
@@ -4006,8 +4089,224 @@ export type components = {
         GenerationJob: {
             [key: string]: unknown;
         };
+        /**
+         * @description 설계 06 §7.1 / 0023 ck_situation_mode
+         * @enum {string}
+         */
+        SituationMode: "LIVE" | "EXERCISE";
+        /**
+         * @description 설계 06 §7.1 Incident 상태 흐름 / 0023 ck_situation_status
+         * @enum {string}
+         */
+        SituationStatus: "DRAFT" | "REGISTERED" | "CONTEXT_CONFIRMED" | "SOP_READY" | "RUNNING" | "PAUSED" | "CLOSING" | "CLOSED";
+        /**
+         * @description 설계 06 §7.1 SituationContext 상태. **컬럼이 아니라 파생값**이다 (0023 §8). 동기 수집에서 PROVIDER_QUERYING은 관측되지 않으므로 CC-200의 응답에는 나타나지 않는다(ADR-33 D2).
+         * @enum {string}
+         */
+        SituationContextState: "DRAFT" | "PROVIDER_QUERYING" | "CANDIDATE_REVIEW" | "CONFLICT_OPEN" | "USER_CONFIRMED";
+        /**
+         * @description 설계 01 §20.5 "필수 Fact 범주"
+         * @enum {string}
+         */
+        SituationFactType: "WEATHER_OBSERVATION" | "WEATHER_FORECAST" | "WEATHER_WARNING" | "DISASTER_MESSAGE" | "FIELD_REPORT" | "USER_ASSERTED";
+        /**
+         * @description 0023 ck_situation_fact_status. CC-200은 CANDIDATE만 만든다.
+         * @enum {string}
+         */
+        SituationFactStatus: "CANDIDATE" | "CONFIRMED" | "REJECTED";
+        /**
+         * @description situation-fact.schema.json source.providerCode enum과 같은 일곱 값
+         * @enum {string}
+         */
+        ProviderCode: "KMA" | "MOIS" | "SAFEKOREA" | "NAVER" | "MANUAL" | "T3Q" | "UNI";
         Situation: {
-            [key: string]: unknown;
+            /** Format: uuid */
+            situationId: string;
+            /** Format: uuid */
+            tenantId: string;
+            mode: components["schemas"]["SituationMode"];
+            title: string;
+            /** @description 재난유형. 정본은 plan-context.schema.json의 enum이다(ADR-23 D3). */
+            hazardType: string;
+            status: components["schemas"]["SituationStatus"];
+            /**
+             * Format: date-time
+             * @description 발생시각. 미정이면 null (설계 06 US-SIT-003 A-01).
+             */
+            occurredAt?: string | null;
+            locationText?: string | null;
+            /**
+             * Format: uuid
+             * @description 확정 SituationSnapshot. CC-200에서는 항상 null (확정은 CC-210).
+             */
+            currentSnapshotId?: string | null;
+            /** @description 낙관적 잠금 버전 (If-Match/ETag 값) */
+            versionNo: number;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        SituationDetail: {
+            /** Format: uuid */
+            situationId: string;
+            /** Format: uuid */
+            tenantId: string;
+            mode: components["schemas"]["SituationMode"];
+            title: string;
+            hazardType: string;
+            status: components["schemas"]["SituationStatus"];
+            /** Format: date-time */
+            occurredAt?: string | null;
+            locationText?: string | null;
+            /** Format: uuid */
+            currentSnapshotId?: string | null;
+            versionNo: number;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            contextState: components["schemas"]["SituationContextState"];
+            /** @description status=CANDIDATE인 Fact 수. contextState의 근거값이다. */
+            candidateFactCount: number;
+            /** @description OPEN 충돌 수. CC-200에서는 항상 0 (충돌 계산은 CC-210). */
+            openConflictCount: number;
+        };
+        SituationFactSource: {
+            /** Format: uuid */
+            sourceId: string;
+            providerCode: components["schemas"]["ProviderCode"];
+            /** @enum {string} */
+            sourceType: "API" | "WEB" | "FILE" | "USER";
+            sourceName: string;
+            sourceUrl?: string | null;
+            /**
+             * Format: date-time
+             * @description fact_source.retrieved_at (조회시각)
+             */
+            collectedAt: string;
+        };
+        FactNormalization: {
+            version: string;
+            /** @enum {string} */
+            outcome: "NORMALIZED" | "ORIGINAL_KEPT";
+            originalValue?: unknown;
+            originalUnit?: string | null;
+            notes?: {
+                reason: string;
+                detail: string;
+            }[];
+        };
+        SituationFact: {
+            /** Format: uuid */
+            factId: string;
+            /** Format: uuid */
+            situationId: string;
+            factType: components["schemas"]["SituationFactType"];
+            /** @description 표준 Key. 패턴은 situation-fact.schema.json과 같다. */
+            factKey: string;
+            value: unknown;
+            unit?: string | null;
+            source: components["schemas"]["SituationFactSource"];
+            /** Format: date-time */
+            observedAt?: string | null;
+            /** Format: date-time */
+            collectedAt: string;
+            confidence?: number | null;
+            status: components["schemas"]["SituationFactStatus"];
+            normalization?: components["schemas"]["FactNormalization"];
+            versionNo: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ProviderJob: {
+            /** Format: uuid */
+            providerJobId: string;
+            /** Format: uuid */
+            batchId: string;
+            /** Format: uuid */
+            situationId?: string | null;
+            providerCode: components["schemas"]["ProviderCode"];
+            /** @enum {string} */
+            status: "SUCCEEDED" | "PARTIAL" | "FAILED";
+            /** @description 정규화를 통과해 후보 Fact가 된 항목 수 */
+            resultCount: number;
+            /** @description 실패·부분실패의 근거. 0023 ck_provider_job_outcome_shape가 상태와의 상관을 강제한다: SUCCEEDED면 null, PARTIAL이면 non-null이고 resultCount>0, FAILED면 non-null이고 resultCount=0. */
+            error?: {
+                /** @enum {string} */
+                kind?: "TIMEOUT" | "UNAUTHORIZED" | "RATE_LIMITED" | "UPSTREAM_ERROR" | "PARSER_CHANGED" | "NO_DATA" | "DISABLED" | "NOT_CONTRACTED" | "NORMALIZATION_REJECTED";
+                message?: string;
+                retriable?: boolean;
+                /** @description 정규화에서 탈락한 항목 수 (PARTIAL의 근거) */
+                rejectedCount?: number;
+                /** @description 탈락 사유의 중복 제거 목록(도메인 NormalizationReason). 탈락 항목의 원문 자체는 provider_result에 통째로 있다. */
+                reasons?: string[];
+            } | null;
+            correlationId?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            finishedAt: string;
+        };
+        ProviderQueryJob: {
+            /** Format: uuid */
+            batchId: string;
+            /** Format: uuid */
+            situationId: string;
+            jobs: components["schemas"]["ProviderJob"][];
+            /** @description 이 요청이 만든 후보 Fact 수 (모든 Provider 합계) */
+            factsCreated: number;
+        };
+        SituationResponse: {
+            success: boolean;
+            data: components["schemas"]["Situation"];
+            meta: Record<string, never>;
+        };
+        SituationDetailResponse: {
+            success: boolean;
+            data: components["schemas"]["SituationDetail"];
+            meta: Record<string, never>;
+        };
+        SituationPageResponse: {
+            success: boolean;
+            data: {
+                items: components["schemas"]["Situation"][];
+                page: number;
+                size: number;
+                totalElements: number;
+                totalPages: number;
+            };
+            meta: Record<string, never>;
+        };
+        SituationFactResponse: {
+            success: boolean;
+            data: components["schemas"]["SituationFact"];
+            meta: Record<string, never>;
+        };
+        SituationFactPageResponse: {
+            success: boolean;
+            data: {
+                items: components["schemas"]["SituationFact"][];
+                page: number;
+                size: number;
+                totalElements: number;
+                totalPages: number;
+            };
+            meta: Record<string, never>;
+        };
+        ProviderQueryJobResponse: {
+            success: boolean;
+            data: components["schemas"]["ProviderQueryJob"];
+            meta: Record<string, never>;
+        };
+        ProviderJobResponse: {
+            success: boolean;
+            data: components["schemas"]["ProviderJob"];
+            meta: Record<string, never>;
         };
         SituationSnapshot: {
             [key: string]: unknown;
@@ -5770,7 +6069,14 @@ export interface operations {
     };
     une_sit_002: {
         parameters: {
-            query?: never;
+            query?: {
+                mode?: components["schemas"]["SituationMode"];
+                status?: components["schemas"]["SituationStatus"];
+                hazardType?: string;
+                keyword?: string;
+                page?: number;
+                size?: number;
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -5785,7 +6091,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["SituationPageResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5807,8 +6113,17 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "mode": "LIVE",
+                 *       "title": "○○시 집중호우 대응",
+                 *       "hazardType": "태풍/호우",
+                 *       "occurredAt": "2026-08-08T09:00:00+09:00",
+                 *       "locationText": "○○시 ○○동"
+                 *     }
+                 */
                 "application/json": components["schemas"]["SituationCreateRequest"];
             };
         };
@@ -5819,7 +6134,33 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    /**
+                     * @example {
+                     *       "success": true,
+                     *       "data": {
+                     *         "situationId": "3f2a9c10-5b6d-4e7f-8a90-1b2c3d4e5f60",
+                     *         "tenantId": "11111111-2222-4333-8444-555555555555",
+                     *         "mode": "LIVE",
+                     *         "title": "○○시 집중호우 대응",
+                     *         "hazardType": "태풍/호우",
+                     *         "status": "DRAFT",
+                     *         "occurredAt": "2026-08-08T00:00:00.000Z",
+                     *         "locationText": "○○시 ○○동",
+                     *         "currentSnapshotId": null,
+                     *         "versionNo": 1,
+                     *         "createdBy": "66666666-7777-4888-8999-aaaaaaaaaaaa",
+                     *         "createdAt": "2026-08-08T00:05:00.000Z",
+                     *         "updatedAt": "2026-08-08T00:05:00.000Z"
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_7c1d9e2f0a3b",
+                     *         "correlationId": "corr_9f1e0a2b3c4d",
+                     *         "timestamp": "2026-08-08T00:05:00.000Z",
+                     *         "schemaVersion": "1.0"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SituationResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5850,7 +6191,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["SituationDetailResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5875,9 +6216,15 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                /**
+                 * @example {
+                 *       "title": "○○시 집중호우 대응",
+                 *       "locationText": "○○시 ○○동"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SituationPatchRequest"];
             };
         };
         responses: {
@@ -5887,7 +6234,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["SituationResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5895,7 +6242,9 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
+            428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["ProviderError"];
         };
     };
@@ -5911,19 +6260,94 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "providers": [
+                 *         "KMA",
+                 *         "MOIS"
+                 *       ],
+                 *       "query": {
+                 *         "adminCode": "1100000000"
+                 *       },
+                 *       "categories": [
+                 *         "WEATHER_OBSERVATION",
+                 *         "DISASTER_MESSAGE"
+                 *       ],
+                 *       "featureFlags": {
+                 *         "safekorea": false,
+                 *         "naver": false,
+                 *         "t3q": false
+                 *       }
+                 *     }
+                 */
                 "application/json": components["schemas"]["ProviderQueryRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description 수집 결과. **동기 수집이므로 반환 시점에 모든 Job이 종결돼 있다** (ADR-33 D2). Provider 일부가 실패해도 200이며 개별 결과는 `jobs[].status`에 있다 — 부분장애가 전체 흐름을 막지 않는다는 설계 06 US-SIT-005의 요구다. 503은 요청 자체를 처리하지 못한 경우에만 쓴다. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    /**
+                     * @example {
+                     *       "success": true,
+                     *       "data": {
+                     *         "batchId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+                     *         "situationId": "3f2a9c10-5b6d-4e7f-8a90-1b2c3d4e5f60",
+                     *         "jobs": [
+                     *           {
+                     *             "providerJobId": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                     *             "batchId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+                     *             "situationId": "3f2a9c10-5b6d-4e7f-8a90-1b2c3d4e5f60",
+                     *             "providerCode": "KMA",
+                     *             "status": "FAILED",
+                     *             "resultCount": 0,
+                     *             "error": {
+                     *               "kind": "TIMEOUT",
+                     *               "message": "10000ms 안에 응답하지 않았습니다.",
+                     *               "retriable": true,
+                     *               "rejectedCount": 0
+                     *             },
+                     *             "correlationId": "corr_9f1e0a2b3c4d",
+                     *             "createdAt": "2026-08-08T00:10:00.000Z",
+                     *             "finishedAt": "2026-08-08T00:10:10.000Z"
+                     *           },
+                     *           {
+                     *             "providerJobId": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+                     *             "batchId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+                     *             "situationId": "3f2a9c10-5b6d-4e7f-8a90-1b2c3d4e5f60",
+                     *             "providerCode": "MOIS",
+                     *             "status": "PARTIAL",
+                     *             "resultCount": 3,
+                     *             "error": {
+                     *               "kind": "NORMALIZATION_REJECTED",
+                     *               "message": "일부 항목이 정규화에서 탈락했습니다.",
+                     *               "retriable": false,
+                     *               "rejectedCount": 1,
+                     *               "reasons": [
+                     *                 "FACT_KEY_MALFORMED"
+                     *               ]
+                     *             },
+                     *             "correlationId": "corr_9f1e0a2b3c4d",
+                     *             "createdAt": "2026-08-08T00:10:00.000Z",
+                     *             "finishedAt": "2026-08-08T00:10:01.000Z"
+                     *           }
+                     *         ],
+                     *         "factsCreated": 3
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_7c1d9e2f0a3b",
+                     *         "correlationId": "corr_9f1e0a2b3c4d",
+                     *         "timestamp": "2026-08-08T00:10:10.000Z",
+                     *         "schemaVersion": "1.0"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ProviderQueryJobResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5933,6 +6357,34 @@ export interface operations {
             409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
+        };
+    };
+    une_sit_015: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderJobResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     une_sit_006: {
@@ -5966,6 +6418,39 @@ export interface operations {
             503: components["responses"]["ProviderError"];
         };
     };
+    une_sit_014: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["SituationFactStatus"];
+                factType?: components["schemas"]["SituationFactType"];
+                page?: number;
+                size?: number;
+            };
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SituationFactPageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     une_sit_007: {
         parameters: {
             query?: never;
@@ -5978,9 +6463,22 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                /**
+                 * @example {
+                 *       "factType": "FIELD_REPORT",
+                 *       "factKey": "damage",
+                 *       "value": {
+                 *         "floodedHouseholds": 12
+                 *       },
+                 *       "observedAt": "2026-08-08T09:00:00+09:00",
+                 *       "source": {
+                 *         "sourceName": "○○시 재난안전대책본부 현장보고"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["SituationFactCreateRequest"];
             };
         };
         responses: {
@@ -5990,7 +6488,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    /**
+                     * @example {
+                     *       "success": true,
+                     *       "data": {
+                     *         "factId": "4c5d6e7f-8a9b-4c0d-8e1f-2a3b4c5d6e7f",
+                     *         "situationId": "3f2a9c10-5b6d-4e7f-8a90-1b2c3d4e5f60",
+                     *         "factType": "WEATHER_OBSERVATION",
+                     *         "factKey": "wind_speed",
+                     *         "value": 10,
+                     *         "unit": "m/s",
+                     *         "source": {
+                     *           "sourceId": "5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f8a",
+                     *           "providerCode": "MANUAL",
+                     *           "sourceType": "USER",
+                     *           "sourceName": "사용자 직접 입력",
+                     *           "sourceUrl": null,
+                     *           "collectedAt": "2026-08-08T00:20:00.000Z"
+                     *         },
+                     *         "observedAt": "2026-08-08T00:00:00.000Z",
+                     *         "collectedAt": "2026-08-08T00:20:00.000Z",
+                     *         "confidence": null,
+                     *         "status": "CANDIDATE",
+                     *         "normalization": {
+                     *           "version": "1.0.0",
+                     *           "outcome": "NORMALIZED",
+                     *           "originalValue": 36,
+                     *           "originalUnit": "km/h",
+                     *           "notes": []
+                     *         },
+                     *         "versionNo": 1,
+                     *         "updatedAt": "2026-08-08T00:20:00.000Z"
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_7c1d9e2f0a3b",
+                     *         "correlationId": "corr_9f1e0a2b3c4d",
+                     *         "timestamp": "2026-08-08T00:20:00.000Z",
+                     *         "schemaVersion": "1.0"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SituationFactResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6016,9 +6554,16 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                /**
+                 * @example {
+                 *       "value": 12.5,
+                 *       "unit": "mm",
+                 *       "reason": "현장 재확인값으로 보정"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SituationFactPatchRequest"];
             };
         };
         responses: {
@@ -6028,7 +6573,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["SituationFactResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6036,7 +6581,9 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
+            428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["ProviderError"];
         };
     };

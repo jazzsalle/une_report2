@@ -46,6 +46,16 @@ const RLS_TABLES = [
   'validation_report',
   // 0019 (CC-150): 자동저장 명령 저널. 0018과 같은 EXISTS(document) 패턴.
   'document_autosave',
+  // 0023 (CC-200, ADR-33 D3): 상황 계열. fact_source/provider_job은 부모
+  // 애그리거트가 없거나(전자) situation_id가 nullable이라(후자) tenant_id를
+  // 직접 갖고, 나머지는 EXISTS(situation) 또는 2단 조인이다.
+  'fact_source',
+  'situation_fact',
+  'fact_conflict',
+  'conflict_resolution',
+  'situation_snapshot',
+  'provider_job',
+  'provider_result',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -60,11 +70,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 22 baseline migrations', async () => {
+  it('applies all 24 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(22);
+    expect(applied.rows).toHaveLength(24);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -78,6 +88,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     expect(applied.rows[19].name).toBe('0020_export_and_validation');
     expect(applied.rows[20].name).toBe('0021_export_lease_and_file_immutability');
     expect(applied.rows[21].name).toBe('0022_upload_state_and_plan_document_link');
+    expect(applied.rows[22].name).toBe('0023_situation_fact_ingestion');
+    // 0024 (CC-200): 0023이 situation/situation_fact에 updated_at을 추가하면서
+    // 이 저장소의 관례인 trg_*_updated_at 트리거를 빠뜨렸다. 컬럼만 있고
+    // 트리거가 없으면 '마지막 수정 시각'이 INSERT 시각에 고정된다.
+    expect(applied.rows[23].name).toBe('0024_situation_updated_at_triggers');
   });
 
   // 61 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
@@ -88,7 +103,10 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
   // §6's DDL table omits its columns — the same ADR-21 baseline defect class
   // already resolved for plan and generation_job. document_autosave is named by
   // UNE-DOC-009 (design 10 §3.4) and by une_doc_009's x-db-tables.
-  it('creates the 61-table baseline (+ generated_block, document_autosave)', async () => {
+  // 62 = 61 + provider_result (0023/CC-200). 계약(UNE-SIT-006 x-db-tables)이
+  // 이미 이름을 쓰고 있었고, 원문 페이로드 보존은 CLAUDE.md 비협상 규칙이라
+  // 이름을 실체화하는 쪽이 맞다(ADR-33 D4 — malware_scan과 결론이 반대인 이유).
+  it('creates the 62-table baseline (+ generated_block, document_autosave, provider_result)', async () => {
     const tables = await withClient(db.url, (c) =>
       c.query(
         `SELECT count(*)::int AS n FROM information_schema.tables
@@ -96,7 +114,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
            AND table_name <> 'pgmigrations'`,
       ),
     );
-    expect(tables.rows[0].n).toBe(61);
+    expect(tables.rows[0].n).toBe(62);
   });
 
   it('enables and forces RLS on all tenant-isolated tables', async () => {
@@ -170,11 +188,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0022 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0024 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0022
+    await migrate(db.url); // remaining: 0011 ~ 0024
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -189,7 +207,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(22);
+    expect(applied.rows[0].n).toBe(24);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

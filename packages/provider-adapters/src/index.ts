@@ -256,3 +256,37 @@ export {
   type StorageDriver,
   type StorageEnv,
 } from './storage/storage-factory';
+
+// ── Situation provider port + adapters (CC-200, ADR-33) ──
+export {
+  PROVIDER_FAILURE_KINDS,
+  isRetriableFailure,
+  providerFailure,
+  type CollectSituationQuery,
+  type ProviderCollectFailure,
+  type ProviderCollectResult,
+  type ProviderCollectSuccess,
+  type ProviderFailureKind,
+  type ProviderHealth,
+  type SituationProviderPort,
+} from './situation/situation-provider-port';
+export {
+  MOCK_SCENARIOS,
+  MOCK_SITUATION_PARSER_VERSION,
+  MockKmaSituationProvider,
+  MockMoisSituationProvider,
+  type MockScenario,
+  type MockSituationProviderOptions,
+} from './situation/mock-situation-providers';
+export {
+  DEFAULT_SITUATION_PROVIDER_FLAGS,
+  DisabledSituationProvider,
+  QUERYABLE_PROVIDERS,
+  createSituationProvider,
+  isQueryableProvider,
+  situationProviderHealth,
+  type QueryableProvider,
+  type SituationProviderFactory,
+  type SituationProviderFlags,
+  type SituationProviderRegistryOptions,
+} from './situation/situation-provider-registry';

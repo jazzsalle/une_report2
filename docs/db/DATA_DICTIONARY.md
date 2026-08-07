@@ -5,8 +5,8 @@
 적용된 마이그레이션에서 자동 생성된 데이터 사전이다 (G-DB 게이트 증거).
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
-- 테이블 수: 61
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link
+- 테이블 수: 62
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers
 
 ## api_idempotency
 
@@ -126,7 +126,7 @@
 
 ## conflict_resolution
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - conflict_resolution_pkey: PRIMARY KEY (resolution_id)
 - fk_conflict_resolution_conflict_id: FOREIGN KEY (conflict_id) REFERENCES fact_conflict(conflict_id) DEFERRABLE INITIALLY DEFERRED
 - fk_conflict_resolution_resolved_by: FOREIGN KEY (resolved_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
@@ -415,7 +415,7 @@
 
 ## fact_conflict
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - fact_conflict_pkey: PRIMARY KEY (conflict_id)
 - fk_fact_conflict_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
 - 인덱스: fact_conflict_pkey
@@ -432,9 +432,12 @@
 
 ## fact_source
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_fact_source_provider_code: CHECK (((provider_code)::text = ANY ((ARRAY['KMA'::character varying, 'MOIS'::character varying, 'SAFEKOREA'::character varying, 'NAVER'::character varying, 'MANUAL'::character varying, 'T3Q'::character varying, 'UNI'::character varying])::text[])))
+- ck_fact_source_source_type: CHECK (((source_type)::text = ANY ((ARRAY['API'::character varying, 'WEB'::character varying, 'FILE'::character varying, 'USER'::character varying])::text[])))
 - fact_source_pkey: PRIMARY KEY (source_id)
-- 인덱스: fact_source_pkey
+- fk_fact_source_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
+- 인덱스: fact_source_pkey, ix_fact_source_tenant_provider_time
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -446,6 +449,7 @@
 | retrieved_at | timestamp with time zone | NN |  | 수집시각 |
 | raw_file_id | uuid | - |  | 원문 |
 | license_json | jsonb | - |  | 이용조건 |
+| tenant_id | uuid | NN |  | 기관 (이 테이블의 유일한 테넌트 근거) |
 
 ## file_object
 
@@ -834,10 +838,15 @@
 
 ## provider_job
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_provider_job_outcome_shape: CHECK (((((status)::text = 'SUCCEEDED'::text) AND (error_json IS NULL)) OR (((status)::text = 'PARTIAL'::text) AND (error_json IS NOT NULL) AND (result_count > 0)) OR (((status)::text = 'FAILED'::text) AND (error_json IS NOT NULL) AND (result_count = 0))))
+- ck_provider_job_provider_code: CHECK (((provider_code)::text = ANY ((ARRAY['KMA'::character varying, 'MOIS'::character varying, 'SAFEKOREA'::character varying, 'NAVER'::character varying, 'MANUAL'::character varying, 'T3Q'::character varying, 'UNI'::character varying])::text[])))
+- ck_provider_job_result_count: CHECK ((result_count >= 0))
+- ck_provider_job_status: CHECK (((status)::text = ANY ((ARRAY['SUCCEEDED'::character varying, 'PARTIAL'::character varying, 'FAILED'::character varying])::text[])))
 - fk_provider_job_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
+- fk_provider_job_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
 - provider_job_pkey: PRIMARY KEY (provider_job_id)
-- 인덱스: provider_job_pkey
+- 인덱스: ix_provider_job_batch, ix_provider_job_situation_time, provider_job_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -850,6 +859,29 @@
 | error_json | jsonb | - |  | 오류 |
 | correlation_id | character varying(80) | NN |  | 추적 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+| tenant_id | uuid | NN |  | 기관 (situation_id가 nullable이므로 직접 보유) |
+| batch_id | uuid | NN |  | 한 UNE-SIT-005 요청이 만든 행들의 묶음 |
+| finished_at | timestamp with time zone | NN |  | 종결 시각 |
+
+## provider_result
+
+Provider 원문 응답 보존 (추적성)
+- 격리: RLS enforced (FORCE)
+- ck_provider_result_item_count: CHECK ((item_count >= 0))
+- ck_provider_result_seq: CHECK ((seq >= 1))
+- fk_provider_result_provider_job_id: FOREIGN KEY (provider_job_id) REFERENCES provider_job(provider_job_id) DEFERRABLE INITIALLY DEFERRED
+- provider_result_pkey: PRIMARY KEY (provider_result_id)
+- 인덱스: provider_result_pkey, uk_provider_result_job_seq
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| provider_result_id | uuid | NN | gen_random_uuid() |  |
+| provider_job_id | uuid | NN |  | 수집 Job |
+| seq | integer | NN |  | 응답 순번 (페이지네이션 대비, 1부터) |
+| raw_payload_json | jsonb | NN |  | 어댑터가 받은 그대로의 응답 |
+| payload_sha256 | character(64) | NN |  | 원문 해시 (변조 탐지·중복 식별) |
+| item_count | integer | NN |  | 원문이 담고 있던 항목 수 (정규화 전) |
+| received_at | timestamp with time zone | NN | now() | 수신 시각 |
 
 ## retention_policy
 
@@ -905,6 +937,9 @@
 ## situation
 
 - 격리: RLS enforced (FORCE)
+- ck_situation_mode: CHECK (((mode)::text = ANY ((ARRAY['LIVE'::character varying, 'EXERCISE'::character varying])::text[])))
+- ck_situation_status: CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'REGISTERED'::character varying, 'CONTEXT_CONFIRMED'::character varying, 'SOP_READY'::character varying, 'RUNNING'::character varying, 'PAUSED'::character varying, 'CLOSING'::character varying, 'CLOSED'::character varying])::text[])))
+- ck_situation_version_no: CHECK ((version_no >= 1))
 - fk_situation_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_current_snapshot_id: FOREIGN KEY (current_snapshot_id) REFERENCES situation_snapshot(snapshot_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
@@ -925,14 +960,18 @@
 | version_no | integer | NN | 1 | 낙관잠금 |
 | created_by | uuid | NN |  | 등록자 |
 | created_at | timestamp with time zone | NN | now() | 등록 |
+| updated_at | timestamp with time zone | NN | now() | 마지막 수정 시각 |
 
 ## situation_fact
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_situation_fact_confidence: CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric))))
+- ck_situation_fact_status: CHECK (((status)::text = ANY ((ARRAY['CANDIDATE'::character varying, 'CONFIRMED'::character varying, 'REJECTED'::character varying])::text[])))
+- ck_situation_fact_version_no: CHECK ((version_no >= 1))
 - fk_situation_fact_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_fact_source_id: FOREIGN KEY (source_id) REFERENCES fact_source(source_id) DEFERRABLE INITIALLY DEFERRED
 - situation_fact_pkey: PRIMARY KEY (fact_id)
-- 인덱스: ix_fact_situation_key_time, ix_fact_value_json, situation_fact_pkey
+- 인덱스: ix_fact_situation_key_time, ix_fact_value_json, ix_situation_fact_status_time, situation_fact_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -947,10 +986,11 @@
 | confidence | numeric(5,4) | - |  | 신뢰도 |
 | status | character varying(20) | NN |  | CANDIDATE/CONFIRMED/REJECTED |
 | version_no | integer | NN | 1 | 버전 |
+| updated_at | timestamp with time zone | NN | now() | 마지막 보정 시각 (UNE-SIT-008) |
 
 ## situation_snapshot
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
 - fk_situation_snapshot_confirmed_by: FOREIGN KEY (confirmed_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_snapshot_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
 - fk_situation_snapshot_supersedes_id: FOREIGN KEY (supersedes_id) REFERENCES situation_snapshot(snapshot_id) DEFERRABLE INITIALLY DEFERRED

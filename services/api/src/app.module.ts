@@ -43,6 +43,12 @@ import { TocJobService } from './plan/toc-job.service';
 import { TocVersionController } from './plan/toc-version.controller';
 import { TocVersionRepository } from './plan/toc-version.repository';
 import { TocVersionService } from './plan/toc-version.service';
+import { FactService } from './situation/fact.service';
+import { ProviderQueryService } from './situation/provider-query.service';
+import { situationProviderFactory } from './situation/situation-provider.provider';
+import { ProviderJobController, SituationController } from './situation/situation.controller';
+import { SituationRepository } from './situation/situation.repository';
+import { SituationService } from './situation/situation.service';
 
 @Module({})
 export class AppModule {
@@ -67,6 +73,8 @@ export class AppModule {
         FileController,
         DocumentExportController,
         ExportController,
+        SituationController,
+        ProviderJobController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -97,6 +105,13 @@ export class AppModule {
         // CC-160: Export 접수·조회·다운로드. 되쓰기와 Track A는 워커가 한다.
         ExportRepository,
         ExportService,
+        // CC-200: 상황과 후보 SituationFact 수집(UNE-SIT-001~005/007/008/014/015).
+        // Provider 호출은 동기이며 트랜잭션 밖에서 돈다(ADR-33 D2).
+        SituationRepository,
+        SituationService,
+        FactService,
+        ProviderQueryService,
+        situationProviderFactory,
         objectStorageProvider,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;

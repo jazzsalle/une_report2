@@ -30,6 +30,23 @@ export interface ApiConfig {
    * 와일드카드는 허용하지 않는다.
    */
   corsAllowedOrigins: readonly string[];
+  /**
+   * 상황 Provider 목업의 시나리오 훅(`query.mockScenario`)을 켠다.
+   *
+   * **기본값 false.** 시험 훅이 운영 요청 경로에 남으면 계약이 그 필드를
+   * 약속하게 되므로, 켜는 것은 설정의 일이지 요청의 일이 아니다
+   * (ADR-33 D19, CC-125 `scenariosEnabled` 선례).
+   */
+  situationMockScenarios: boolean;
+  /**
+   * Provider 한 곳당 수집 제한시간(ms).
+   *
+   * 동기 수집이라 이것이 없으면 느린 Provider **하나가 HTTP 요청을 무기한
+   * 붙잡는다** — 목업은 즉시 끝나므로 드러나지 않을 뿐이다. 서킷브레이커·
+   * 재시도 정책은 실 어댑터와 함께 오지만(ADR-33 수용 한계 2), 제한시간이
+   * 아예 없는 것은 그때까지 미룰 수 있는 종류가 아니다(QA 리뷰 R-3).
+   */
+  situationProviderTimeoutMs: number;
 }
 
 function intEnv(value: string | undefined, fallback: number): number {
@@ -66,6 +83,8 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     uploadMaxBytes: intEnv(env.UNE_UPLOAD_MAX_BYTES, 50 * 1024 * 1024),
     uploadTicketTtlSec: intEnv(env.UNE_UPLOAD_TICKET_TTL_SEC, 900),
     corsAllowedOrigins: parseOrigins(env.UNE_CORS_ALLOWED_ORIGINS),
+    situationMockScenarios: env.UNE_SITUATION_MOCK_SCENARIOS === 'true',
+    situationProviderTimeoutMs: intEnv(env.UNE_SITUATION_PROVIDER_TIMEOUT_MS, 10_000),
   };
 }
 
