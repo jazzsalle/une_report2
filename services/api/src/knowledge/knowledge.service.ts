@@ -116,6 +116,13 @@ const FILE_BLOCKER_MESSAGES: Record<string, { reason: string; userAction: string
   },
 };
 
+/** 파일 검사 거부를 트랜잭션 밖으로 들고 나가는 내부 신호. */
+class FileRejected extends Error {
+  constructor(readonly blocker: string) {
+    super(`file rejected: ${blocker}`);
+  }
+}
+
 @Injectable()
 export class KnowledgeService {
   constructor(
@@ -140,6 +147,36 @@ export class KnowledgeService {
       throw knowledgeErrors.scopeNotSelectable();
     }
 
+    try {
+      return await this.registerInTransaction(auth, meta, situationId, input, scope);
+    } catch (err) {
+      if (!(err instanceof FileRejected)) throw err;
+      // 롤백된 트랜잭션 밖에서 거부를 기록한다.
+      const m = FILE_BLOCKER_MESSAGES[err.blocker];
+      await this.db.withTenant(auth.tenantId, (c) =>
+        this.audit.insertAudit(c, {
+          tenantId: auth.tenantId,
+          actorId: auth.userId,
+          // 설계 06 US-SIT-009 감사 이벤트.
+          action: 'DOCUMENT_UPLOAD_REJECTED',
+          resourceType: 'KNOWLEDGE_DOCUMENT',
+          correlationId: meta.correlationId,
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+          detail: { fileId: input.fileId, blocker: err.blocker, situationId },
+        }),
+      );
+      throw knowledgeErrors.fileRejected(m.reason, m.userAction);
+    }
+  }
+
+  private async registerInTransaction(
+    auth: AuthContext,
+    meta: RequestMetaLike,
+    situationId: string,
+    input: CreateKnowledgeDocumentInput,
+    scope: RetentionScope,
+  ): Promise<KnowledgeDocumentResource> {
     return this.db.withTenant(auth.tenantId, async (c) => {
       const situation = await this.situations.findSituation(c, auth.tenantId, situationId);
       if (!situation) throw knowledgeErrors.notFound();
@@ -154,19 +191,11 @@ export class KnowledgeService {
         allowScanPending: this.config.knowledgeAllowScanPending,
       });
       if (blocker) {
-        const m = FILE_BLOCKER_MESSAGES[blocker];
-        await this.audit.insertAudit(c, {
-          tenantId: auth.tenantId,
-          actorId: auth.userId,
-          // 설계 06 US-SIT-009 감사 이벤트.
-          action: 'DOCUMENT_UPLOAD_REJECTED',
-          resourceType: 'KNOWLEDGE_DOCUMENT',
-          correlationId: meta.correlationId,
-          ip: meta.ip,
-          userAgent: meta.userAgent,
-          detail: { fileId: input.fileId, blocker, situationId },
-        });
-        throw knowledgeErrors.fileRejected(m.reason, m.userAction);
+        // **감사를 이 트랜잭션에 쓰지 않는다.** 여기서 던지면 트랜잭션이
+        // 롤백되고 감사 행도 함께 사라진다 — US-SIT-009 E-01이 요구한
+        // UPLOAD_REJECTED 기록이 남지 않는다(e2e가 실측으로 잡았다).
+        // 거부 사유만 들고 나가서 별도 트랜잭션에 남긴 뒤 던진다.
+        throw new FileRejected(blocker);
       }
 
       // US-SIT-009 A-01. 오류가 아니라 선택 지점이므로 force면 그대로 진행한다.

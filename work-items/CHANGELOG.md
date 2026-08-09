@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+- CC-220 (2026-08-10): knowledge document upload and the UNI adapter
+  (UNE-KNOW-001/002/003, ADR-36, migrations 0028–0030).
+  **Status is split into two axes.** `knowledge_document.status` in 0004 was
+  documented only as `'UPLOADING~FAILED'`, but design 06 describes two different
+  sequences — US-SIT-009 is what UNE knows (we validated the file, we sent it),
+  US-SIT-010 is what UNI told us. Collapsed into one column you cannot say which
+  is true when UNI stops answering, so `uni_status` is separate and its NULL means
+  "we don't know yet", not "not processed". Evidence eligibility requires both
+  axes, which is what US-SIT-010's "zero non-READY materials in Evidence" asks for.
+  **The worker calls UNI, not the request path** (design 10 §7.23 step 7), so
+  registration returns 202 — 201 would read as "registration finished" when what
+  finished is acceptance. 0028 opens QUEUED/RUNNING on `provider_job`, which
+  0023 §4 explicitly predicted ("the migration adding those two values comes when
+  this moves to async"). **The real adapter refuses to start on unknown values**:
+  the multipart file field name and the login token field name are OB-13, and a
+  wrong default would make a UNE fault look like a UNI rejection. Shipped a
+  request contract (`uni-knowledge-api-change-request-v1.yaml`, CR-UNI-001…007)
+  and an explainer for the in-house developer.
+  **Six defects were found by running things, each after watching a test fail
+  first.** 0028 shipped an unsatisfiable constraint (`finished_at IS NULL` for
+  QUEUED against a NOT NULL column — no queued job could exist). 0027's redaction
+  trigger blocked every worker UPDATE; 0029 narrows it to the payload and marker
+  columns with both original holes still closed. 0028's table-wide grants let the
+  worker redact `provider_job.request_json` and reopen a settled job — both
+  measured, both closed by 0030 with column grants and RESTRICTIVE policies.
+  **Retry was a no-op**: the provider-error branch left `uni_status='ERROR'`, so a
+  successful re-upload was never polled again and never became evidence-eligible,
+  and two concurrent retries each queued a job — two duplicates in UNI. **The
+  rejection audit never persisted**: it was written inside the transaction and
+  rolled back with the 422, so US-SIT-009 E-01's UPLOAD_REJECTED record did not
+  exist. Three migration comments asserting guarantees the policies did not
+  provide were corrected.
+  Dual review: architecture 5 MAJOR / 9 MINOR, QA **FAIL** with 9 must-fix — all
+  addressed, including the API e2e whose absence had hidden the retry bug and a
+  KNOW contract gate (vocabulary triple-comparison, two-way error-code check,
+  202/closed-schema assertions). Tables stay at 63; migrations 27 → 30.
+  Tests: domain +23, UNI adapters +37, worker e2e +8, API e2e +18, contract +13,
+  integration +4.
+
 - CC-210 follow-up (2026-08-09): the two acceptance limits the user chose to
   close, on one branch. **(1) Snapshot confirmation now needs the baseline it was
   taken from** (`expectedSnapshotId`, required — a 409 `SIT-409-004` when it does

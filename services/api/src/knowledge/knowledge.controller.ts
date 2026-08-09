@@ -62,7 +62,7 @@ export class KnowledgeController {
     @Param('id') id: string,
     @Body() body: CreateBody | undefined,
   ): Promise<SuccessEnvelope<KnowledgeDocumentResource>> {
-    const situationId = uuidParam(id, 'id');
+    const situationId = uuidParam('id', id);
     const violations: ErrorViolation[] = [];
     const raw = (body ?? {}) as Record<string, unknown>;
     rejectUnknownKeys(
@@ -124,7 +124,7 @@ export class KnowledgeController {
     @Req() req: ApiRequest,
     @Param('id') id: string,
   ): Promise<SuccessEnvelope<KnowledgeDocumentResource>> {
-    return ok(req, await this.knowledge.get(requireAuth(req), uuidParam(id, 'id')));
+    return ok(req, await this.knowledge.get(requireAuth(req), uuidParam('id', id)));
   }
 
   /** UNE-KNOW-003 */
@@ -137,7 +137,7 @@ export class KnowledgeController {
     @Param('id') id: string,
     @Body() body: RetryBody | undefined,
   ): Promise<SuccessEnvelope<KnowledgeDocumentResource>> {
-    const documentId = uuidParam(id, 'id');
+    const documentId = uuidParam('id', id);
     const violations: ErrorViolation[] = [];
     const raw = (body ?? {}) as Record<string, unknown>;
     rejectUnknownKeys(raw, ['reason'], violations);

@@ -261,10 +261,17 @@ CREATE POLICY p_provider_job_worker_uni_claim ON provider_job
 -- 없으므로 읽기 정책도 필요 없다. 이미 쓴 원문은 보존기간 정리(0026/0027)만이
 -- 건드릴 수 있다.
 --
--- `WITH CHECK`의 하위질의는 `provider_job`을 읽으므로 그 테이블의 워커 정책이
--- 함께 걸린다 — 즉 **잡이 아직 미종결일 때만 원문을 넣을 수 있다.** 의도한
--- 순서다: 원문을 먼저 남기고 그다음에 잡을 종결한다. 반대로 하면 종결과 원문
--- 사이에서 죽었을 때 "성공했다는데 원문이 없는" 행이 남는다.
+-- **정정(0030 시점, QA 검토 R1)**: 처음에는 "`WITH CHECK`의 하위질의가
+-- provider_job의 워커 정책을 함께 태우므로 미종결 잡에만 원문을 넣을 수 있다"
+-- 고 적었다. **거짓이다.** 정산은 테넌트 스코프에서 하고, 그 스코프에서는
+-- permissive한 `p_provider_job_tenant`가 OR로 통과해 미종결 조건이 사라진다 —
+-- 종결된 UNI 잡에도 원문을 넣을 수 있다(실측).
+--
+-- 원문을 먼저 남기고 잡을 종결하는 **순서는 여전히 지킨다**. 다만 그것을
+-- 강제하는 것은 정책이 아니라 러너의 코드이며, 두 쓰기가 한 트랜잭션 안에
+-- 있으므로 "종결됐는데 원문이 없는" 행은 애초에 만들어지지 않는다.
+-- 정책으로 강제하려면 provider_result에도 제한 INSERT 술어가 필요하다 —
+-- 별도 항목으로 남긴다.
 DROP POLICY IF EXISTS p_provider_result_worker_uni ON provider_result;
 CREATE POLICY p_provider_result_worker_uni ON provider_result
   FOR INSERT TO une_worker
@@ -273,6 +280,12 @@ CREATE POLICY p_provider_result_worker_uni ON provider_result
                          AND j.provider_code = 'UNI'));
 
 -- 워커는 자기가 보낸 문서의 상태만 옮긴다.
+--
+-- **정정(0030)**: 아래 두 정책의 `une_current_tenant_id() IS NULL` 조건 때문에
+-- 이 정책들은 **실제 쓰기 경로에서 한 번도 적용되지 않는다** — 러너의 모든
+-- 문서 쓰기는 테넌트 스코프에서 일어난다. 상태 범위를 실제로 강제하는 것은
+-- 0030의 제한 정책 `p_knowledge_document_worker_open_only`다. 아래 정책은
+-- 디스패치 스코프의 가시성만 담당한다.
 DROP POLICY IF EXISTS p_knowledge_document_worker ON knowledge_document;
 CREATE POLICY p_knowledge_document_worker ON knowledge_document
   FOR SELECT TO une_worker
