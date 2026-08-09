@@ -4021,6 +4021,11 @@ export type components = {
             reason: string;
         };
         SituationSnapshotCreateRequest: {
+            /**
+             * Format: uuid
+             * @description 요청자가 보고 있던 **직전 확정 판**. 첫 확정이면 `null`을 명시한다. 현재 `situation.current_snapshot_id`와 다르면 409 `SIT-409-004`다 — 그 사이의 확정을 보지 못했다는 뜻이므로 최신 판을 검토한 뒤 다시 확정해야 한다(설계 06 US-SIT-008 E-01 REVISION_CONFLICT, ADR-34 D17). **생략할 수 없다** — 생략을 허용하면 가드가 우회된다.
+             */
+            expectedSnapshotId: string | null;
             factIds: string[];
             /** Format: date-time */
             effectiveAt: string;

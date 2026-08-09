@@ -131,4 +131,46 @@ describe('loadWorkerConfig', () => {
       'legacy-http',
     );
   });
+
+  // ── 보존기간 정리 (OB-16 / 0026) ──
+
+  describe('보존기간 설정', () => {
+    it('기본값은 1개월·전용 롤·켜짐이다 (사용자 결정 2026-08-09)', () => {
+      const config = loadWorkerConfig({ ...BASE });
+      expect(config.payloadRetentionDays).toBe(30);
+      expect(config.retentionRole).toBe('une_retention');
+      expect(config.retentionEnabled).toBe(true);
+      expect(config.retentionBatchSize).toBe(500);
+    });
+
+    it('기간은 운영 설정이다 — 마이그레이션을 고치지 않고 바꾼다', () => {
+      expect(
+        loadWorkerConfig({ ...BASE, UNE_PAYLOAD_RETENTION_DAYS: '90' }).payloadRetentionDays,
+      ).toBe(90);
+    });
+
+    it('보존 롤이 워커 롤과 같으면 기동을 막는다', () => {
+      // 같아지는 순간 ADR-33 D2(워커는 상황 계열 테이블에 닿지 않는다)가
+      // 설정 한 줄로 뒤집힌다. 그것은 배포 시점에 드러나야 한다.
+      expect(() => loadWorkerConfig({ ...BASE, UNE_RETENTION_ROLE: 'une_worker' })).toThrow(
+        /must differ from UNE_DB_RUNTIME_ROLE/,
+      );
+    });
+
+    it('보존 롤을 비워 연결 롤로 도는 것을 허용하지 않는다', () => {
+      // 빈 값이면 0026이 컬럼 단위로 좁혀둔 권한이 통째로 무의미해진다.
+      expect(() => loadWorkerConfig({ ...BASE, UNE_RETENTION_ROLE: '' })).toThrow(
+        /plain SQL identifier/,
+      );
+    });
+
+    it('명시적으로 끌 수 있다 (기본은 켬)', () => {
+      expect(loadWorkerConfig({ ...BASE, UNE_RETENTION_ENABLED: 'false' }).retentionEnabled).toBe(
+        false,
+      );
+      expect(loadWorkerConfig({ ...BASE, UNE_RETENTION_ENABLED: 'no' }).retentionEnabled).toBe(
+        true,
+      );
+    });
+  });
 });

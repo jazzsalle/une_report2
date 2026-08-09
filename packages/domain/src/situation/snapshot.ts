@@ -181,6 +181,33 @@ export function checkSnapshotConfirmable(input: SnapshotConfirmInput): SnapshotB
   return blockers;
 }
 
+/**
+ * 확정은 **내가 본 판 위에서** 이뤄져야 한다.
+ *
+ * 설계 06 US-SIT-008은 입력에 `contextRevision`을 두고 E-01에 "revision 불일치
+ * → 최신 Context 재검토 요구"라고 적었다. CC-210 본편은 그것을 구현하지 않아
+ * 통제관 둘이 같은 화면을 열어 두고 각각 확정하면 **둘 다 성공했다** — 뒤에
+ * 누른 사람은 앞사람의 확정을 보지 못한 채 기준 상황을 바꿨고, 앞사람은 자기
+ * 확정이 여전히 기준이라고 믿었다. 이 함수가 그 경로를 닫는다
+ * (ADR-34 D17, 수용 한계 10 닫힘).
+ *
+ * 상황 행 잠금은 **순서만 정할 뿐** 그 사실을 알려주지 않는다.
+ *
+ * 검사 축으로 `situation.version_no`(If-Match)가 아니라 **직전 snapshotId**를
+ * 쓴다(사용자 결정 2026-08-09). 확정이 실제로 묻는 것은 "당신이 본 판이 아직
+ * 최신인가"이지 "상황의 제목·장소가 그대로인가"가 아니다. 버전을 쓰면 무관한
+ * 편집이 확정을 막는다.
+ *
+ * 첫 확정은 양쪽 모두 `null`이다. 요청이 이 값을 **생략할 수 없게** 해야
+ * 가드가 우회되지 않는다 — 계약에서 required로 둔 이유다.
+ */
+export function isSnapshotBaselineCurrent(
+  expectedSnapshotId: string | null,
+  currentSnapshotId: string | null,
+): boolean {
+  return expectedSnapshotId === currentSnapshotId;
+}
+
 /** 재확정은 새 snapshotId이고 버전은 하나 오른다(설계 06 인수기준).
  * 기존 Snapshot은 그대로 남고 새 것이 `supersedes_id`로 이전을 가리킨다. */
 export function nextSnapshotVersion(currentVersion: number | null): number {
