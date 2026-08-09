@@ -96,6 +96,17 @@ export const snapshotErrors = {
       violations,
       userAction: '충돌을 해소하고 확정 대상을 다시 고르십시오.',
     }),
+  /** 확정 기준이 최신이 아니다 — 설계 06 US-SIT-008 E-01의 REVISION_CONFLICT.
+   * 요청이 말한 직전 판과 지금의 현재 판이 다르면, 요청자는 그 사이의 확정을
+   * 보지 못한 것이다. */
+  staleBaseline: (currentSnapshotId: string | null): ApiError =>
+    new ApiError(409, 'SIT-409-004', '확정 기준이 최신이 아닙니다.', {
+      recoverable: true,
+      userAction:
+        currentSnapshotId === null
+          ? '아직 확정된 판이 없습니다. 최신 상태를 다시 조회한 뒤 확정하십시오.'
+          : `그 사이에 다른 확정(${currentSnapshotId})이 있었습니다. 최신 판을 검토한 뒤 다시 확정하십시오.`,
+    }),
   /** 확정 도중 대상 Fact가 다른 요청에 의해 바뀌었다(아키텍처 리뷰 M-6). */
   raced: (): ApiError =>
     new ApiError(409, 'SIT-409-003', '확정 대상이 처리 중에 변경되었습니다.', {

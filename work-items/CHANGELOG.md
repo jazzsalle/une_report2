@@ -2,6 +2,78 @@
 
 ## Unreleased
 
+- CC-210 follow-up (2026-08-09): the two acceptance limits the user chose to
+  close, on one branch. **(1) Snapshot confirmation now needs the baseline it was
+  taken from** (`expectedSnapshotId`, required — a 409 `SIT-409-004` when it does
+  not match the current one). Without it two operators looking at the same screen
+  both succeed: the second one changes the authoritative situation without ever
+  seeing the first confirmation, and the first believes their snapshot is still
+  the baseline. Row locking orders those writes, it does not tell either of them
+  the other happened. First confirmation passes `null`; omitting the field is a
+  400 so the guard cannot be skipped by leaving it out (ADR-34 D17).
+  **(2) Provider payload retention — OB-16 closes.** User decision: after one
+  month, blank the payload and keep the row. `payload_sha256`, `item_count`,
+  received/created timestamps and status all survive, so the question an audit
+  actually asks — what do you claim you received — still has an answer; deleting
+  the row would take that with it. `provider_job.request_json` is in scope for
+  the same reason as the response: `query` is a free-form object and a user can
+  put an address or a name in it, and 0023 revoked UPDATE/DELETE from `une_app`,
+  so nothing in the system could mask it afterwards. Migration 0026 adds
+  `redacted_at` to both tables (without it, "was always empty" and "was cleared
+  on schedule" are indistinguishable) plus a CHECK pairing the marker with the
+  blanked payload. **The sweep runs as a new role, not as the worker.** Granting
+  `une_worker` the UPDATE would have silently reversed ADR-33 D2, whose corollary
+  — the worker never touches the situation tables — is pinned as a 42501
+  regression. `une_retention` holds SELECT on the two tables and UPDATE on four
+  columns; no INSERT, no DELETE, and `payload_sha256` is 42501 even for it. It
+  reads every tenant through an explicit role-targeted policy rather than
+  BYPASSRLS, so "why does it see everything" is visible in `pg_policies`. The
+  period is configuration (`UNE_PAYLOAD_RETENTION_DAYS`, default 30), not a
+  constant in the migration, and the worker refuses to start if the retention
+  role equals the worker role.
+  **A pre-existing defect surfaced and is not fixed here**: `une_app` cannot
+  `SET ROLE une_worker` or `une_retention` — no migration, initdb script, compose
+  file or CI step ever grants the membership, so a worker booted the way its
+  `.env.example` documents dies with 42501 on its first transaction. It has been
+  latent since 0015/CC-120 because every test connects as superuser and steps
+  down. Both fixes touch deployment provisioning, and the cheap one
+  (`GRANT une_retention TO une_app`) would hand the API runtime the ability to
+  blank every tenant's payloads — exactly what the dedicated role avoids.
+  Recorded in `docs/evidence/OB-16-payload-retention.md` §6 and now registered as
+  **OB-17**, and the OB-16 Closed row says the sweep does not yet run — the means
+  exist, the schedule does not.
+  **Post-review additions (dual review, same day).** Migration **0027** closes a
+  hole the column GRANTs could not: 0026's CHECK is one-directional, so
+  `SET raw_payload_json = '{"forged":1}'` (marker left NULL) and
+  `SET redacted_at = NULL` on an already-blanked row both succeeded — measured,
+  not theorised. The first breaks the payload immutability 0023 established, the
+  second erases the very distinction `redacted_at` exists to make. A `BEFORE
+  UPDATE` trigger now permits exactly one transition and no reversal; it applies
+  to the table owner too, because exempting the owner would make "append-only"
+  half true. The retention decision is also registered as **ADR-35** — it narrows
+  two CLAUDE.md non-negotiables (raw payloads retained for traceability, never
+  overwrite audit history) and the only record was an evidence file, which is not
+  in the source-of-truth order. ADR-33's D2 corollary is amended to say it is a
+  *role* boundary and not a *process* boundary; ADR-34's acceptance limits 7 and
+  10 are marked closed by D17 instead of still claiming the concurrent-confirm
+  hole is open. `withRole(role)` became `withRetentionScope()` so a caller cannot
+  route around the startup guard, and the SQL moved into
+  `retention/retention.repository.ts` like the other four worker pipelines
+  (ADR-27 D1). The sweep now logs every run including zero-count ones, so "nothing
+  to blank" and "never ran" stop looking identical. The sweep also gained
+  `FOR UPDATE SKIP LOCKED` — it was the only one of the five worker pipelines
+  without it, and `main.ts` sweeps once at startup, so two replicas collided on
+  every boot. Before 0027 the later transaction overwrote the earlier
+  `redacted_at`, destroying the very fact the column exists to record; after
+  0027 the trigger caught it but rolled the whole batch back with a 42501 that
+  is indistinguishable from OB-17's. Verified by removing SKIP LOCKED and
+  watching the new concurrency test fail. Sweep results now also report the
+  remaining expired backlog, since 500 rows per 6 hours silently falls behind a
+  heavier intake. Tables stay at 63; migrations 25 → 27.
+  Tests: worker retention e2e 7 (+2), retention grants integration 13 (+2),
+  worker config +5, domain snapshot guard +4, api resolution e2e +5 (concurrent
+  confirm; non-UUID baseline → 400).
+
 - CC-210 (2026-08-08): duplicate grouping, conflict resolution and the immutable
   SituationSnapshot (ADR-34). This closes the three decisions CC-200 deliberately
   left open and one place where the implementation disagreed with the design.

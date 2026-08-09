@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   checkSnapshotConfirmable,
   diffSnapshots,
+  isSnapshotBaselineCurrent,
   nextSnapshotVersion,
   nextStatusOnSnapshotConfirmed,
   snapshotContentHash,
@@ -225,6 +226,26 @@ describe('CC-210 확정 선행조건 — 미해결 충돌 차단 (인수기준 1
       requestedFactIds: ['f1', 'f2'],
     });
     expect(blockers).toEqual([]);
+  });
+});
+
+describe('CC-210 확정 기준 가드 (ADR-34 D17)', () => {
+  it('첫 확정은 양쪽 모두 null이어야 통과한다', () => {
+    expect(isSnapshotBaselineCurrent(null, null)).toBe(true);
+  });
+
+  it('그 사이에 다른 확정이 있었으면 통과하지 않는다', () => {
+    expect(isSnapshotBaselineCurrent(null, 'snap-1')).toBe(false);
+  });
+
+  it('직전 판을 정확히 대야 통과한다', () => {
+    expect(isSnapshotBaselineCurrent('snap-1', 'snap-1')).toBe(true);
+    expect(isSnapshotBaselineCurrent('snap-1', 'snap-2')).toBe(false);
+  });
+
+  it('확정된 판이 있는데 null을 대면 통과하지 않는다', () => {
+    // "아직 아무도 확정하지 않았다"고 믿고 있다는 뜻이다.
+    expect(isSnapshotBaselineCurrent(null, 'snap-1')).toBe(false);
   });
 });
 

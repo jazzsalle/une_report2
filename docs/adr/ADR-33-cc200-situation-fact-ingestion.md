@@ -67,9 +67,17 @@ CC-160/ADR-31이 `ExportJobResource`에서 같은 문제를 닫으며 남긴 주
 
 **대가**: 실 Provider가 붙으면 응답이 느려진다. 수용 한계 1·2에 남긴다.
 
-**따름정리**: 워커는 이 테이블들에 닿지 않는다. `une_worker`에 권한을 주지
-않았고 그 상태 자체를 회귀 단언으로 고정한다
-(`tests/integration/src/situation-table-rls.test.ts`).
+**따름정리 (2026-08-09 개정)**: 이것은 **롤 권한 경계**다 — `une_worker`에
+권한을 주지 않았고 그 상태 자체를 회귀 단언으로 고정한다
+(`tests/integration/src/situation-table-rls.test.ts`). 개정 전 문장은 "워커는
+이 테이블들에 닿지 않는다"였는데, 그것을 **프로세스 경계**로 읽으면 이제
+거짓이다: 워커 프로세스가 0026이 만든 전용 롤 `une_retention`으로 보존기간
+마스킹을 수행한다(수용 한계 4, OB-16). 전용 롤을 따로 둔 이유가 바로 이
+경계를 넓히지 않기 위해서다 — `une_worker`의 42501은 그대로다.
+
+여전히 참인 것: 상황 수집·Fact 생성·상태전이는 워커에 없다. 보존 정리는
+도메인 로직이 아니라 데이터 수명 관리이며 Fact를 만들지도, 상황을 옮기지도,
+Provider를 부르지도 않는다.
 
 ## D3. 격리는 부모 경유가 기본이고, 두 테이블만 tenant_id를 직접 세운다
 
@@ -382,10 +390,16 @@ API는 `SITUATION_PROVIDERS` 토큰으로 팩토리를 **주입받는다**. 훅�
    T3Q가 아니다. `health().mode`/`openBinding`이 같은 사실을 나르지만 ADR-24의
    승격 절차 밖이다 — 실 어댑터를 붙일 때 레지스트리를 일반화할지 결정한다
    (QA 리뷰 R-4).
-4. **`provider_result`의 보존기간·TTL이 없다.** 원문에 개인정보가 섞일 수
-   있는데(`.claude/rules/security.md`의 최소화 대상) 보존 정책이 아직 없다.
-   0020이 `file_object`에 대해 같은 이유로 미룬 항목과 같은 성격이며
-   OPEN_BINDINGS에 등재한다. 지금 임의의 기간을 박으면 근거 없는 삭제가 된다.
+4. ~~**`provider_result`의 보존기간·TTL이 없다.**~~ **닫힘 (2026-08-09,
+   마이그레이션 0026 / OB-16).** 사용자 결정으로 **1개월 뒤 페이로드만 비운다** —
+   행은 남기고 `payload_sha256`·`item_count`·수신시각·상태는 그대로 둔다.
+   `provider_job.request_json`도 같은 대상이다(조회조건에 개인정보가 들어올 수
+   있고 `une_app`에는 UPDATE가 없어 사후 마스킹 경로도 없었다).
+   **D2를 뒤집지 않기 위해 전용 롤 `une_retention`을 새로 만들었다** — 워커에
+   권한을 얹으면 "워커는 상황 계열 테이블에 닿지 않는다"가 조용히 사라진다.
+   근거·실측 권한·검증은 `docs/evidence/OB-16-payload-retention.md`.
+   `file_object`(0020이 미룬 항목)는 오브젝트 저장소 객체까지 함께 정리해야
+   하므로 여전히 열려 있다.
 5. **freshness/TTL(CURRENT/AGING/STALE)을 계산하지 않는다.** WP-SITUATION-09가
    그 항목이고 CC-200 인수기준에 없다. 근거값(`observedAt`/`collectedAt`)은
    전부 저장돼 있으므로 계산은 나중에 가능하다.
@@ -440,4 +454,7 @@ API는 `SITUATION_PROVIDERS` 토큰으로 팩토리를 **주입받는다**. 훅�
 - **실 Provider(ADR §4.5 G11)**: KMA/MOIS LIVE 어댑터, 타임아웃·서킷브레이커,
   capability 상태 승격.
 - **OB-02/OB-05**: T3Q 상황 API 계약, SafeKorea/Naver 법적·운영 승인.
-- **보존 정책**: `provider_result` TTL(OPEN_BINDINGS 신규 항목).
+- ~~**보존 정책**: `provider_result` TTL~~ — 2026-08-09 닫힘(0026, OB-16).
+  남은 것은 `file_object`의 보존기간과, 배포 전에 닫아야 할 롤 멤버십
+  프로비저닝(증거 문서 §6 — `une_app`은 `une_worker`/`une_retention`으로
+  `SET ROLE`할 수 없다. 0015부터 있던 선재 결함이다).

@@ -40,6 +40,17 @@ export interface WorkerConfig {
    * framing is a UNE assumption (OB-01) and stays off the operational path;
    * this seam exists for the CC-400 real-contract verification. */
   t3qContentStream: boolean;
+  /** Provider 원문/요청조건 보존기간 (일). 사용자 결정 2026-08-09 = 1개월.
+   * DB 상수가 아니라 운영 설정이다 — 0026 §5. */
+  payloadRetentionDays: number;
+  /** 보존 정리 전용 롤. `une_worker`가 아니다 — 0026 §2. */
+  retentionRole: string;
+  /** 한 트랜잭션에서 비우는 최대 행 수(테이블별). */
+  retentionBatchSize: number;
+  /** 정리 주기. 하루 한 번이면 충분하다 — 만료 판정 단위가 '일'이다. */
+  retentionIntervalMs: number;
+  /** 정리 자체를 끌 수 있다. 기본은 켬 — 꺼두면 OB-16이 다시 열린다. */
+  retentionEnabled: boolean;
 }
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -55,6 +66,21 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
   const runtimeRole = env.UNE_DB_RUNTIME_ROLE ?? 'une_worker';
   if (runtimeRole && !IDENTIFIER.test(runtimeRole)) {
     throw new Error(`UNE_DB_RUNTIME_ROLE must be a plain SQL identifier, got: ${runtimeRole}`);
+  }
+
+  // 보존 정리는 **다른 롤**로 돈다. 비워두는 것을 허용하지 않는다 — 빈 값이면
+  // 연결 롤(운영에서는 소유자/슈퍼유저) 그대로 UPDATE가 돌고, 0026이 컬럼
+  // 단위로 좁혀둔 권한이 통째로 무의미해진다.
+  const retentionRole = env.UNE_RETENTION_ROLE ?? 'une_retention';
+  if (!IDENTIFIER.test(retentionRole)) {
+    throw new Error(`UNE_RETENTION_ROLE must be a plain SQL identifier, got: ${retentionRole}`);
+  }
+  if (retentionRole === runtimeRole) {
+    throw new Error(
+      `UNE_RETENTION_ROLE must differ from UNE_DB_RUNTIME_ROLE (${runtimeRole}): ` +
+        '보존 정리 권한을 워커 롤에 얹으면 ADR-33 D2(워커는 상황 계열 테이블에 ' +
+        '닿지 않는다)가 조용히 뒤집힌다.',
+    );
   }
 
   // The CC-120 variable is retired, not silently accepted: it meant "mock is
@@ -120,6 +146,11 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     planAdapter,
     ...(t3qHttp ? { t3qHttp } : {}),
     t3qContentStream: env.UNE_T3Q_CONTENT_STREAM === 'true',
+    payloadRetentionDays: intFrom(env.UNE_PAYLOAD_RETENTION_DAYS, 30),
+    retentionRole,
+    retentionBatchSize: intFrom(env.UNE_RETENTION_BATCH_SIZE, 500),
+    retentionIntervalMs: intFrom(env.UNE_RETENTION_INTERVAL_MS, 6 * 60 * 60 * 1000),
+    retentionEnabled: env.UNE_RETENTION_ENABLED !== 'false',
   };
 }
 

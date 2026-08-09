@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   checkSnapshotConfirmable,
   diffSnapshots,
+  isSnapshotBaselineCurrent,
   nextSnapshotVersion,
   nextStatusOnSnapshotConfirmed,
   snapshotContentHash,
@@ -28,6 +29,9 @@ export interface SnapshotConfirmInput {
   factIds: string[];
   effectiveAt: string;
   reason: string | null;
+  /** 요청자가 보고 있던 직전 확정 판. 첫 확정이면 null이다.
+   * 생략할 수 없다 — 생략을 허용하면 가드가 우회된다. */
+  expectedSnapshotId: string | null;
 }
 
 export interface SnapshotListResult {
@@ -73,6 +77,13 @@ export class SnapshotService {
       });
       if (!situation) throw snapshotErrors.notFound();
       await this.situations.requireOpenSituation(c, auth.tenantId, situationId);
+
+      // 잠근 뒤 **가장 먼저** 확인한다. 그 사이에 다른 확정이 있었다면
+      // 요청자는 그것을 보지 못한 것이고, 그대로 진행하면 기준 상황이 조용히
+      // 교체된다(ADR-34 D17). 잠금은 순서만 정하지 이 사실을 알려주지 않는다.
+      if (!isSnapshotBaselineCurrent(input.expectedSnapshotId, situation.currentSnapshotId)) {
+        throw snapshotErrors.staleBaseline(situation.currentSnapshotId);
+      }
 
       // 확정 대상을 실제 행으로 읽는다. 요청의 id를 믿고 해시를 계산하면
       // 존재하지 않는 사실이 확정될 수 있다.

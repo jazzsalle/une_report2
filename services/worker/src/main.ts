@@ -17,6 +17,7 @@ import { PlanJobPoller, type PlanJobRunner } from './plan-jobs/job.poller';
 import { TocJobRunner } from './plan-toc/toc-job.runner';
 import { ContentJobRunner } from './plan-content/content-job.runner';
 import { ExportJobRunner } from './document-export/export-job.runner';
+import { PayloadRetentionRunner } from './retention/payload-retention.runner';
 
 function factoryOptions(config: WorkerConfig): PlanProviderFactoryOptions {
   switch (config.planAdapter) {
@@ -62,8 +63,42 @@ async function bootstrap(): Promise<void> {
   poller.start();
 
   const timer = setInterval(() => heartbeat.tick(), 30_000);
+
+  // 보존기간 정리 (OB-16). 플랜 잡 폴러에 얹지 않는다 — 폴러의 주기는 초
+  // 단위이고 이 작업의 만료 단위는 '일'이다. 별도 타이머로 두면 "언제 돌았고
+  // 몇 건을 비웠는가"가 폴링 로그에 묻히지 않는다.
+  const retention = new PayloadRetentionRunner(db, config);
+  const runRetention = async (): Promise<void> => {
+    try {
+      const swept = await retention.sweep();
+      // 0건이어도 남긴다. 건수로만 로그를 내면 "비울 게 없었다"와 "한 번도
+      // 돌지 못했다"가 로그상 같아지는데, 후자는 원문이 무기한 남는 상태다
+      // (배포 전 롤 멤버십 항목 — OB-17).
+      console.warn(
+        `[une-worker] retention swept: provider_result ${swept.providerResults}건, ` +
+          `provider_job ${swept.providerJobs}건 (기준 ${config.payloadRetentionDays}일, ` +
+          `cutoff ${swept.cutoff}) / 잔여 만료분 result ${swept.remainingResults}건, ` +
+          `job ${swept.remainingJobs}건`,
+      );
+    } catch (err) {
+      // 정리 실패가 워커를 죽이지 않는다 — 다음 주기에 다시 시도한다.
+      console.error(`[une-worker] retention sweep failed: ${(err as Error).message}`);
+    }
+  };
+  let retentionTimer: NodeJS.Timeout | undefined;
+  if (config.retentionEnabled) {
+    retentionTimer = setInterval(() => void runRetention(), config.retentionIntervalMs);
+    void runRetention();
+  } else {
+    console.warn(
+      '[une-worker] retention DISABLED (UNE_RETENTION_ENABLED=false) — provider 원문이 ' +
+        '무기한 남는다. OB-16이 다시 열린 상태다.',
+    );
+  }
+
   const shutdown = async (): Promise<void> => {
     clearInterval(timer);
+    if (retentionTimer) clearInterval(retentionTimer);
     await poller.stop(); // drain the in-flight tick before closing the pool
     await db.close();
     await app.close();

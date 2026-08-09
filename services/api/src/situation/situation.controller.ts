@@ -740,7 +740,7 @@ export class SituationController {
     const violations: ErrorViolation[] = [];
     rejectUnknownKeys(
       raw,
-      ['factIds', 'conflictResolutionIds', 'effectiveAt', 'reason'],
+      ['factIds', 'conflictResolutionIds', 'effectiveAt', 'reason', 'expectedSnapshotId'],
       violations,
     );
 
@@ -776,6 +776,22 @@ export class SituationController {
         reason: '지원하지 않는 항목입니다(해소는 UNE-SIT-011에서 이미 기록됩니다).',
       });
     }
+    // 요청자가 보고 있던 직전 판. **생략할 수 없다** — 생략을 허용하면
+    // 가드가 우회되고, 그 순간 "둘 다 성공"이 돌아온다(ADR-34 D17).
+    let expectedSnapshotId: string | null = null;
+    if (!Object.prototype.hasOwnProperty.call(raw, 'expectedSnapshotId')) {
+      violations.push({
+        field: 'expectedSnapshotId',
+        reason: '필수 항목입니다. 첫 확정이면 null을 명시하십시오.',
+      });
+    } else if (raw.expectedSnapshotId === null) {
+      expectedSnapshotId = null;
+    } else if (!isUuid(raw.expectedSnapshotId)) {
+      violations.push({ field: 'expectedSnapshotId', reason: 'UUID 또는 null이어야 합니다.' });
+    } else {
+      expectedSnapshotId = raw.expectedSnapshotId;
+    }
+
     if (violations.length > 0) throw snapshotErrors.invalidRequest(violations);
 
     return ok(
@@ -783,7 +799,12 @@ export class SituationController {
       await this.snapshots.confirm(
         requireAuth(req),
         situationId,
-        { factIds: factIds as string[], effectiveAt: effectiveAt as string, reason },
+        {
+          factIds: factIds as string[],
+          effectiveAt: effectiveAt as string,
+          reason,
+          expectedSnapshotId,
+        },
         requestMeta(req),
       ),
     );

@@ -228,6 +228,8 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
     ).data;
   };
 
+  /** `expectedSnapshotId`는 계약이 required로 둔다 — 첫 확정은 null이고
+   * 재확정은 직전 판을 명시해야 한다(ADR-34 D17). */
   const confirm = async (
     situationId: string,
     factIds: string[],
@@ -235,7 +237,7 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
   ): Promise<Response> =>
     call('POST', `/api/v1/situations/${situationId}/snapshots`, tokenA, {
       idempotencyKey: `key_${randomUUID()}`,
-      body: { factIds, effectiveAt: EFFECTIVE, ...overrides },
+      body: { factIds, effectiveAt: EFFECTIVE, expectedSnapshotId: null, ...overrides },
     });
 
   beforeAll(async () => {
@@ -699,7 +701,7 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
       });
       const res = await call('POST', `/api/v1/situations/${situationId}/snapshots`, tokenReader, {
         idempotencyKey: `key_${randomUUID()}`,
-        body: { factIds: [a.factId], effectiveAt: EFFECTIVE },
+        body: { factIds: [a.factId], effectiveAt: EFFECTIVE, expectedSnapshotId: null },
       });
       expect(res.status).toBe(403);
     });
@@ -725,7 +727,7 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
         value: '가',
       });
       const key = `key_${randomUUID()}`;
-      const body = { factIds: [fact.factId], effectiveAt: EFFECTIVE };
+      const body = { factIds: [fact.factId], effectiveAt: EFFECTIVE, expectedSnapshotId: null };
       const first = await call('POST', `/api/v1/situations/${situationId}/snapshots`, tokenA, {
         idempotencyKey: key,
         body,
@@ -758,7 +760,7 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
         value: '가',
       });
       const res = await call('POST', `/api/v1/situations/${situationId}/snapshots`, tokenA, {
-        body: { factIds: [fact.factId], effectiveAt: EFFECTIVE },
+        body: { factIds: [fact.factId], effectiveAt: EFFECTIVE, expectedSnapshotId: null },
       });
       expect(res.status).toBe(400);
     });
@@ -919,6 +921,139 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
     });
   });
 
+  describe('확정 기준 가드 (ADR-34 D17 — 설계 06 US-SIT-008 E-01)', () => {
+    it('두 사람이 같은 화면을 보고 각각 확정하면 뒤가 409다', async () => {
+      // 이것이 없으면 **둘 다 성공**한다. 뒤에 누른 사람은 앞사람의 확정을
+      // 보지 못한 채 기준 상황을 바꾸고, 앞사람은 자기 확정이 여전히 기준이라고
+      // 믿는다. 행 잠금은 순서만 정할 뿐 이 사실을 알려주지 않는다.
+      const situationId = await createSituation();
+      const a = await addFact(situationId, {
+        factType: 'FIELD_REPORT',
+        factKey: 'reporter',
+        value: '가',
+      });
+      const b = await addFact(situationId, {
+        factType: 'WEATHER_OBSERVATION',
+        factKey: 'humidity',
+        value: 60,
+        unit: '%',
+        observedAt: EFFECTIVE,
+      });
+
+      // 두 사람 모두 "아직 확정된 판이 없다"를 보고 있다.
+      const first = await confirm(situationId, [a.factId]);
+      expect(first.status).toBe(201);
+
+      const second = await confirm(situationId, [b.factId]);
+      expect(second.status).toBe(409);
+      const err = (await second.json()) as {
+        error: { code: string; userAction: string };
+      };
+      expect(err.error.code).toBe('SIT-409-004');
+      // 무엇을 봐야 하는지 알려 준다.
+      const v1 = ((await first.json()) as Envelope<SnapshotBody>).data;
+      expect(err.error.userAction).toContain(v1.snapshotId);
+
+      // 판은 하나만 남았다.
+      const rows = await withClient(dbUrl, (c) =>
+        c.query(`SELECT count(*)::int n FROM situation_snapshot WHERE situation_id = $1`, [
+          situationId,
+        ]),
+      );
+      expect(rows.rows[0].n).toBe(1);
+
+      // 최신 판을 보고 다시 확정하면 통과한다.
+      const retry = await confirm(situationId, [b.factId], {
+        expectedSnapshotId: v1.snapshotId,
+      });
+      expect(retry.status).toBe(201);
+    });
+
+    it('진짜 동시에 눌러도 하나만 성공한다 (행 잠금 + 가드)', async () => {
+      // 위 테스트는 순차 호출이라 "가드가 낡은 값을 알아본다"까지만 증명한다.
+      // 여기서는 두 요청이 실제로 겹치게 보낸다 — 상황 행 `FOR UPDATE`가
+      // 순서를 정하고, 뒤진 쪽이 잠금에서 풀려나 **다시 읽은** 값으로
+      // 가드에 걸려야 한다. 잠금 전에 읽었다면 둘 다 통과했을 것이다.
+      const situationId = await createSituation();
+      const a = await addFact(situationId, {
+        factType: 'FIELD_REPORT',
+        factKey: 'reporter',
+        value: '가',
+      });
+      const b = await addFact(situationId, {
+        factType: 'WEATHER_OBSERVATION',
+        factKey: 'humidity',
+        value: 60,
+        unit: '%',
+        observedAt: EFFECTIVE,
+      });
+
+      // 서로 다른 멱등키다 — 재생이 아니라 진짜 두 요청이다.
+      const [r1, r2] = await Promise.all([
+        confirm(situationId, [a.factId]),
+        confirm(situationId, [b.factId]),
+      ]);
+
+      const codes = [r1.status, r2.status].sort();
+      expect(codes).toEqual([201, 409]);
+
+      const loser = r1.status === 409 ? r1 : r2;
+      const err = (await loser.json()) as { error: { code: string } };
+      expect(err.error.code).toBe('SIT-409-004');
+
+      const rows = await withClient(dbUrl, (c) =>
+        c.query(`SELECT count(*)::int n FROM situation_snapshot WHERE situation_id = $1`, [
+          situationId,
+        ]),
+      );
+      expect(rows.rows[0].n).toBe(1);
+    });
+
+    it('expectedSnapshotId가 UUID가 아니면 400이다', async () => {
+      const situationId = await createSituation();
+      const fact = await addFact(situationId, {
+        factType: 'FIELD_REPORT',
+        factKey: 'reporter',
+        value: '가',
+      });
+      const res = await confirm(situationId, [fact.factId], {
+        expectedSnapshotId: 'not-a-uuid',
+      });
+      expect(res.status).toBe(400);
+      const err = (await res.json()) as { error: { violations: { field: string }[] } };
+      expect(err.error.violations.map((v) => v.field)).toContain('expectedSnapshotId');
+    });
+
+    it('첫 확정에 남의 snapshotId를 대면 409다', async () => {
+      const situationId = await createSituation();
+      const fact = await addFact(situationId, {
+        factType: 'FIELD_REPORT',
+        factKey: 'reporter',
+        value: '가',
+      });
+      const res = await confirm(situationId, [fact.factId], {
+        expectedSnapshotId: randomUUID(),
+      });
+      expect(res.status).toBe(409);
+    });
+
+    it('expectedSnapshotId를 생략하면 400이다 (가드를 우회할 수 없다)', async () => {
+      const situationId = await createSituation();
+      const fact = await addFact(situationId, {
+        factType: 'FIELD_REPORT',
+        factKey: 'reporter',
+        value: '가',
+      });
+      const res = await call('POST', `/api/v1/situations/${situationId}/snapshots`, tokenA, {
+        idempotencyKey: `key_${randomUUID()}`,
+        body: { factIds: [fact.factId], effectiveAt: EFFECTIVE },
+      });
+      expect(res.status).toBe(400);
+      const err = (await res.json()) as { error: { violations: { field: string }[] } };
+      expect(err.error.violations.map((v) => v.field)).toContain('expectedSnapshotId');
+    });
+  });
+
   // ── 인수기준 2·3 ─────────────────────────────────────────────────────────
 
   describe('불변과 해시·버전 (인수기준 2·3)', () => {
@@ -1027,7 +1162,9 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
         observedAt: EFFECTIVE,
       });
       const v2 = (
-        (await (await confirm(situationId, [second.factId])).json()) as Envelope<SnapshotBody>
+        (await (
+          await confirm(situationId, [second.factId], { expectedSnapshotId: v1.snapshotId })
+        ).json()) as Envelope<SnapshotBody>
       ).data;
 
       expect(v2.snapshotId).not.toBe(v1.snapshotId);
@@ -1106,7 +1243,9 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
       // 지운 적 없는 사실이 REMOVED로 보고되고, 현재 기준 Snapshot에서도
       // 사라진다(아키텍처 리뷰 M-2). 이미 CONFIRMED인 Fact를 다시 담을 수
       // 있어야 그것이 가능하다.
-      const v2 = await confirm(situationId, [temp27.factId, humidity.factId, rainfall.factId]);
+      const v2 = await confirm(situationId, [temp27.factId, humidity.factId, rainfall.factId], {
+        expectedSnapshotId: v1.snapshotId,
+      });
       expect(v2.status).toBe(201);
 
       const res = await call(
@@ -1162,7 +1301,7 @@ describe.skipIf(!ADMIN_URL)('CC-210 duplicate / conflict / snapshot e2e', () => 
         (await (await confirm(situationId, [a.factId, b.factId])).json()) as Envelope<SnapshotBody>
       ).data;
       // 두 번째 판에서 humidity를 빼는 것은 사용자의 선택이다.
-      await confirm(situationId, [a.factId]);
+      await confirm(situationId, [a.factId], { expectedSnapshotId: v1.snapshotId });
 
       const res = await call(
         'GET',
