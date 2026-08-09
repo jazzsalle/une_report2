@@ -47,6 +47,24 @@ export interface ApiConfig {
    * 아예 없는 것은 그때까지 미룰 수 있는 종류가 아니다(QA 리뷰 R-3).
    */
   situationProviderTimeoutMs: number;
+  /**
+   * 지식문서 업로드 상한 (CC-220, US-SIT-009 1단계 "허용형식/크기 검사").
+   *
+   * `uploadMaxBytes`와 따로 둔다 — 저장소에 올릴 수 있는 크기와 UNI가 받아
+   * 학습할 수 있는 크기는 다른 값이고, 후자는 UNI 쪽 제약(OB-13)에 묶인다.
+   */
+  knowledgeMaxFileBytes: number;
+  knowledgeAllowedMimeTypes: ReadonlySet<string>;
+  /**
+   * 악성코드 검사 결과가 없어도 등록을 허용하는가.
+   *
+   * **기본 false.** OB-15로 AV 엔진이 없어 `scan_status`는 영구 PENDING인데,
+   * 그것을 통과로 보면 하지 않은 검사를 했다고 감사에 남는다(ADR-32 D3).
+   * 완화가 필요하면 그 사실이 설정에 드러나야 한다.
+   */
+  knowledgeAllowScanPending: boolean;
+  /** UNI 전송 시도 상한 (UNE-KNOW-003). */
+  knowledgeMaxUploadAttempts: number;
 }
 
 function intEnv(value: string | undefined, fallback: number): number {
@@ -85,6 +103,10 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     corsAllowedOrigins: parseOrigins(env.UNE_CORS_ALLOWED_ORIGINS),
     situationMockScenarios: env.UNE_SITUATION_MOCK_SCENARIOS === 'true',
     situationProviderTimeoutMs: intEnv(env.UNE_SITUATION_PROVIDER_TIMEOUT_MS, 10_000),
+    knowledgeMaxFileBytes: intEnv(env.UNE_KNOWLEDGE_MAX_FILE_BYTES, 50 * 1024 * 1024),
+    knowledgeAllowedMimeTypes: parseMimeList(env.UNE_KNOWLEDGE_ALLOWED_MIME_TYPES),
+    knowledgeAllowScanPending: env.UNE_KNOWLEDGE_ALLOW_SCAN_PENDING === 'true',
+    knowledgeMaxUploadAttempts: intEnv(env.UNE_KNOWLEDGE_MAX_UPLOAD_ATTEMPTS, 3),
   };
 }
 
@@ -109,4 +131,36 @@ function parseOrigins(raw: string | undefined): readonly string[] {
     }
   }
   return items;
+}
+
+/**
+ * 지식문서 허용 MIME (CC-220).
+ *
+ * 기본값은 설계 06 US-SIT-009가 예로 든 자료(훈련계획서·매뉴얼·평가지침)의
+ * 통상 형식이다. 확장자를 신뢰하지 않는다 — 최종 판정은 업로드 검증
+ * (UNE-DOC-002)의 내용 검사이며 여기는 선언 단계의 1차 거름망이다.
+ */
+const DEFAULT_KNOWLEDGE_MIME_TYPES = [
+  'application/pdf',
+  'application/hwp+zip',
+  'application/vnd.hancom.hwpx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain',
+] as const;
+
+export function parseMimeList(raw: string | undefined): ReadonlySet<string> {
+  if (raw === undefined || raw.trim() === '') return new Set(DEFAULT_KNOWLEDGE_MIME_TYPES);
+  const items = raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+  if (items.length === 0) {
+    throw new Error('UNE_KNOWLEDGE_ALLOWED_MIME_TYPES가 비어 있다 — 값을 지우려면 변수를 제거하라');
+  }
+  if (items.includes('*') || items.includes('*/*')) {
+    throw new Error('지식문서 허용 MIME에 와일드카드를 쓸 수 없다 (US-SIT-009 1단계 형식 검사)');
+  }
+  return new Set(items);
 }

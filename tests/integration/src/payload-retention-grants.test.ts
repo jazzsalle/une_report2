@@ -241,17 +241,23 @@ describe.skipIf(!ADMIN_URL)('0026: 보존 정리 롤의 권한 경계 (OB-16)', 
     ).toBe('42501');
   });
 
-  it('une_worker는 여전히 두 테이블에 닿지 못한다 (ADR-33 D2)', async () => {
+  it('une_worker는 provider_result를 여전히 읽지 못한다 (ADR-36 D4)', async () => {
+    // CC-220이 워커에게 provider_job을 열었지만 **provider_result의 SELECT는
+    // 열지 않았다.** 원문을 남기는 데 읽기는 필요 없고, 읽기까지 주면 정책
+    // 결함 하나가 전 테넌트의 Provider 원문을 노출한다. 권한 부재는 정책
+    // 결함으로 뚫리지 않으므로 이 42501은 그대로 남는다.
     expect(
       await errCode(() =>
         asRole(url, 'une_worker', null, (c) => c.query(`SELECT 1 FROM provider_result LIMIT 1`)),
       ),
     ).toBe('42501');
-    expect(
-      await errCode(() =>
-        asRole(url, 'une_worker', null, (c) => c.query(`SELECT 1 FROM provider_job LIMIT 1`)),
-      ),
-    ).toBe('42501');
+
+    // provider_job은 권한이 생겼다. 대신 상황 수집 행은 제한 정책이 가려
+    // **0행**이다 — situation-table-rls.test.ts가 그 경계를 단언한다.
+    const rows = await asRole(url, 'une_worker', null, (c) =>
+      c.query(`SELECT provider_job_id FROM provider_job`),
+    );
+    expect(rows.rows).toEqual([]);
   });
 
   it('전용 롤은 테넌트를 세우지 않아도 두 테넌트의 행을 모두 본다', async () => {

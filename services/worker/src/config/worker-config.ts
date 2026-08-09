@@ -51,6 +51,13 @@ export interface WorkerConfig {
   retentionIntervalMs: number;
   /** 정리 자체를 끌 수 있다. 기본은 켬 — 꺼두면 OB-16이 다시 열린다. */
   retentionEnabled: boolean;
+  /** 지식문서 UNI 전송 스윕 주기 (CC-220). */
+  knowledgeUploadIntervalMs: number;
+  /** 한 스윕에서 상태를 관측할 문서 수. */
+  knowledgePollBatchSize: number;
+  /** 상태 관측 주기. 설계 08 §1.14의 backoff는 문서 단위이고 이것은 스윕 단위다. */
+  knowledgePollIntervalMs: number;
+  knowledgeEnabled: boolean;
 }
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -151,6 +158,10 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     retentionBatchSize: intFrom(env.UNE_RETENTION_BATCH_SIZE, 500),
     retentionIntervalMs: intFrom(env.UNE_RETENTION_INTERVAL_MS, 6 * 60 * 60 * 1000),
     retentionEnabled: env.UNE_RETENTION_ENABLED !== 'false',
+    knowledgeUploadIntervalMs: intFrom(env.UNE_KNOWLEDGE_UPLOAD_INTERVAL_MS, 5_000),
+    knowledgePollBatchSize: intFrom(env.UNE_KNOWLEDGE_POLL_BATCH_SIZE, 20),
+    knowledgePollIntervalMs: intFrom(env.UNE_KNOWLEDGE_POLL_INTERVAL_MS, 15_000),
+    knowledgeEnabled: env.UNE_KNOWLEDGE_ENABLED !== 'false',
   };
 }
 

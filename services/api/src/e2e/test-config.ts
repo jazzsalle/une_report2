@@ -28,6 +28,14 @@ export function e2eApiConfig(
     uploadMaxBytes: 50 * 1024 * 1024,
     uploadTicketTtlSec: 900,
     corsAllowedOrigins: [],
+    // CC-220: 지식문서 정책. AV 엔진이 없으므로(OB-15) e2e는 scan_status가
+    // PENDING인 픽스처를 쓰게 되는데, 그것을 통과로 두면 도메인이 막으려던
+    // 바로 그 경로가 테스트에서 사라진다. 기본은 운영과 같은 false로 두고
+    // 완화가 필요한 테스트만 명시적으로 켠다.
+    knowledgeMaxFileBytes: 50 * 1024 * 1024,
+    knowledgeAllowedMimeTypes: new Set(['application/pdf', 'text/plain']),
+    knowledgeAllowScanPending: false,
+    knowledgeMaxUploadAttempts: 3,
     // CC-200: 목업 시나리오 훅은 **설정으로만** 켜진다(ADR-33 D19). e2e가
     // 부분 장애를 만들려면 여기서 켜야 하고, 운영 기본값은 false다.
     situationMockScenarios: true,

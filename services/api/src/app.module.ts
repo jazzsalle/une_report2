@@ -49,6 +49,9 @@ import { ResolutionRepository } from './situation/resolution.repository';
 import { ResolutionService } from './situation/resolution.service';
 import { SnapshotService } from './situation/snapshot.service';
 import { situationProviderFactory } from './situation/situation-provider.provider';
+import { KnowledgeController } from './knowledge/knowledge.controller';
+import { KnowledgeRepository } from './knowledge/knowledge.repository';
+import { KnowledgeService } from './knowledge/knowledge.service';
 import { ProviderJobController, SituationController } from './situation/situation.controller';
 import { SituationRepository } from './situation/situation.repository';
 import { SituationService } from './situation/situation.service';
@@ -77,6 +80,7 @@ export class AppModule {
         DocumentExportController,
         ExportController,
         SituationController,
+        KnowledgeController,
         ProviderJobController,
       ],
       providers: [
@@ -112,6 +116,8 @@ export class AppModule {
         // Provider 호출은 동기이며 트랜잭션 밖에서 돈다(ADR-33 D2).
         SituationRepository,
         SituationService,
+        KnowledgeRepository,
+        KnowledgeService,
         FactService,
         ProviderQueryService,
         situationProviderFactory,

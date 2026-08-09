@@ -37,9 +37,21 @@ const EXPECTED_WORKER_GRANTS = [
   'generation_job:UPDATE',
   'job_event:INSERT',
   'job_event:SELECT',
+  // 0028 (CC-220, ADR-36 D4): 지식문서 UNI 전송. 설계 10 §7.23 7단계가 UNI
+  // 호출자를 워커로 정했다.
+  //   * provider_job은 SELECT/UPDATE이되 **제한(RESTRICTIVE) 정책**이
+  //     provider_code='UNI' 밖을 어떤 경로로도 보이지 않게 한다 — 테넌트를
+  //     세운 트랜잭션에서도 그렇다(실측으로 노출을 재현한 뒤 넣었다).
+  //   * provider_result는 **INSERT만**이다. 원문을 남기는 데 읽기는 필요 없고,
+  //     SELECT까지 주면 정책 결함 하나가 전 테넌트 원문을 노출한다. 권한 부재는
+  //     정책 결함으로 뚫리지 않는다 — 이 목록에 provider_result:SELECT가
+  //     **없다는 것**이 그 보장이다.
+  'knowledge_document:SELECT',
   'plan:SELECT',
   'plan:UPDATE',
   'plan_context_snapshot:SELECT',
+  'provider_job:SELECT',
+  'provider_result:INSERT',
   'template_profile:SELECT',
   'tenant:SELECT',
   'toc_node:INSERT',

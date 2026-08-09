@@ -363,13 +363,152 @@ describe.skipIf(!ADMIN_URL)('CC-200 / 0023: 상황 계열 테넌트 격리', () 
   });
 
   describe('워커 권한 (ADR-33 D2: 수집은 동기 경로이며 워커는 닿지 않는다)', () => {
-    it('une_worker는 상황 계열 테이블에 42501로 막힌다', async () => {
-      for (const table of ALL_SITUATION_TABLES) {
+    // 0028(CC-220)이 `provider_job`에만 워커 권한을 열었다 — 설계 10 §7.23
+    // 7단계가 UNI 호출자를 워커로 정했기 때문이다. 나머지는 그대로 42501이며
+    // **`provider_result`의 SELECT가 없다는 것이 특히 중요하다**: 원문을 남기는
+    // 데 읽기는 필요 없고, 읽기까지 열면 정책 결함 하나가 전 테넌트의 Provider
+    // 원문을 노출한다. 그래서 워커에게는 INSERT만 있다.
+    const STILL_DENIED = ALL_SITUATION_TABLES.filter((t) => t !== 'provider_job');
+
+    it('une_worker는 상황 계열 테이블에 42501로 막힌다 (provider_job 제외)', async () => {
+      for (const table of STILL_DENIED) {
         await expect(
           asRole(url, 'une_worker', a.tenantId, (c) => c.query(`SELECT 1 FROM ${table} LIMIT 1`)),
           `SELECT ${table}`,
         ).rejects.toThrow(/permission denied/i);
       }
+    });
+
+    it('une_worker는 provider_result를 읽을 수 없다 (INSERT만 있다 — 0028)', async () => {
+      // 권한 부재는 정책 결함으로 뚫리지 않는다. 이 단언이 무너지면 워커
+      // 프로세스의 결함 하나가 전 테넌트 원문 노출로 이어진다.
+      await expect(
+        asRole(url, 'une_worker', null, (c) => c.query(`SELECT 1 FROM provider_result LIMIT 1`)),
+      ).rejects.toThrow(/permission denied/i);
+      const privs = await withClient(url, (c) =>
+        c.query(
+          `SELECT privilege_type FROM information_schema.table_privileges
+           WHERE grantee = 'une_worker' AND table_name = 'provider_result'
+           ORDER BY privilege_type`,
+        ),
+      );
+      expect(privs.rows.map((r) => r.privilege_type)).toEqual(['INSERT']);
+    });
+
+    it('provider_job에 권한이 생겼어도 상황 수집 행은 어떤 경로로도 보이지 않는다', async () => {
+      // 0028은 42501을 "권한은 있으나 0행"으로 바꿨다. 그 대체가 실제로 같은
+      // 것을 지키는지가 여기서 갈린다. 워커가 **테넌트를 세운** 트랜잭션이
+      // 위험한 경로다 — 기존 테넌트 정책은 TO PUBLIC이라 permissive OR로
+      // 합쳐지고, 제한 정책이 없으면 그 순간 KMA 행이 보인다.
+      const withTenant = await asRole(url, 'une_worker', a.tenantId, (c) =>
+        c.query(`SELECT provider_job_id FROM provider_job`),
+      );
+      expect(withTenant.rows).toEqual([]);
+
+      const withoutTenant = await asRole(url, 'une_worker', null, (c) =>
+        c.query(`SELECT provider_job_id FROM provider_job`),
+      );
+      expect(withoutTenant.rows).toEqual([]);
+
+      // 제한 정책이 그 근거이며 pg_policies에 드러난다.
+      const restrictive = await withClient(url, (c) =>
+        c.query(
+          `SELECT permissive, roles::text AS roles, qual FROM pg_policies
+           WHERE tablename = 'provider_job' AND policyname = 'p_provider_job_worker_only_uni'`,
+        ),
+      );
+      expect(restrictive.rows).toHaveLength(1);
+      expect(restrictive.rows[0].permissive).toBe('RESTRICTIVE');
+      expect(restrictive.rows[0].roles).toBe('{une_worker}');
+      expect(restrictive.rows[0].qual).toContain('UNI');
+    });
+
+    it('une_worker는 UNI 잡의 요청조건을 비울 수 없다 (0030 — 컬럼 단위 권한)', async () => {
+      // 아키텍처 검토 M1. 0028이 테이블 단위 UPDATE를 주면 워커가
+      // `request_json`/`redacted_at`을 쓸 수 있다 — 0026이 전용 롤 뒤로 격리한
+      // 바로 그 두 컬럼이고, 0029의 트리거는 마스킹 전이를 롤과 무관하게
+      // 허용하므로 트리거도 막지 못한다.
+      const uniJob = await withClient(url, async (c) => {
+        const r = await c.query(
+          `INSERT INTO provider_job
+             (tenant_id, batch_id, situation_id, provider_code, request_json, status,
+              result_count, correlation_id)
+           VALUES ($1, gen_random_uuid(), $2, 'UNI', '{"q":1}'::jsonb, 'QUEUED', 0, 'uni-m1')
+           RETURNING provider_job_id`,
+          [a.tenantId, a.situationId],
+        );
+        return r.rows[0].provider_job_id as string;
+      });
+
+      await expect(
+        asRole(url, 'une_worker', a.tenantId, (c) =>
+          c.query(
+            `UPDATE provider_job
+                SET request_json = '{"redacted": true}'::jsonb, redacted_at = now()
+              WHERE provider_job_id = $1`,
+            [uniJob],
+          ),
+        ),
+      ).rejects.toThrow(/permission denied/i);
+
+      // 보존 마스킹은 여전히 전용 롤만의 일이다.
+      const still = await withClient(url, (c) =>
+        c.query(`SELECT redacted_at FROM provider_job WHERE provider_job_id = $1`, [uniJob]),
+      );
+      expect(still.rows[0].redacted_at).toBeNull();
+    });
+
+    it('une_worker는 종결된 UNI 잡을 되돌릴 수 없다 (0030 — 제한 정책)', async () => {
+      // 아키텍처 검토 M2. 테넌트를 세운 트랜잭션에서는 permissive 테넌트 정책이
+      // OR로 통과하므로, 미종결 조건이 permissive 쪽에만 있으면 종결된 잡도
+      // 잡힌다. 0029의 주석이 "지금은 도달 경로가 없다"고 적었던 바로 그 경로다.
+      const settled = await withClient(url, async (c) => {
+        const r = await c.query(
+          `INSERT INTO provider_job
+             (tenant_id, batch_id, situation_id, provider_code, request_json, status,
+              result_count, correlation_id, finished_at)
+           VALUES ($1, gen_random_uuid(), $2, 'UNI', '{"q":1}'::jsonb, 'SUCCEEDED', 1,
+                   'uni-m2', now())
+           RETURNING provider_job_id`,
+          [a.tenantId, a.situationId],
+        );
+        return r.rows[0].provider_job_id as string;
+      });
+
+      const updated = await asRole(url, 'une_worker', a.tenantId, async (c) => {
+        const r = await c.query(
+          `UPDATE provider_job
+              SET status = 'QUEUED', result_count = 0, finished_at = NULL, error_json = NULL
+            WHERE provider_job_id = $1`,
+          [settled],
+        );
+        return r.rowCount;
+      });
+      expect(updated).toBe(0);
+
+      const after = await withClient(url, (c) =>
+        c.query(`SELECT status FROM provider_job WHERE provider_job_id = $1`, [settled]),
+      );
+      expect(after.rows[0].status).toBe('SUCCEEDED');
+    });
+
+    it('une_worker는 상황 수집 잡을 고칠 수 없다 (제한 정책이 쓰기도 막는다)', async () => {
+      // 대상은 **상황 수집(KMA) 잡**이다. WHERE 없이 전체를 치면 같은 DB에
+      // 있는 UNI 픽스처까지 걸려 이 단언이 무엇을 증명하는지 흐려진다.
+      const updated = await asRole(url, 'une_worker', a.tenantId, async (c) => {
+        const r = await c.query(
+          `UPDATE provider_job SET result_count = 99 WHERE provider_job_id = $1`,
+          [a.providerJobId],
+        );
+        return r.rowCount;
+      });
+      expect(updated).toBe(0);
+      const still = await withClient(url, (c) =>
+        c.query(`SELECT result_count FROM provider_job WHERE provider_job_id = $1`, [
+          a.providerJobId,
+        ]),
+      );
+      expect(still.rows[0].result_count).not.toBe(99);
     });
 
     it('une_worker는 후보 Fact를 만들 수도 없다', async () => {
