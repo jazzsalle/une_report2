@@ -1512,11 +1512,11 @@ export type paths = {
          * SituationSnapshot 확정
          * @description 권한: SITUATION_CONFIRM
          *
-         *     핵심 요청: factIds,effectiveAt,reason (resolutionIds는 받지 않는다 — ADR-34 D6)
+         *     핵심 요청: factIds,effectiveAt,expectedSnapshotId,reason (resolutionIds는 받지 않는다 — ADR-34 D6)
          *
          *     핵심 응답: SituationSnapshot
          *
-         *     오류: SIT-412-003,SIT-422-006
+         *     오류: SIT-409-004,SIT-412-003,SIT-422-006
          */
         post: operations["une_sit_012"];
         delete?: never;
@@ -4048,10 +4048,89 @@ export type components = {
             reason: string;
         };
         KnowledgeDocumentCreateRequest: {
+            /**
+             * Format: uuid
+             * @description UNE-DOC-002 업로드 검증을 통과한 file_object. 검증 전 파일은 KNOW-422-001.
+             */
+            fileId: string;
+            /** @enum {string} */
+            documentType: "MANUAL" | "TRAINING_PLAN" | "EVALUATION_GUIDE" | "MESSAGE_LIST" | "MISSION_CARD";
+            /**
+             * @description 보존범위(설계 06 US-SIT-009). ORG_KB는 등록 시점에 지정할 수 없다 — 5단계가 기관 KB 자동승격을 금지하고 A-02가 별도 승인 워크플로를 요구한다. 지정하면 KNOW-422-002.
+             * @default THIS_INCIDENT
+             * @enum {string}
+             */
+            retentionScope: "THIS_INCIDENT" | "PROJECT" | "ORG_KB";
+            /**
+             * @description 같은 해시의 자료가 이미 있어도 새로 등록한다(US-SIT-009 A-01). false이면 중복 시 KNOW-409-001로 기존 자료를 알려주고 사용자가 고른다.
+             * @default false
+             */
+            force: boolean;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        KnowledgeDocumentResponse: {
+            success: boolean;
+            data: components["schemas"]["KnowledgeDocument"];
+            meta: Record<string, never>;
+        };
+        KnowledgeDocumentRetryRequest: {
+            /** @description 재시도 사유. 감사 기록의 핵심이므로 필수다. */
+            reason: string;
+        };
+        /** @description 지식문서. **상태가 두 축이다** — `status`는 UNE가 아는 사실(파일을 검증했고 UNI에 보냈다), `uniStatus`는 UNI가 알려준 사실(파싱·색인·참조생성이 어디까지 갔다)이다. 설계 06이 US-SIT-009와 US-SIT-010에 서로 다른 상태전이를 적었고, 한 컬럼에 합치면 UNI가 응답하지 않을 때 무엇이 참인지 말할 수 없다. */
+        KnowledgeDocument: {
+            /** Format: uuid */
+            knowledgeDocumentId: string;
+            /** Format: uuid */
+            situationId?: string | null;
             /** Format: uuid */
             fileId: string;
-            documentType: string;
-            metadata?: Record<string, never>;
+            /** @enum {string} */
+            documentType: "MANUAL" | "TRAINING_PLAN" | "EVALUATION_GUIDE" | "MESSAGE_LIST" | "MISSION_CARD";
+            /** @enum {string} */
+            retentionScope: "THIS_INCIDENT" | "PROJECT" | "ORG_KB";
+            /**
+             * @description UNE 등록 축 (설계 06 US-SIT-009 상태전이).
+             * @enum {string}
+             */
+            status: "PENDING_UPLOAD" | "UPLOADING" | "REGISTERED" | "FAILED" | "CANCELLED";
+            /**
+             * @description UNI 처리 축 (설계 08 §1.9 어휘). **null은 "아직 모른다"이지 "처리되지 않았다"가 아니다** — UNI가 doc_id를 돌려주기 전까지 null이다.
+             * @enum {string|null}
+             */
+            uniStatus: "QUEUED" | "PARSING" | "INDEXING" | "REFERENCE_GENERATING" | "READY" | "ERROR" | null;
+            /**
+             * Format: date-time
+             * @description uniStatus를 마지막으로 관측한 시각. 이 API는 UNI를 호출하지 않는다.
+             */
+            uniObservedAt?: string | null;
+            /** @description UNI doc_id. REGISTERED이면 반드시 있다. */
+            providerDocumentId?: string | null;
+            /** @description SOP 근거로 쓸 수 있는가. status=REGISTERED이고 uniStatus=READY일 때만 참이다 (US-SIT-010 완료조건 "READY 아닌 자료가 Evidence에 포함된 건 0"). */
+            evidenceEligible: boolean;
+            /** @description 참조요약 없이도 검색 가능한가 (US-SIT-010 A-01 READY_WITHOUT_REFERENCE). REFERENCE_GENERATING에서도 참이며 evidenceEligible과 갈린다. */
+            searchable: boolean;
+            sourceSha256?: string | null;
+            attemptCount: number;
+            /** Format: date-time */
+            lastAttemptAt?: string | null;
+            error?: {
+                [key: string]: unknown;
+            } | null;
+            reference?: {
+                [key: string]: unknown;
+            } | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         EvidenceSearchRequest: {
             query: string;
@@ -4257,8 +4336,11 @@ export type components = {
             /** Format: uuid */
             situationId?: string | null;
             providerCode: components["schemas"]["ProviderCode"];
-            /** @enum {string} */
-            status: "SUCCEEDED" | "PARTIAL" | "FAILED";
+            /**
+             * @description 0028(CC-220)이 QUEUED/RUNNING을 열었다 — 0023 §4가 "비동기로 옮길 때 함께 온다"고 예고한 값이다. 상황 수집(CC-200)은 여전히 동기라 종결 상태로만 태어나고, 미종결 두 값은 UNI 지식문서 전송 경로가 쓴다.
+             * @enum {string}
+             */
+            status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "PARTIAL" | "FAILED";
             /** @description 정규화를 통과해 후보 Fact가 된 항목 수 */
             resultCount: number;
             /** @description 실패·부분실패의 근거. 0023 ck_provider_job_outcome_shape가 상태와의 상관을 강제한다: SUCCEEDED면 null, PARTIAL이면 non-null이고 resultCount>0, FAILED면 non-null이고 resultCount=0. */
@@ -4275,8 +4357,11 @@ export type components = {
             correlationId?: string;
             /** Format: date-time */
             createdAt: string;
-            /** Format: date-time */
-            finishedAt: string;
+            /**
+             * Format: date-time
+             * @description 미종결(QUEUED/RUNNING)이면 null이다. 종결 상태에는 0028의 ck_provider_job_outcome_shape가 값을 강제한다 — 불변식이 컬럼 NOT NULL에서 상관식으로 옮겨갔을 뿐 약해지지 않는다.
+             */
+            finishedAt: string | null;
         };
         ProviderQueryJob: {
             /** Format: uuid */
@@ -6970,19 +7055,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["KnowledgeDocumentCreateRequest"];
             };
         };
         responses: {
-            /** @description Success */
-            201: {
+            /** @description 등록 접수. UNI 호출은 워커가 수행하므로(설계 10 §7.23 7단계) 이 응답 시점에 UNI 처리는 시작되지 않았다. 진행은 UNE-KNOW-002로 조회한다. */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["KnowledgeDocumentResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7007,13 +7092,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description 마지막으로 **관측한** 상태. 이 API는 UNI를 호출하지 않는다 — 폴링은 워커가 하고(설계 08 §1.14의 2/4/8/15초) 여기서는 그 결과를 읽는다. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["KnowledgeDocumentResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7037,19 +7122,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["KnowledgeDocumentRetryRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description 재시도 접수. 새 provider_job이 QUEUED로 생기고 워커가 다시 보낸다. */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["KnowledgeDocumentResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

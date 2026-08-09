@@ -72,11 +72,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 27 baseline migrations', async () => {
+  it('applies all 30 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(27);
+    expect(applied.rows).toHaveLength(30);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -104,6 +104,16 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     // 0027: 0026의 CHECK가 한 방향만 막아 원문 위조와 표식 삭제가 통과했다.
     // 허용 전이를 트리거로 하나만 남긴다. 테이블·롤·권한 변화 없음.
     expect(applied.rows[26].name).toBe('0027_payload_redaction_transition_guard');
+    // 0028 (CC-220): knowledge_document에 어휘·상관식·FK를 세우고(0004는 제약이
+    // 하나도 없었다) provider_job에 QUEUED/RUNNING을 연다 — 0023 §4가 "비동기로
+    // 옮길 때 함께 온다"고 예고한 그 마이그레이션이다. 테이블은 늘지 않는다.
+    expect(applied.rows[27].name).toBe('0028_knowledge_document_uni_lifecycle');
+    // 0029 (CC-220): 0027의 트리거가 provider_job의 **모든** UPDATE를 막아
+    // 워커의 상태 전이까지 42501이었다. 규칙을 페이로드·표식 컬럼으로 좁힌다.
+    expect(applied.rows[28].name).toBe('0029_redaction_guard_allows_lifecycle');
+    // 0030 (CC-220 검토 반영): 0028의 테이블 단위 UPDATE가 워커에게 마스킹
+    // 컬럼과 종결 잡까지 열어 줬다(실측). 컬럼 GRANT + 제한 정책으로 좁힌다.
+    expect(applied.rows[29].name).toBe('0030_worker_column_grants_and_open_job_guard');
   });
 
   // 61 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
@@ -202,11 +212,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0027 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0030 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0027
+    await migrate(db.url); // remaining: 0011 ~ 0030
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -221,7 +231,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(27);
+    expect(applied.rows[0].n).toBe(30);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

@@ -159,6 +159,12 @@ export async function startHarness(label: string): Promise<Harness> {
     publicBaseUrl: 'http://127.0.0.1:0',
     uploadMaxBytes: 50 * 1024 * 1024,
     uploadTicketTtlSec: 900,
+    // CC-220 지식문서 정책. 운영 기본값과 같게 둔다 — 특히 검사 미완료 완화는
+    // 꺼진 상태여야 도메인이 막으려는 경로가 테스트에서 살아 있다(ADR-36 D6).
+    knowledgeMaxFileBytes: 50 * 1024 * 1024,
+    knowledgeAllowedMimeTypes: new Set(['application/pdf', 'text/plain']),
+    knowledgeAllowScanPending: false,
+    knowledgeMaxUploadAttempts: 3,
     corsAllowedOrigins: [],
     // CC-200: 이 슬라이스는 상황 수집을 지나지 않지만 ApiConfig는 전 필드를
     // 요구한다. 목업 시나리오 훅은 운영 기본값 그대로 끈 채로 둔다(ADR-33 D19).

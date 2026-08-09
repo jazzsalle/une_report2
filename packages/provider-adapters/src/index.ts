@@ -290,3 +290,49 @@ export {
   type SituationProviderFlags,
   type SituationProviderRegistryOptions,
 } from './situation/situation-provider-registry';
+
+// ── UNI 지식문서 포트 + 어댑터 (CC-220) ──
+// 실 HTTP 어댑터는 존재하지만 provider 미검증이다(UNE_ADAPTER_READY).
+// mock은 UNI 지원이 아니며 어떤 경로도 그렇게 보고하지 않는다.
+export {
+  UNI_KNOWLEDGE_OPERATIONS,
+  UNI_KNOWLEDGE_ERROR_CODES,
+  uniErrorFromStatus,
+  uniFailure,
+  uniSuccess,
+  isRetryableUniError,
+  type UniKnowledgeOperation,
+  type UniKnowledgeErrorCode,
+  type UniKnowledgeError,
+  type UniKnowledgeProvider,
+  type UniKnowledgeResult,
+  type UniCallContext,
+  type UniRawTrace,
+  type UniUploadInput,
+  type UniUploadOutcome,
+  type UniStatusOutcome,
+  type UniReferenceOutcome,
+} from './uni/knowledge/uni-knowledge-port';
+export {
+  DEFAULT_UNI_FIELD_NAMES,
+  guardUniUpload,
+  guardUniStatus,
+  guardUniReference,
+  type UniFieldNames,
+} from './uni/knowledge/uni-knowledge-response.guard';
+export { MockUniKnowledgeAdapter } from './uni/knowledge/mock-uni-knowledge-adapter';
+export {
+  HttpUniKnowledgeAdapter,
+  type HttpUniKnowledgeConfig,
+} from './uni/knowledge/http-uni-knowledge-adapter';
+export {
+  UNI_KNOWLEDGE_ADAPTERS,
+  createUniKnowledgeProvider,
+  type UniKnowledgeAdapterId,
+  type UniKnowledgeFactoryEnv,
+} from './uni/knowledge/uni-knowledge-factory';
+export {
+  UNI_KNOWLEDGE_FEATURE_CAPABILITIES,
+  getUniKnowledgeCapability,
+  type UniFeatureCapability,
+} from './capability/uni-knowledge-capabilities';

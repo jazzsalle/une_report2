@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 63
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard
 
 ## api_idempotency
 
@@ -663,11 +663,20 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 ## knowledge_document
 
 - 격리: RLS enforced (FORCE)
-- fk_knowledge_document_file_id: FOREIGN KEY (file_id) REFERENCES file_object(file_id) DEFERRABLE INITIALLY DEFERRED
-- fk_knowledge_document_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
-- fk_knowledge_document_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
+- ck_knowledge_document_attempt_count: CHECK ((attempt_count >= 0))
+- ck_knowledge_document_outcome_shape: CHECK (((((status)::text = 'REGISTERED'::text) AND (provider_document_id IS NOT NULL) AND (error_json IS NULL)) OR (((status)::text = 'FAILED'::text) AND (error_json IS NOT NULL)) OR ((status)::text = ANY ((ARRAY['PENDING_UPLOAD'::character varying, 'UPLOADING'::character varying, 'CANCELLED'::character varying])::text[]))))
+- ck_knowledge_document_retention_scope: CHECK (((retention_scope)::text = ANY ((ARRAY['THIS_INCIDENT'::character varying, 'PROJECT'::character varying, 'ORG_KB'::character varying])::text[])))
+- ck_knowledge_document_status: CHECK (((status)::text = ANY ((ARRAY['PENDING_UPLOAD'::character varying, 'UPLOADING'::character varying, 'REGISTERED'::character varying, 'FAILED'::character varying, 'CANCELLED'::character varying])::text[])))
+- ck_knowledge_document_type: CHECK (((document_type)::text = ANY ((ARRAY['MANUAL'::character varying, 'TRAINING_PLAN'::character varying, 'EVALUATION_GUIDE'::character varying, 'MESSAGE_LIST'::character varying, 'MISSION_CARD'::character varying])::text[])))
+- ck_knowledge_document_uni_axis_shape: CHECK (((uni_status IS NULL) OR (((status)::text = 'REGISTERED'::text) AND (provider_document_id IS NOT NULL) AND (uni_observed_at IS NOT NULL))))
+- ck_knowledge_document_uni_status: CHECK (((uni_status IS NULL) OR ((uni_status)::text = ANY ((ARRAY['QUEUED'::character varying, 'PARSING'::character varying, 'INDEXING'::character varying, 'REFERENCE_GENERATING'::character varying, 'READY'::character varying, 'ERROR'::character varying])::text[]))))
+- fk_knowledge_document_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id)
+- fk_knowledge_document_file_id: FOREIGN KEY (file_id) REFERENCES file_object(file_id)
+- fk_knowledge_document_provider_job_id: FOREIGN KEY (provider_job_id) REFERENCES provider_job(provider_job_id)
+- fk_knowledge_document_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id)
+- fk_knowledge_document_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id)
 - knowledge_document_pkey: PRIMARY KEY (knowledge_document_id)
-- 인덱스: knowledge_document_pkey
+- 인덱스: ix_knowledge_document_polling, ix_knowledge_document_situation, ix_knowledge_document_source_hash, knowledge_document_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -677,10 +686,20 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 | file_id | uuid | NN |  | 파일 |
 | document_type | character varying(40) | NN |  | 매뉴얼/훈련계획/평가지침 |
 | provider_document_id | character varying(150) | - |  | UNI ID |
-| status | character varying(20) | NN |  | UPLOADING~FAILED |
+| status | character varying(20) | NN |  | UNE 등록 축: PENDING_UPLOAD/UPLOADING/REGISTERED/FAILED/CANCELLED |
 | metadata_json | jsonb | NN |  | 메타 |
 | created_by | uuid | NN |  | 등록자 |
 | created_at | timestamp with time zone | NN | now() | 등록 |
+| uni_status | character varying(30) | - |  | UNI 처리 축(설계 08 §1.9 어휘의 사본). NULL은 "아직 모른다" |
+| uni_observed_at | timestamp with time zone | - |  | uni_status를 마지막으로 관측한 시각 |
+| reference_json | jsonb | - |  | UNI 참조요약 메타 (US-SIT-010 4단계) |
+| retention_scope | character varying(20) | NN | 'THIS_INCIDENT'::character varying | 보존범위 THIS_INCIDENT/PROJECT/ORG_KB (US-SIT-009) |
+| source_sha256 | character(64) | - |  | 원본 해시 사본 — 중복 탐지(A-01) 경로 |
+| error_json | jsonb | - |  | 실패 사유 (E-02 UPLOAD_ERROR) |
+| attempt_count | integer | NN | 0 | UNI 전송 시도 횟수 (UNE-KNOW-003) |
+| last_attempt_at | timestamp with time zone | - |  |  |
+| provider_job_id | uuid | - |  | 가장 최근 UNI 전송 잡 |
+| updated_at | timestamp with time zone | NN | now() |  |
 
 ## notification
 
@@ -868,14 +887,15 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 ## provider_job
 
 - 격리: RLS enforced (FORCE)
-- ck_provider_job_outcome_shape: CHECK (((((status)::text = 'SUCCEEDED'::text) AND (error_json IS NULL)) OR (((status)::text = 'PARTIAL'::text) AND (error_json IS NOT NULL) AND (result_count > 0)) OR (((status)::text = 'FAILED'::text) AND (error_json IS NOT NULL) AND (result_count = 0))))
+- ck_provider_job_outcome_shape: CHECK (((((status)::text = ANY ((ARRAY['QUEUED'::character varying, 'RUNNING'::character varying])::text[])) AND (error_json IS NULL) AND (result_count = 0) AND (finished_at IS NULL)) OR (((status)::text = 'SUCCEEDED'::text) AND (error_json IS NULL) AND (finished_at IS NOT NULL)) OR (((status)::text = 'PARTIAL'::text) AND (error_json IS NOT NULL) AND (result_count > 0) AND (finished_at IS NOT NULL)) OR (((status)::text = 'FAILED'::text) AND (error_json IS NOT NULL) AND (result_count = 0) AND (finished_at IS NOT NULL))))
 - ck_provider_job_provider_code: CHECK (((provider_code)::text = ANY ((ARRAY['KMA'::character varying, 'MOIS'::character varying, 'SAFEKOREA'::character varying, 'NAVER'::character varying, 'MANUAL'::character varying, 'T3Q'::character varying, 'UNI'::character varying])::text[])))
+- ck_provider_job_redaction_shape: CHECK (((redacted_at IS NULL) OR (request_json = '{"redacted": true}'::jsonb)))
 - ck_provider_job_result_count: CHECK ((result_count >= 0))
-- ck_provider_job_status: CHECK (((status)::text = ANY ((ARRAY['SUCCEEDED'::character varying, 'PARTIAL'::character varying, 'FAILED'::character varying])::text[])))
+- ck_provider_job_status: CHECK (((status)::text = ANY ((ARRAY['QUEUED'::character varying, 'RUNNING'::character varying, 'SUCCEEDED'::character varying, 'PARTIAL'::character varying, 'FAILED'::character varying])::text[])))
 - fk_provider_job_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
 - fk_provider_job_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
 - provider_job_pkey: PRIMARY KEY (provider_job_id)
-- 인덱스: ix_provider_job_batch, ix_provider_job_situation_time, provider_job_pkey
+- 인덱스: ix_provider_job_batch, ix_provider_job_dispatch, ix_provider_job_retention, ix_provider_job_situation_time, provider_job_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -890,17 +910,19 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 | created_at | timestamp with time zone | NN | now() | 생성 |
 | tenant_id | uuid | NN |  | 기관 (situation_id가 nullable이므로 직접 보유) |
 | batch_id | uuid | NN |  | 한 UNE-SIT-005 요청이 만든 행들의 묶음 |
-| finished_at | timestamp with time zone | NN |  | 종결 시각 |
+| finished_at | timestamp with time zone | - |  | 종결 시각 |
+| redacted_at | timestamp with time zone | - |  | 요청 조건을 비운 시각 (보존기간 경과, OB-16) |
 
 ## provider_result
 
 Provider 원문 응답 보존 (추적성)
 - 격리: RLS enforced (FORCE)
 - ck_provider_result_item_count: CHECK ((item_count >= 0))
+- ck_provider_result_redaction_shape: CHECK (((redacted_at IS NULL) OR (raw_payload_json = '{"redacted": true}'::jsonb)))
 - ck_provider_result_seq: CHECK ((seq >= 1))
 - fk_provider_result_provider_job_id: FOREIGN KEY (provider_job_id) REFERENCES provider_job(provider_job_id) DEFERRABLE INITIALLY DEFERRED
 - provider_result_pkey: PRIMARY KEY (provider_result_id)
-- 인덱스: provider_result_pkey, uk_provider_result_job_seq
+- 인덱스: ix_provider_result_retention, provider_result_pkey, uk_provider_result_job_seq
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -911,6 +933,7 @@ Provider 원문 응답 보존 (추적성)
 | payload_sha256 | character(64) | NN |  | 원문 해시 (변조 탐지·중복 식별) |
 | item_count | integer | NN |  | 원문이 담고 있던 항목 수 (정규화 전) |
 | received_at | timestamp with time zone | NN | now() | 수신 시각 |
+| redacted_at | timestamp with time zone | - |  | 원문을 비운 시각 (보존기간 경과, OB-16) |
 
 ## retention_policy
 

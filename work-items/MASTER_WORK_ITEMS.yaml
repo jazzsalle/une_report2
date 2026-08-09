@@ -416,7 +416,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-210
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - file security checks
   - object storage
@@ -426,7 +426,11 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/evidence/CC-220-knowledge-upload-and-uni-adapter.md
+  - docs/adr/ADR-36-cc220-knowledge-upload-and-uni-worker-boundary.md
+  - contracts/openapi/uni-knowledge-api-change-request-v1.yaml
+  - docs/handoff/UNI_KNOWLEDGE_API_REQUEST.md
 - id: CC-230
   title: Implement evidence search and immutable EvidenceSet
   gate: G3

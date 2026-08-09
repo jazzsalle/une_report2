@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import {
   createObjectStorage,
   createT3qPlanProvider,
+  createUniKnowledgeProvider,
   describeRuntimeCapability,
   describeRuntimeFeature,
   type ContentCapable,
@@ -18,6 +19,7 @@ import { TocJobRunner } from './plan-toc/toc-job.runner';
 import { ContentJobRunner } from './plan-content/content-job.runner';
 import { ExportJobRunner } from './document-export/export-job.runner';
 import { PayloadRetentionRunner } from './retention/payload-retention.runner';
+import { KnowledgeUploadRunner } from './knowledge/knowledge-upload.runner';
 
 function factoryOptions(config: WorkerConfig): PlanProviderFactoryOptions {
   switch (config.planAdapter) {
@@ -57,7 +59,10 @@ async function bootstrap(): Promise<void> {
   }
   // CC-160: HWPX 보존 Export. 저장소 설정이 없으면 **기동에서** 실패한다 —
   // 러너 없이 뜨면 Export가 영원히 QUEUED로 남고 이유가 어디에도 남지 않는다.
-  runners.push(new ExportJobRunner(db, createObjectStorage(process.env), config));
+  // 오브젝트 저장소는 내보내기와 지식문서 전송이 함께 쓴다 — 인스턴스를 하나만
+  // 만든다(둘로 만들면 커넥션 풀과 자격증명이 두 벌이 된다).
+  const storage = createObjectStorage(process.env);
+  runners.push(new ExportJobRunner(db, storage, config));
 
   const poller = new PlanJobPoller(runners, config);
   poller.start();
@@ -96,9 +101,55 @@ async function bootstrap(): Promise<void> {
     );
   }
 
+  // 지식문서 UNI 전송 (CC-220). 플랜 잡 폴러에 얹지 않는다 — 그쪽은
+  // T3qPlanProvider 전용이고, UNI를 그 경로에 넣으면 "플랜 흐름에 UNI 폴백
+  // 없음"(CLAUDE.md, AT-T3Q-011)이 코드 구조에서 흐려진다.
+  const uni = createUniKnowledgeProvider(process.env);
+  const knowledge = new KnowledgeUploadRunner(db, storage, uni, config);
+  const runKnowledgeUpload = async (): Promise<void> => {
+    try {
+      // 큐가 비어 있을 때까지 계속 집는다. 한 주기에 하나만 집으면 밀린 문서가
+      // 주기 × 개수만큼 늦어진다.
+      for (;;) {
+        const r = await knowledge.runOnce();
+        if (r.claimed === 0) break;
+        console.warn(`[une-worker] knowledge upload: 등록 ${r.registered}건, 실패 ${r.failed}건`);
+      }
+    } catch (err) {
+      console.error(`[une-worker] knowledge upload failed: ${(err as Error).message}`);
+    }
+  };
+  const runKnowledgePoll = async (): Promise<void> => {
+    try {
+      const r = await knowledge.pollOnce();
+      if (r.polled > 0) {
+        console.warn(`[une-worker] knowledge poll: ${r.polled}건 관측, ${r.advanced}건 변화`);
+      }
+    } catch (err) {
+      console.error(`[une-worker] knowledge poll failed: ${(err as Error).message}`);
+    }
+  };
+  let knowledgeUploadTimer: NodeJS.Timeout | undefined;
+  let knowledgePollTimer: NodeJS.Timeout | undefined;
+  if (config.knowledgeEnabled) {
+    console.warn(
+      `[une-worker] knowledge UNI adapter: ${uni.adapterId}` +
+        (uni.isMock ? ' (MOCK — UNI 지원이 아니다)' : ' (실 HTTP — provider 미검증, OB-13)'),
+    );
+    knowledgeUploadTimer = setInterval(
+      () => void runKnowledgeUpload(),
+      config.knowledgeUploadIntervalMs,
+    );
+    knowledgePollTimer = setInterval(() => void runKnowledgePoll(), config.knowledgePollIntervalMs);
+  } else {
+    console.warn('[une-worker] knowledge UNI pipeline DISABLED (UNE_KNOWLEDGE_ENABLED=false)');
+  }
+
   const shutdown = async (): Promise<void> => {
     clearInterval(timer);
     if (retentionTimer) clearInterval(retentionTimer);
+    if (knowledgeUploadTimer) clearInterval(knowledgeUploadTimer);
+    if (knowledgePollTimer) clearInterval(knowledgePollTimer);
     await poller.stop(); // drain the in-flight tick before closing the pool
     await db.close();
     await app.close();

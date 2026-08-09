@@ -79,6 +79,15 @@ CC-160/ADR-31이 `ExportJobResource`에서 같은 문제를 닫으며 남긴 주
 도메인 로직이 아니라 데이터 수명 관리이며 Fact를 만들지도, 상황을 옮기지도,
 Provider를 부르지도 않는다.
 
+**2차 개정 (2026-08-09, CC-220 / ADR-36 D4)**: 롤 권한 경계도 넓어졌다.
+`une_worker`가 `provider_job`에 SELECT/UPDATE, `provider_result`에 **INSERT만**
+갖는다 — 설계 10 §7.23 7단계가 UNI 호출자를 워커로 정했기 때문이다. 상황 수집
+행은 **제한(RESTRICTIVE) 정책**이 `provider_code='UNI'` 밖을 어떤 경로로도
+보이지 않게 막고(테넌트를 세운 트랜잭션 포함, 실측으로 노출을 재현한 뒤 넣었다),
+`provider_result`의 SELECT는 여전히 42501이다. D2가 지키려던 것 — 워커는 상황
+수집 데이터에 닿지 않는다 — 은 유지되지만 그 수단이 권한 부재에서 정책으로
+바뀌었다. 그 교환의 대가는 ADR-36 D4에 적었다.
+
 ## D3. 격리는 부모 경유가 기본이고, 두 테이블만 tenant_id를 직접 세운다
 
 **결정**: `situation_fact`/`provider_result`/`fact_conflict`/

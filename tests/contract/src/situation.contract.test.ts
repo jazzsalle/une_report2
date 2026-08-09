@@ -193,9 +193,15 @@ describe('CC-200 계약: 어휘가 마이그레이션·도메인과 같다', () 
     expect(checkValues('ck_provider_job_provider_code')).toEqual(fromDb);
   });
 
-  it('provider_job 상태 3종에 QUEUED/RUNNING이 없다 (동기 수집, ADR-33 D2)', () => {
+  it('provider_job 상태 5종이 계약과 같다 (0028이 비동기를 열었다 — ADR-36 D3)', () => {
+    // CC-200 착수 시점의 단언은 3종이었고 근거는 "수집은 동기다"(ADR-33 D2)였다.
+    // 그 근거는 상황 수집에 대해 **여전히 참이다** — 수집 경로는 종결 상태로만
+    // 행을 만든다. 늘어난 두 값은 CC-220의 UNI 지식문서 전송이 쓴다.
+    //
+    // 이 변경은 0023 §4가 예고한 것이다: "QUEUED/RUNNING을 넣지 않는 이유가
+    // 이것이다 … 비동기로 옮길 때 그 두 값을 추가하는 마이그레이션이 함께 온다."
     const fromDb = checkValues('ck_provider_job_status');
-    expect(fromDb).toEqual(['SUCCEEDED', 'PARTIAL', 'FAILED']);
+    expect(fromDb).toEqual(['QUEUED', 'RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED']);
     expect((schemas.ProviderJob.properties?.status.enum ?? []).sort()).toEqual([...fromDb].sort());
   });
 

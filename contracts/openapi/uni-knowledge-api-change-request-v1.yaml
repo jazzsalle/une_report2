@@ -1,0 +1,343 @@
+openapi: 3.1.0
+info:
+  title: UNE Request Specification for UNI Knowledge Document API
+  version: 1.0.0-request
+  description: >-
+    UNE가 UNI 쪽에 요청하는 **목표 계약**이다. UNI가 이렇게 구현했다는 증거가
+    아니다. UNE는 OB-13이 닫힐 때까지 mock과 미검증 HTTP 어댑터로 진행하며,
+    capability는 UNE_ADAPTER_READY에 머문다.
+
+
+    이 문서를 만든 이유: 번들 스냅샷(uni-rag-adapter-v1.1.0-une1.yaml)은 25개
+    오퍼레이션의 **요청·응답이 모두 additionalProperties: true**라 실제 필드를
+    하나도 말해 주지 않는다. 설계 08 §1.9가 업로드에 대해서만
+    `{message, filename, doc_id}`와 상태 어휘를 적어 두었고 그것을 기준선으로
+    삼았다. 나머지는 UNE가 추측하지 않고 여기 적어 요청한다.
+
+
+    사내 개발자를 위한 배경 설명은
+    `docs/handoff/UNI_KNOWLEDGE_API_REQUEST.md`에 있다. 이 YAML은 규격이고
+    그 문서는 "왜 이 규격인가"다.
+
+
+    T3Q에 보낸 `t3q-plan-api-change-request-v1.yaml`과 같은 방식·같은 성격의
+    문서다.
+servers:
+  - url: http://221.147.100.161:8000
+    description: >-
+      현행 후보 호스트. **평문 HTTP다.** 운영 배포에서는 TLS 종단이 필요하며
+      최종 바인딩은 OPEN이다(OB-13).
+tags:
+  - name: Auth
+  - name: Document
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: uniLogin
+      summary: 서비스 계정 로그인 후 JWT 발급
+      description: >-
+        **CR-UNI-001.** 설계 08 §1.8은 "계정 로그인 후 JWT 발급"까지만 적고
+        응답 형태를 적지 않는다. UNE가 아는 것은 요청이 `{username, password}`
+        라는 것뿐이고, **토큰이 어느 필드에 담기는지 모른다.**
+
+
+        UNE 어댑터는 토큰 필드명을 설정으로 받으며 기본값을 두지 않는다.
+        추측한 필드에서 문자열을 찾아 토큰으로 쓰면, 그것이 토큰이 아닐 때
+        이후 모든 401의 원인이 숨기 때문이다.
+
+
+        요청: 아래 스키마를 확정해 주기 바란다. 특히 `accessToken`의 실제
+        필드명과 만료 표현(`expiresIn` 초 단위 / `expiresAt` ISO-8601 중 하나)이
+        필요하다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+            example:
+              username: une-service
+              password: '<secret>'
+      responses:
+        '200':
+          description: 발급 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiIs...
+                tokenType: Bearer
+                expiresIn: 3600
+        '401':
+          description: 자격증명 불일치
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UniError' }
+              example:
+                code: AUTH_INVALID_CREDENTIALS
+                message: 아이디 또는 비밀번호가 올바르지 않습니다.
+
+  /documents/upload:
+    post:
+      tags: [Document]
+      operationId: uniUploadDocument
+      summary: 학습 대상 문서 업로드
+      description: >-
+        **CR-UNI-002.** 설계 08 §1.9가 경로·질의 파라미터·응답의 뼈대를 적었다:
+        `POST /documents/upload?uploader=...&force=false (multipart, JWT)
+        -> {message, filename, doc_id}`.
+
+
+        **모르는 것은 multipart 파트 이름 하나다.** 스냅샷 스키마는
+        `additionalProperties: true`이고 설명에 "Actual source endpoint uses
+        file/multipart"라고만 적혀 있다. 파일 파트를 `file`로 보내면 되는지,
+        메타데이터 파트가 따로 있는지 확인이 필요하다.
+
+
+        UNE는 이 호출에 **멱등키를 붙일 수 없다** — 스냅샷에도 설계에도 그런
+        필드가 없다. 그래서 타임아웃이나 5xx가 나면 UNE는 "저쪽에 문서가
+        생겼는지 알 수 없는" 상태가 되고, 재시도가 같은 문서를 두 벌 만들 수
+        있다. `force=false`일 때 동일 내용을 중복 판정해 **기존 doc_id를
+        돌려주는** 동작이면 이 문제가 사라진다 — 그렇게 동작하는지 확인을
+        요청한다(CR-UNI-004).
+      parameters:
+        - name: uploader
+          in: query
+          required: true
+          schema: { type: string }
+          description: 업로더 식별자. UNE는 등록자 user_id를 보낸다.
+        - name: force
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: >-
+            같은 내용이 이미 있어도 새로 등록한다. UNE의 재시도는 항상
+            true로 보낸다 — 앞선 시도가 저쪽에 문서를 남겼을 수 있기 때문이다.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/UploadForm' }
+            encoding:
+              file:
+                contentType: >-
+                  application/pdf, application/vnd.hancom.hwpx,
+                  application/vnd.openxmlformats-officedocument.wordprocessingml.document,
+                  text/plain
+      responses:
+        '200':
+          description: 접수 성공. 파싱·색인은 비동기로 진행된다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadResponse' }
+              example:
+                message: uploaded
+                filename: 2026-안전한국훈련-계획서.pdf
+                doc_id: doc_01HXY2ZK
+                status: QUEUED
+        '409':
+          description: >-
+            **CR-UNI-004.** force=false이고 같은 내용이 이미 있을 때. 기존
+            doc_id를 함께 돌려주면 UNE가 재사용을 제안할 수 있다(설계 06
+            US-SIT-009 A-01 "기존 doc 재사용 또는 force 업로드 선택").
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DuplicateResponse' }
+              example:
+                code: DOCUMENT_DUPLICATE
+                message: 동일한 문서가 이미 등록되어 있습니다.
+                existingDocId: doc_01HXY2ZK
+        '413':
+          description: '허용 크기 초과. **CR-UNI-005: 상한값 확인 요청.**'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UniError' }
+        '415':
+          description: '허용하지 않는 형식. **CR-UNI-005: 허용 목록 확인 요청.**'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UniError' }
+      security: [{ BearerAuth: [] }]
+
+  /documents/{docId}:
+    get:
+      tags: [Document]
+      operationId: uniGetDocument
+      summary: 문서 처리상태 조회
+      description: >-
+        **CR-UNI-003.** 설계 08 §1.9가 상태 어휘
+        `QUEUED/PARSING/INDEXING/REFERENCE_GENERATING/READY/ERROR`를 적었다.
+        UNE는 이 여섯 값만 받아들이고 **모르는 값이 오면 매핑하지 않고
+        거부한다**(원문은 보존한다) — 추측해서 저장하면 그 값이 SOP 근거
+        판정까지 흘러가기 때문이다.
+
+
+        요청: 이 경로와 응답 필드명을 확정해 주기 바란다. 설계 08은 "내부
+        상태조회"라고만 적어 경로가 명확하지 않다. `ERROR`일 때 사유를 담는
+        필드도 필요하다 — 사용자에게 "왜 실패했는지"를 보여주지 못하면
+        재시도할지 제외할지 판단할 수 없다.
+      parameters:
+        - name: docId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 현재 처리상태
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentStatusResponse' }
+              example:
+                doc_id: doc_01HXY2ZK
+                status: INDEXING
+                updatedAt: '2026-08-09T12:34:56+09:00'
+        '404':
+          description: 없는 문서
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UniError' }
+      security: [{ BearerAuth: [] }]
+
+  /documents/{docId}/reference:
+    get:
+      tags: [Document]
+      operationId: uniGetDocumentReference
+      summary: 문서 참조요약 조회
+      description: >-
+        **CR-UNI-006.** 설계 08 §1.9가 "200 READY / 202 PROCESSING"이라고
+        적었다. UNE는 **준비 여부를 본문이 아니라 상태코드로 판정한다** —
+        202에 본문이 없어도 오류가 아니다.
+
+
+        요청: 200 본문의 스키마 확정. 지금은 무엇이 오는지 전혀 모른다.
+        UNE는 이 값을 그대로 보관만 하고 해석하지 않을 예정이므로(CC-220
+        범위에서는), 형태만 알면 충분하다.
+      parameters:
+        - name: docId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 참조요약 준비됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferenceResponse' }
+              example:
+                doc_id: doc_01HXY2ZK
+                summary: 2026년 안전한국훈련 계획서의 기관별 임무와 단계별 조치 요약
+                chunkCount: 42
+        '202':
+          description: 아직 생성 중. 본문은 없어도 된다.
+        '404':
+          description: 없는 문서
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UniError' }
+      security: [{ BearerAuth: [] }]
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+    LoginResponse:
+      type: object
+      required: [accessToken, tokenType]
+      properties:
+        accessToken:
+          type: string
+          description: >-
+            **필드명 확인 필요.** UNE 어댑터는 이 이름을 설정으로 받는다.
+        tokenType: { type: string, enum: [Bearer] }
+        expiresIn:
+          type: integer
+          description: 초 단위 잔여 수명. expiresAt과 둘 중 하나만 있으면 된다.
+        expiresAt:
+          type: string
+          format: date-time
+    UploadForm:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: >-
+            **파트 이름 확인 필요(OB-13의 핵심 항목).** UNE는 이 이름을 설정으로
+            받으며 기본값을 두지 않는다 — 틀린 이름으로 보내면 UNI가 422를
+            돌려주고, UNE 쪽 결함이 UNI의 거절처럼 보인다.
+        metadata:
+          type: string
+          description: >-
+            선택. UNE가 보낼 수 있는 것: documentType(매뉴얼/훈련계획서/평가지침/
+            메시지목록/임무카드), 등록자, 사건 식별자. **받는 형태가 JSON 문자열
+            파트인지 별도 파트들인지 확인 필요.**
+    UploadResponse:
+      type: object
+      required: [doc_id]
+      properties:
+        doc_id:
+          type: string
+          description: >-
+            **UNE에 필수인 유일한 필드.** 이 값이 없으면 UNE는 문서를 다시
+            가리킬 수 없고 "등록됐다"고 기록할 수 없다(DB 제약이 그것을 막는다).
+        filename: { type: string }
+        message: { type: string }
+        status:
+          $ref: '#/components/schemas/ProcessingStatus'
+    DuplicateResponse:
+      type: object
+      required: [code, existingDocId]
+      properties:
+        code: { type: string, enum: [DOCUMENT_DUPLICATE] }
+        message: { type: string }
+        existingDocId:
+          type: string
+          description: 재사용을 제안하려면 이 값이 필요하다.
+    DocumentStatusResponse:
+      type: object
+      required: [doc_id, status]
+      properties:
+        doc_id: { type: string }
+        status: { $ref: '#/components/schemas/ProcessingStatus' }
+        updatedAt: { type: string, format: date-time }
+        errorReason:
+          type: string
+          description: >-
+            status=ERROR일 때 사유. 없으면 사용자에게 "실패했다"까지만 말할 수
+            있고 재시도/제외 판단을 도울 수 없다.
+    ReferenceResponse:
+      type: object
+      required: [doc_id]
+      properties:
+        doc_id: { type: string }
+        summary: { type: string }
+        chunkCount: { type: integer, minimum: 0 }
+    ProcessingStatus:
+      type: string
+      description: >-
+        설계 08 §1.9의 어휘. UNE는 이 여섯 값만 받아들이며 모르는 값은
+        계약 위반으로 거부한다(원문은 보존).
+      enum: [QUEUED, PARSING, INDEXING, REFERENCE_GENERATING, READY, ERROR]
+    UniError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: >-
+            **CR-UNI-007: 안정적인 오류코드 체계 요청.** 지금은 오류 본문 형태를
+            전혀 모른다. UNE는 HTTP 상태로만 분기하고 있으며, 그래서 "재시도하면
+            되는 실패"와 "고쳐야 하는 실패"를 정확히 가르지 못한다.
+        message: { type: string }
+        detail: { type: object, additionalProperties: true }
