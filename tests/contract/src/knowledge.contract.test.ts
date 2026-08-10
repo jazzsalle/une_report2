@@ -2,8 +2,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  EVIDENCE_SET_STATUSES,
   KNOWLEDGE_DOCUMENT_STATUSES,
   KNOWLEDGE_DOCUMENT_TYPES,
+  MAX_TOP_K,
   RETENTION_SCOPES,
   UNI_PROCESSING_STATUSES,
 } from '@une/domain';
@@ -30,6 +32,7 @@ interface Schema {
   properties?: Record<string, Schema>;
   additionalProperties?: boolean;
   nullable?: boolean;
+  maximum?: number;
   $ref?: string;
 }
 
@@ -75,6 +78,7 @@ function checkValues(constraint: string): string[] {
 }
 
 const KNOW_OPS = ['UNE-KNOW-001', 'UNE-KNOW-002', 'UNE-KNOW-003'] as const;
+const EVIDENCE_OPS = ['UNE-KNOW-004', 'UNE-KNOW-005', 'UNE-KNOW-006', 'UNE-KNOW-007'] as const;
 
 describe('CC-220 계약: 어휘가 마이그레이션·도메인·계약과 같다', () => {
   it('등록 축 5종', () => {
@@ -197,5 +201,119 @@ describe('CC-220 계약: 응답 스키마가 닫혀 있다', () => {
   it('UNI 처리 축은 nullable이다 ("아직 모른다"를 표현할 수 있어야 한다)', () => {
     expect(schemas.KnowledgeDocument.properties?.uniStatus.nullable).toBe(true);
     expect(schemas.KnowledgeDocument.required).toContain('uniStatus');
+  });
+});
+
+describe('CC-230 계약: EvidenceSet 어휘와 오류코드', () => {
+  const implSource = readFileSync(
+    repoPath('services', 'api', 'src', 'knowledge', 'evidence-errors.ts'),
+    'utf8',
+  );
+  const thrown = new Set(
+    [...implSource.matchAll(/ApiError\(\s*\d{3},\s*'([A-Z0-9-]+)'/g)].map((m) => m[1]),
+  );
+
+  it('EvidenceSet 상태 2종이 마이그레이션·도메인·계약에서 같다', () => {
+    const fromDb = checkValues('ck_evidence_set_status');
+    expect(fromDb).toEqual([...EVIDENCE_SET_STATUSES]);
+    expect(schemas.EvidenceSet.properties?.status.enum).toEqual(fromDb);
+  });
+
+  it('화면 흐름 상태가 계약 enum에 새어 들어오지 않는다', () => {
+    // US-SIT-011의 아홉 상태 중 저장 대상은 둘뿐이다(ADR-37 D1). 나머지가
+    // 계약에 들어오면 화면이 그것을 서버 상태로 착각한다.
+    const declared = schemas.EvidenceSet.properties?.status.enum ?? [];
+    for (const screenOnly of ['SEARCHING', 'RESULTS_READY', 'NO_RESULTS', 'EVIDENCE_CONFLICT']) {
+      expect(declared, screenOnly).not.toContain(screenOnly);
+    }
+  });
+
+  it('topK 상한이 도메인·계약·마이그레이션에서 같다', () => {
+    const req = schemas.EvidenceSearchRequest.properties?.topK;
+    expect(req?.maximum).toBe(MAX_TOP_K);
+    // 0031의 CHECK도 같은 상한이어야 한다 — 계약만 넓히면 DB가 23514를 낸다.
+    const sql = readFileSync(join(MIGRATIONS_DIR, '0031_evidence_set_and_items.sql'), 'utf8');
+    expect(sql).toContain(`top_k BETWEEN 1 AND ${MAX_TOP_K}`);
+  });
+
+  it('구현이 던지는 EVID/UNI 코드는 모두 계약에 선언돼 있다', () => {
+    const declared = new Set<string>();
+    for (const id of EVIDENCE_OPS) {
+      for (const code of (operations.get(id)?.['x-error-codes'] as string[] | undefined) ?? []) {
+        declared.add(code);
+      }
+    }
+    for (const code of thrown) {
+      expect(declared.has(code), `${code}가 계약에 선언되지 않았다`).toBe(true);
+    }
+  });
+
+  it('계약이 선언한 EVID/UNI 코드는 모두 구현이 던진다', () => {
+    for (const id of EVIDENCE_OPS) {
+      for (const code of (operations.get(id)?.['x-error-codes'] as string[] | undefined) ?? []) {
+        if (code.startsWith('COM-')) continue;
+        expect(thrown.has(code), `${id}이 선언한 ${code}를 구현이 던지지 않는다`).toBe(true);
+      }
+    }
+  });
+
+  it('placeholder가 남아 있지 않다', () => {
+    // UNE-KNOW-004는 착수 시점에 응답이 `Situation`이었다(placeholder 시절의
+    // 흔적). 005~007은 GenericResponse였다.
+    for (const id of EVIDENCE_OPS) {
+      const body = JSON.stringify(operations.get(id)?.responses);
+      expect(body, id).not.toContain('GenericResponse');
+      expect(body, id).not.toContain("schemas/Situation'");
+    }
+  });
+
+  it('검색은 200이다 (동기 호출 — 202가 아니다)', () => {
+    const search = operations.get('UNE-KNOW-004')?.responses as Record<string, unknown>;
+    expect(Object.keys(search)).toContain('200');
+    expect(Object.keys(search)).not.toContain('202');
+  });
+
+  it('요청 스키마는 알 수 없는 필드를 받지 않는다', () => {
+    for (const name of ['EvidenceSearchRequest', 'EvidenceLockRequest']) {
+      expect(schemas[name].additionalProperties, name).toBe(false);
+    }
+  });
+
+  it('기준 판을 요청이 명시하게 한다', () => {
+    // 생략을 허용하면 서버가 "지금 최신"으로 채우고, 사용자가 본 판과 달라질
+    // 수 있다. EvidenceSet은 동결되므로 그 어긋남이 굳는다(ADR-34 D17과 같은 축).
+    expect(schemas.EvidenceSearchRequest.required).toContain('snapshotId');
+  });
+
+  it('버린 청크 수를 응답이 알려준다 (조용히 버리지 않는다)', () => {
+    expect(schemas.EvidenceSet.required).toContain('rejectedChunkCount');
+  });
+});
+
+describe('CC-230 계약: 오류코드의 HTTP 상태가 responses에 선언돼 있다', () => {
+  // 검토 F5. `x-error-codes`에 EVID-412-001이 있는데 responses에 412가 없었다.
+  // 계약을 읽는 클라이언트는 412를 예상할 수 없고, 기존 게이트는 코드 문자열만
+  // 대조해 이것을 보지 못했다.
+  const sources = ['knowledge-errors.ts', 'evidence-errors.ts'].map((f) =>
+    readFileSync(repoPath('services', 'api', 'src', 'knowledge', f), 'utf8'),
+  );
+  const statusByCode = new Map<string, string>();
+  for (const src of sources) {
+    for (const m of src.matchAll(/ApiError\(\s*(\d{3}),\s*'([A-Z0-9-]+)'/g)) {
+      statusByCode.set(m[2], m[1]);
+    }
+  }
+
+  it('모든 KNOW/EVID 오퍼레이션이 자신이 던지는 상태를 선언한다', () => {
+    for (const id of [...KNOW_OPS, ...EVIDENCE_OPS]) {
+      const op = operations.get(id);
+      const declared = (op?.['x-error-codes'] as string[] | undefined) ?? [];
+      const responses = Object.keys((op?.responses as Record<string, unknown>) ?? {});
+      for (const code of declared) {
+        const status = statusByCode.get(code);
+        if (!status) continue; // COM-* 등 공통 코드는 이 파일들에 없다
+        expect(responses, `${id}: ${code}(${status})`).toContain(status);
+      }
+    }
   });
 });

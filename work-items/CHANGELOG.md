@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- CC-230 (2026-08-10): evidence search and the immutable EvidenceSet
+  (UNE-KNOW-004~007, ADR-37, migration 0031).
+  **Screen-flow states are not stored.** US-SIT-011 names nine; only DRAFT and
+  FROZEN are facts about the row. `SEARCHING` means an HTTP request is in
+  flight — once it finishes the value says nothing — and `NO_RESULTS` is a DRAFT
+  with zero items. Same judgement as ADR-36 D1, same starting point (a
+  vocabulary-less `varchar(20)` from 0004).
+  **Search is synchronous.** Design 10 §7.25 step 7's "the Worker calls" is
+  boilerplate repeated on every screen sequence; US-SIT-011 is interactive and
+  design 08 §1.14 budgets 30s/1-try. That is the opposite of CC-220's upload
+  and is why this path needs no worker grants.
+  **The authorization filter lives on the response side.** Scoping the request
+  and trusting the answer cannot detect a broken filter on the other side, so
+  every returned doc_id is re-checked against our own list and the discarded
+  count is returned rather than silently dropped.
+  0031 also found that `evidence_set`/`evidence_item` **had no RLS policy since
+  0004** — with 0011's blanket grant a policy-less table is open to every
+  tenant, and CC-230 opens the first write path. Same discovery 0023 made in the
+  situation family. Added `frozen_at`/`frozen_by` (creator and freezer were
+  indistinguishable) and `is_selected` (excluding a candidate previously meant
+  deleting it, losing why it was excluded).
+  **Dual review returned two BLOCKERs, both reproduced before fixing.** A
+  client-supplied `filters` object was spread last into the UNI request body, so
+  `{"doc_ids": []}` **erased the scope restriction** — response chunks are
+  filtered but the raw payload is not, so another institution's document text
+  landed in the requester's `provider_result`, and `minimizePii` was bypassed.
+  Since CR-UNI-008 does not define `filters`, it is no longer sent at all. And a
+  frozen EvidenceSet could be **deleted**: the set trigger covered UPDATE only,
+  so deleting the parent cascaded to the items while the child guard read a NULL
+  parent and passed — the half-finished homework 0011 had handed to CC-230.
+  Also fixed: `score numeric(8,6)` overflowed to 22003 and rolled the job and
+  raw payload back with it (the ADR's claim that "the DB does not check score
+  range" was false); a 30-second TOCTOU window on the snapshot baseline; a
+  missing closed-situation guard; 412 undeclared in the contract (plus a new
+  gate asserting every declared error code's HTTP status appears in
+  `responses`); an unregistered `searchEvidence` capability; and zero coverage
+  of the UNI failure path.
+  Tables stay at 63; migrations 30 → 31.
+  Tests: domain +24, UNI search adapter +18, integration RLS/immutability +12,
+  API e2e +18, contract gate +11.
+
 - CC-220 (2026-08-10): knowledge document upload and the UNI adapter
   (UNE-KNOW-001/002/003, ADR-36, migrations 0028–0030).
   **Status is split into two axes.** `knowledge_document.status` in 0004 was

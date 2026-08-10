@@ -10,12 +10,15 @@ import {
   type UniKnowledgeResult,
   type UniRawTrace,
   type UniReferenceOutcome,
+  type UniSearchInput,
+  type UniSearchOutcome,
   type UniStatusOutcome,
   type UniUploadInput,
   type UniUploadOutcome,
 } from './uni-knowledge-port';
 import {
   guardUniReference,
+  guardUniSearch,
   guardUniStatus,
   guardUniUpload,
   type UniFieldNames,
@@ -54,6 +57,8 @@ export interface HttpUniKnowledgeConfig {
   /** 설계 08 §1.14: 업로드 60초. 나머지는 UNE 기준선이며 provider 합의값이 아니다. */
   uploadTimeoutMs: number;
   requestTimeoutMs: number;
+  /** 설계 08 §1.14: UNI Search 30초, 1회. */
+  searchTimeoutMs: number;
   fieldNames: UniFieldNames;
 }
 
@@ -356,6 +361,118 @@ export class HttpUniKnowledgeAdapter implements UniKnowledgeProvider {
       );
     }
     return uniSuccess(guarded.value, this.meta('getReference', startedAt, res.status), raw);
+  }
+
+  /**
+   * 근거 검색 (CC-230).
+   *
+   * **재시도하지 않는다.** 설계 08 §1.14가 "30초, 1회"이고, US-SIT-011 E-01은
+   * 실패 시 "1회 재시도 후 직접 Context/수동"이라 **재시도 여부를 사용자가**
+   * 고른다. 어댑터가 조용히 다시 부르면 그 선택지가 사라지고 30초가 60초가 된다.
+   */
+  async searchEvidence(
+    input: UniSearchInput,
+    ctx: UniCallContext,
+  ): Promise<UniKnowledgeResult<UniSearchOutcome>> {
+    const startedAt = Date.now();
+    // **`filters`를 provider에 보내지 않는다.** 처음에는 `...input.filters`를
+    // 마지막에 펼쳤는데, 그러면 클라이언트가 준 임의 객체가 `doc_ids`·`top_k`·
+    // `query`를 **덮어쓴다** — 사용자가 `{"doc_ids": []}`를 보내면 UNE가 UNI에
+    // 범위 제한 없는 질의를 대신 던지고, 그 응답 원문(남의 기관 문서 본문)이
+    // 요청자 테넌트의 `provider_result`에 영구히 적재된다(실측으로 재현했다).
+    //
+    // 예약 키만 막는 것으로 끝내지 않은 이유: CR-UNI-008의 `SearchRequest`에
+    // `filters`가 **정의되어 있지 않다.** 계약에 없는 필드를 provider에 보내는
+    // 것은 추측이다(.claude/rules/provider-adapters.md). 값은 UNE가
+    // `evidence_set.filters_json`에 보관만 하고, 규격이 닫히면 그때 싣는다.
+    const body = {
+      query: input.query,
+      top_k: input.topK,
+      doc_ids: input.documentIds,
+    };
+    const raw: UniRawTrace = {
+      // 질의 원문을 남긴다 — 어떤 근거가 왜 나왔는지 재현하려면 필요하고,
+      // PII 최소화는 호출부가 이미 마쳤다(도메인 minimizePii).
+      requestSummary: {
+        query: input.query,
+        topK: input.topK,
+        documentCount: input.documentIds.length,
+        correlationId: ctx.correlationId,
+      },
+      responseBody: null,
+    };
+
+    const send = async (token: string) => {
+      try {
+        const res = await this.fetchImpl(`${this.config.baseUrl}/search/`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+            'x-correlation-id': ctx.correlationId,
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(this.config.searchTimeoutMs),
+        });
+        return { res, retriedAuth: false };
+      } catch (err) {
+        return { authError: `검색 호출 실패: ${(err as Error).message}` };
+      }
+    };
+
+    const outcome = await this.authorized(send);
+    if ('authError' in outcome) {
+      const timedOut = /timeout|abort/i.test(outcome.authError);
+      return this.fail(
+        timedOut ? 'UNI_TIMEOUT' : 'UNI_CONNECTION_ERROR',
+        outcome.authError,
+        'searchEvidence',
+        startedAt,
+        raw,
+      );
+    }
+
+    const res = outcome.res;
+    const text = await res.text().catch(() => '');
+    raw.responseText = text;
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      return this.fail(
+        'UNI_MALFORMED_RESPONSE',
+        '검색 응답이 JSON이 아니다',
+        'searchEvidence',
+        startedAt,
+        raw,
+        res.status,
+      );
+    }
+    raw.responseBody = parsed;
+
+    if (!res.ok) {
+      return this.fail(
+        uniErrorFromStatus(res.status),
+        `검색이 거절됐다 (${res.status})`,
+        'searchEvidence',
+        startedAt,
+        raw,
+        res.status,
+      );
+    }
+
+    const guarded = guardUniSearch(parsed, this.config.fieldNames);
+    if (!guarded.ok) {
+      return this.fail(
+        'UNI_RESPONSE_CONTRACT_VIOLATION',
+        guarded.reason,
+        'searchEvidence',
+        startedAt,
+        raw,
+        res.status,
+      );
+    }
+    return uniSuccess(guarded.value, this.meta('searchEvidence', startedAt, res.status), raw);
   }
 
   private async getJson(

@@ -26,6 +26,11 @@ export interface UniKnowledgeFactoryEnv {
   UNE_UNI_TOKEN_FIELD?: string;
   UNE_UNI_UPLOAD_TIMEOUT_MS?: string;
   UNE_UNI_REQUEST_TIMEOUT_MS?: string;
+  UNE_UNI_SEARCH_TIMEOUT_MS?: string;
+  UNE_UNI_FIELD_SEARCH_RESULTS?: string;
+  UNE_UNI_FIELD_CHUNK_ID?: string;
+  UNE_UNI_FIELD_SCORE?: string;
+  UNE_UNI_FIELD_TEXT?: string;
   UNE_UNI_FIELD_DOCUMENT_ID?: string;
   UNE_UNI_FIELD_FILE_NAME?: string;
   UNE_UNI_FIELD_MESSAGE?: string;
@@ -87,11 +92,18 @@ export function createUniKnowledgeProvider(env: UniKnowledgeFactoryEnv): UniKnow
     // 설계 08 §1.14: 업로드 60초. 나머지는 UNE 기준선이며 provider 합의값이 아니다.
     uploadTimeoutMs: intFrom(env.UNE_UNI_UPLOAD_TIMEOUT_MS, 60_000),
     requestTimeoutMs: intFrom(env.UNE_UNI_REQUEST_TIMEOUT_MS, 30_000),
+    // 설계 08 §1.14: UNI Search 30초.
+    searchTimeoutMs: intFrom(env.UNE_UNI_SEARCH_TIMEOUT_MS, 30_000),
     fieldNames: {
       documentId: env.UNE_UNI_FIELD_DOCUMENT_ID?.trim() || DEFAULT_UNI_FIELD_NAMES.documentId,
       fileName: env.UNE_UNI_FIELD_FILE_NAME?.trim() || DEFAULT_UNI_FIELD_NAMES.fileName,
       message: env.UNE_UNI_FIELD_MESSAGE?.trim() || DEFAULT_UNI_FIELD_NAMES.message,
       status: env.UNE_UNI_FIELD_STATUS?.trim() || DEFAULT_UNI_FIELD_NAMES.status,
+      searchResults:
+        env.UNE_UNI_FIELD_SEARCH_RESULTS?.trim() || DEFAULT_UNI_FIELD_NAMES.searchResults,
+      chunkId: env.UNE_UNI_FIELD_CHUNK_ID?.trim() || DEFAULT_UNI_FIELD_NAMES.chunkId,
+      score: env.UNE_UNI_FIELD_SCORE?.trim() || DEFAULT_UNI_FIELD_NAMES.score,
+      text: env.UNE_UNI_FIELD_TEXT?.trim() || DEFAULT_UNI_FIELD_NAMES.text,
     },
   };
 

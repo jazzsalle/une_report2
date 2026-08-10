@@ -19,6 +19,7 @@ export const UNI_KNOWLEDGE_OPERATIONS = [
   'uploadDocument', // POST /documents/upload
   'getDocumentStatus', // 내부 상태조회 (설계 08 §1.9)
   'getReference', // GET /documents/{id}/reference
+  'searchEvidence', // POST /search/ (CC-230)
 ] as const;
 
 export type UniKnowledgeOperation = (typeof UNI_KNOWLEDGE_OPERATIONS)[number];
@@ -122,6 +123,35 @@ export interface UniReferenceOutcome {
   reference: Record<string, unknown> | null;
 }
 
+/**
+ * 근거 검색 입력 (CC-230, 설계 06 US-SIT-011).
+ *
+ * `documentIds`가 핵심이다 — UNI에게 **이 문서들 안에서만** 찾으라고 말한다.
+ * 그러나 그 필터가 지켜졌는지는 응답을 받아 봐야 알 수 있으므로, 호출부는
+ * 돌아온 청크의 문서 id를 다시 대조한다(US-SIT-011 E-02).
+ */
+export interface UniSearchInput {
+  query: string;
+  topK: number;
+  /** 이 테넌트에서 근거 자격을 가진 문서들. 빈 배열이면 호출하지 않는다. */
+  documentIds: string[];
+  filters: Record<string, unknown>;
+}
+
+/** UNI가 돌려준 청크 하나. 설계 06 3단계의 `filename/score/text/doc_id`. */
+export interface UniEvidenceChunk {
+  documentId: string;
+  chunkId: string | null;
+  fileName: string | null;
+  /** 척도가 미확인이다(OB-13) — 정규화하지 않고 그대로 싣는다. */
+  score: number | null;
+  text: string;
+}
+
+export interface UniSearchOutcome {
+  chunks: UniEvidenceChunk[];
+}
+
 export interface UniKnowledgeProvider {
   readonly adapterId: string;
   readonly mappingVersion: string;
@@ -142,6 +172,12 @@ export interface UniKnowledgeProvider {
     documentId: string,
     ctx: UniCallContext,
   ): Promise<UniKnowledgeResult<UniReferenceOutcome>>;
+
+  /** 설계 08 §1.14: 30초, 재시도 없음. 재시도는 사용자 행동이다(US-SIT-011 E-01). */
+  searchEvidence(
+    input: UniSearchInput,
+    ctx: UniCallContext,
+  ): Promise<UniKnowledgeResult<UniSearchOutcome>>;
 }
 
 /** 실패 결과를 만드는 공통 경로 — 원문을 빠뜨릴 수 없게 한다. */

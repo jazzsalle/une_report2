@@ -5,6 +5,8 @@ import {
   type UniKnowledgeProvider,
   type UniKnowledgeResult,
   type UniReferenceOutcome,
+  type UniSearchInput,
+  type UniSearchOutcome,
   type UniStatusOutcome,
   type UniUploadInput,
   type UniUploadOutcome,
@@ -80,7 +82,9 @@ export class MockUniKnowledgeAdapter implements UniKnowledgeProvider {
     return this.scenariosEnabled && fileName.includes(token);
   }
 
-  private meta(operation: 'uploadDocument' | 'getDocumentStatus' | 'getReference') {
+  private meta(
+    operation: 'uploadDocument' | 'getDocumentStatus' | 'getReference' | 'searchEvidence',
+  ) {
     return {
       adapterId: this.adapterId,
       mappingVersion: this.mappingVersion,
@@ -184,6 +188,83 @@ export class MockUniKnowledgeAdapter implements UniKnowledgeProvider {
     return uniSuccess({ documentId, status }, this.meta('getDocumentStatus'), {
       ...raw,
       responseBody: body,
+    });
+  }
+
+  /**
+   * 근거 검색 (CC-230).
+   *
+   * 받은 문서 목록에 대해 청크를 만든다. 자격 판정은 호출부의 일이다.
+   *
+   * 시나리오(켜졌을 때):
+   *   `.no-results.` 질의  결과 0건 (US-SIT-011 A-01)
+   *   `.foreign.` 질의     우리가 올린 적 없는 문서를 섞어 돌려준다 (E-02)
+   *   `.search-fail.` 질의 검색이 실패한다 (US-SIT-011 E-01)
+   */
+  async searchEvidence(
+    input: UniSearchInput,
+    _ctx: UniCallContext,
+  ): Promise<UniKnowledgeResult<UniSearchOutcome>> {
+    const raw = {
+      requestSummary: {
+        query: input.query,
+        topK: input.topK,
+        documentCount: input.documentIds.length,
+        filters: input.filters,
+      },
+      responseBody: null as unknown,
+    };
+
+    if (this.scenariosEnabled && input.query.includes('.search-fail.')) {
+      // 검색 실패 경로가 mock에 없어 `UNI-422-002`와 실패 시 잡·원문 보존이
+      // 한 번도 증명되지 않았다(QA 검토 C1).
+      return uniFailure(
+        {
+          code: 'UNI_TIMEOUT',
+          message: 'mock: 검색 제한시간 초과 시나리오',
+          retryable: true,
+          // 조회는 다시 물어도 아무것도 바뀌지 않는다.
+          sideEffectUncertain: false,
+        },
+        this.meta('searchEvidence'),
+        raw,
+      );
+    }
+
+    if (this.scenariosEnabled && input.query.includes('.no-results.')) {
+      return uniSuccess({ chunks: [] }, this.meta('searchEvidence'), {
+        ...raw,
+        responseBody: { results: [] },
+      });
+    }
+
+    // **호출부가 준 문서 목록을 그대로 쓴다.** 처음에는 mock의 내부 등록부에
+    // 있고 READY인 것만 골랐는데, 그러면 이 mock을 통해 업로드를 거치지 않은
+    // 테스트(API e2e는 문서를 DB에 직접 넣는다)에서 항상 0건이 된다. 자격
+    // 판정은 이미 호출부가 마쳤고(도메인 isEvidenceEligible), 포트가 그것을
+    // 다시 판정하는 것은 역할이 아니다.
+    const chunks = input.documentIds.slice(0, input.topK).map((id, i) => ({
+      documentId: id,
+      chunkId: `${id}-c${i + 1}`,
+      fileName: this.docs.get(id)?.fileName ?? null,
+      score: Number((0.9 - i * 0.05).toFixed(6)),
+      text: `mock 근거 ${i + 1}: ${input.query}`,
+    }));
+
+    if (this.scenariosEnabled && input.query.includes('.foreign.')) {
+      // UNI가 우리가 올린 적 없는 문서를 가리키는 경우. 호출부가 걸러야 한다.
+      chunks.push({
+        documentId: 'foreign-doc-0001',
+        chunkId: 'foreign-c1',
+        fileName: 'someone-else.pdf',
+        score: 0.99,
+        text: '남의 기관 자료',
+      });
+    }
+
+    return uniSuccess({ chunks }, this.meta('searchEvidence'), {
+      ...raw,
+      responseBody: { results: chunks },
     });
   }
 

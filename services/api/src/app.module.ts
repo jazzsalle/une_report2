@@ -49,6 +49,10 @@ import { ResolutionRepository } from './situation/resolution.repository';
 import { ResolutionService } from './situation/resolution.service';
 import { SnapshotService } from './situation/snapshot.service';
 import { situationProviderFactory } from './situation/situation-provider.provider';
+import { EvidenceController } from './knowledge/evidence.controller';
+import { EvidenceRepository } from './knowledge/evidence.repository';
+import { EvidenceService } from './knowledge/evidence.service';
+import { uniKnowledgeFactory } from './knowledge/uni-knowledge.provider';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { KnowledgeRepository } from './knowledge/knowledge.repository';
 import { KnowledgeService } from './knowledge/knowledge.service';
@@ -81,6 +85,7 @@ export class AppModule {
         ExportController,
         SituationController,
         KnowledgeController,
+        EvidenceController,
         ProviderJobController,
       ],
       providers: [
@@ -118,6 +123,9 @@ export class AppModule {
         SituationService,
         KnowledgeRepository,
         KnowledgeService,
+        EvidenceRepository,
+        EvidenceService,
+        uniKnowledgeFactory,
         FactService,
         ProviderQueryService,
         situationProviderFactory,

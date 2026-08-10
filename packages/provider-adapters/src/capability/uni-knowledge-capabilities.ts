@@ -71,6 +71,20 @@ export const UNI_KNOWLEDGE_FEATURE_CAPABILITIES: readonly UniFeatureCapability[]
       '참조요약 조회. 200 READY / 202 PROCESSING 구분은 설계 08 §1.9가 적었고 ' +
       '준비 여부의 근거는 본문이 아니라 상태코드다. 본문 스키마는 미확인(OB-13).',
   },
+  {
+    featureId: 'knowledgeSearch',
+    endpoint: 'POST /search/',
+    state: 'UNE_ADAPTER_READY',
+    adapterImplemented: true,
+    mockAvailable: true,
+    openBinding: 'OB-13',
+    providerEvidence: null,
+    notes:
+      '근거 검색(CC-230). 감싸는 배열 필드명·chunk id 필드명·score 척도·doc_ids ' +
+      '범위 지정 지원 여부가 **전부 미확인**이다(CR-UNI-008). 설계 06 US-SIT-011 ' +
+      '3단계의 filename/score/text/doc_id만 기준선으로 쓴다. mock이 검증하는 것은 ' +
+      'UNE 쪽 상태기계뿐이다.',
+  },
 ];
 
 export function getUniKnowledgeCapability(featureId: string): UniFeatureCapability | undefined {

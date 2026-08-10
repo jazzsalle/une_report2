@@ -436,7 +436,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-220
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - snapshot-derived query
   - Top-K mapping
@@ -446,7 +446,9 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/evidence/CC-230-evidence-search-and-frozen-set.md
+  - docs/adr/ADR-37-cc230-evidence-search-and-frozen-evidence-set.md
 - id: CC-240
   title: Implement UNI SOP generation and versioned UniSopMapper
   gate: G3

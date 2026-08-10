@@ -1,5 +1,11 @@
 import { UNI_PROCESSING_STATUSES } from '@une/domain';
-import type { UniReferenceOutcome, UniStatusOutcome, UniUploadOutcome } from './uni-knowledge-port';
+import type {
+  UniEvidenceChunk,
+  UniReferenceOutcome,
+  UniSearchOutcome,
+  UniStatusOutcome,
+  UniUploadOutcome,
+} from './uni-knowledge-port';
 
 /**
  * UNI 응답 가드 (CC-220).
@@ -22,6 +28,11 @@ export interface UniFieldNames {
   fileName: string;
   message: string;
   status: string;
+  /** 검색 응답(CC-230). 전부 미확인이며 CR-UNI-008로 요청 중이다. */
+  searchResults: string;
+  chunkId: string;
+  score: string;
+  text: string;
 }
 
 export const DEFAULT_UNI_FIELD_NAMES: UniFieldNames = {
@@ -29,6 +40,13 @@ export const DEFAULT_UNI_FIELD_NAMES: UniFieldNames = {
   fileName: 'filename',
   message: 'message',
   status: 'status',
+  // 설계 06 US-SIT-011 3단계가 "filename/score/text/doc_id를 EvidenceChunk로
+  // 변환한다"고 적은 이름을 기준선으로 둔다. 감싸는 필드명(`results`)과
+  // chunk id 필드명은 설계에도 없다 — 전부 설정으로 바꿀 수 있다.
+  searchResults: 'results',
+  chunkId: 'chunk_id',
+  score: 'score',
+  text: 'text',
 };
 
 export type GuardResult<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -134,4 +152,63 @@ export function guardUniReference(
   const rec = asRecord(body);
   if (!rec) return { ok: false, reason: '참조요약 본문이 JSON 객체가 아니다' };
   return { ok: true, value: { documentId, ready: true, reference: rec } };
+}
+
+/**
+ * 검색 응답 → `UniSearchOutcome` (CC-230).
+ *
+ * **부분 수용을 하지 않는다.** 청크 하나라도 모양이 틀리면 응답 전체를 거부한다.
+ * 근거는 SOP의 출처가 되고 EvidenceSet은 동결되므로, "일부는 건너뛰고 나머지로
+ * 진행했다"가 나중에 "왜 이 근거가 빠졌는가"로 돌아온다 — 그때 답할 기록이
+ * 없다. 거부하면 원문은 보존되고 사용자는 다시 검색하거나 수동으로 진행한다
+ * (US-SIT-011 A-01).
+ *
+ * 결과 0건은 **오류가 아니다** — A-01이 정상 분기로 정의한 상태다.
+ */
+export function guardUniSearch(
+  body: unknown,
+  fields: UniFieldNames = DEFAULT_UNI_FIELD_NAMES,
+): GuardResult<UniSearchOutcome> {
+  // 최상위가 배열인 형태와 `{results: [...]}` 형태 둘 다 흔하므로 둘 다 받는다.
+  // 그 밖의 모양은 추측하지 않는다.
+  let list: unknown;
+  if (Array.isArray(body)) {
+    list = body;
+  } else {
+    const rec = asRecord(body);
+    if (!rec) return { ok: false, reason: '검색 응답이 JSON 객체나 배열이 아니다' };
+    list = rec[fields.searchResults];
+    if (list === undefined) {
+      return { ok: false, reason: `검색 응답에 결과 배열(${fields.searchResults})이 없다` };
+    }
+  }
+  if (!Array.isArray(list)) {
+    return { ok: false, reason: `검색 결과(${fields.searchResults})가 배열이 아니다` };
+  }
+
+  const chunks: UniEvidenceChunk[] = [];
+  for (const [i, raw] of list.entries()) {
+    const rec = asRecord(raw);
+    if (!rec) return { ok: false, reason: `검색 결과 ${i}번이 객체가 아니다` };
+
+    const documentId = readString(rec, fields.documentId);
+    if (!documentId) {
+      // 출처를 가리키지 못하는 청크는 근거가 될 수 없다(US-SIT-011 E-02).
+      return { ok: false, reason: `검색 결과 ${i}번에 문서 식별자(${fields.documentId})가 없다` };
+    }
+    const text = readString(rec, fields.text);
+    if (!text) return { ok: false, reason: `검색 결과 ${i}번에 인용문(${fields.text})이 없다` };
+
+    const rawScore = rec[fields.score];
+    const score = typeof rawScore === 'number' && Number.isFinite(rawScore) ? rawScore : null;
+
+    chunks.push({
+      documentId,
+      chunkId: readString(rec, fields.chunkId),
+      fileName: readString(rec, fields.fileName),
+      score,
+      text,
+    });
+  }
+  return { ok: true, value: { chunks } };
 }

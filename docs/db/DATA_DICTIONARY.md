@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 63
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items
 
 ## api_idempotency
 
@@ -317,32 +317,43 @@
 
 ## evidence_item
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_evidence_item_exclusion_shape: CHECK ((is_selected OR (excluded_reason IS NOT NULL)))
+- ck_evidence_item_quote: CHECK ((length(btrim(quote_text)) > 0))
+- ck_evidence_item_rank: CHECK ((rank_no >= 1))
 - evidence_item_pkey: PRIMARY KEY (evidence_item_id)
-- fk_evidence_item_evidence_set_id: FOREIGN KEY (evidence_set_id) REFERENCES evidence_set(evidence_set_id) DEFERRABLE INITIALLY DEFERRED
-- fk_evidence_item_knowledge_document_id: FOREIGN KEY (knowledge_document_id) REFERENCES knowledge_document(knowledge_document_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: evidence_item_pkey
+- fk_evidence_item_evidence_set_id: FOREIGN KEY (evidence_set_id) REFERENCES evidence_set(evidence_set_id) ON DELETE CASCADE
+- fk_evidence_item_knowledge_document_id: FOREIGN KEY (knowledge_document_id) REFERENCES knowledge_document(knowledge_document_id)
+- 인덱스: evidence_item_pkey, ix_evidence_item_document, uk_evidence_item_citation, uk_evidence_item_rank
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
 | evidence_item_id | uuid | NN | gen_random_uuid() | 근거 |
 | evidence_set_id | uuid | NN |  | 집합 |
 | knowledge_document_id | uuid | NN |  | 문서 |
-| provider_chunk_id | character varying(150) | - |  | UNI Chunk |
+| provider_chunk_id | character varying(255) | - |  | UNI Chunk |
 | rank_no | integer | NN |  | 순위 |
-| score | numeric(8,6) | - |  | 유사도 |
+| score | numeric | - |  | UNI가 준 점수. 척도 미확인(OB-13)이라 정밀도·범위를 제약하지 않는다 |
 | quote_text | text | NN |  | 근거문 |
 | source_locator_json | jsonb | NN |  | 페이지/청크 |
 | citation_key | character varying(80) | NN |  | 인용키 |
+| is_selected | boolean | NN | true | 동결에 포함할지. 제외한 후보도 행은 남긴다(US-SIT-011 4단계) |
+| excluded_reason | text | - |  |  |
 
 ## evidence_set
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_evidence_set_freeze_shape: CHECK (((((status)::text = 'FROZEN'::text) AND (frozen_at IS NOT NULL) AND (frozen_by IS NOT NULL)) OR (((status)::text = 'DRAFT'::text) AND (frozen_at IS NULL) AND (frozen_by IS NULL))))
+- ck_evidence_set_hash: CHECK ((content_hash ~ '^[0-9a-f]{64}$'::text))
+- ck_evidence_set_status: CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'FROZEN'::character varying])::text[])))
+- ck_evidence_set_top_k: CHECK (((top_k >= 1) AND (top_k <= 50)))
 - evidence_set_pkey: PRIMARY KEY (evidence_set_id)
-- fk_evidence_set_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
-- fk_evidence_set_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
-- fk_evidence_set_snapshot_id: FOREIGN KEY (snapshot_id) REFERENCES situation_snapshot(snapshot_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: evidence_set_pkey
+- fk_evidence_set_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id)
+- fk_evidence_set_frozen_by: FOREIGN KEY (frozen_by) REFERENCES app_user(user_id)
+- fk_evidence_set_provider_job_id: FOREIGN KEY (provider_job_id) REFERENCES provider_job(provider_job_id)
+- fk_evidence_set_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id)
+- fk_evidence_set_snapshot_id: FOREIGN KEY (snapshot_id) REFERENCES situation_snapshot(snapshot_id)
+- 인덱스: evidence_set_pkey, ix_evidence_set_situation
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -352,10 +363,15 @@
 | query_text | text | NN |  | 질의 |
 | filters_json | jsonb | NN |  | 필터 |
 | top_k | integer | NN |  | Top-K |
-| status | character varying(20) | NN |  | DRAFT/LOCKED |
-| content_hash | character(64) | NN |  | 해시 |
+| status | character varying(20) | NN |  | DRAFT/FROZEN. 화면 흐름 상태(SEARCHING 등)는 저장하지 않는다(ADR-37 D1) |
+| content_hash | character(64) | NN |  | 동결 대상의 내용 해시 — 점수·동결자·시각은 넣지 않는다 |
 | created_by | uuid | NN |  | 생성자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+| frozen_at | timestamp with time zone | - |  | 동결 시각. NULL이면 DRAFT다 |
+| frozen_by | uuid | - |  |  |
+| freeze_reason | text | - |  |  |
+| provider_job_id | uuid | - |  | 이 결과를 만든 UNI 검색 잡 (원문 추적) |
+| updated_at | timestamp with time zone | NN | now() |  |
 
 ## execution_event
 
