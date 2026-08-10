@@ -96,7 +96,7 @@ $ pnpm build / typecheck / lint / format:check      PASS
 $ pnpm validate:contracts / :intake / :handoff      PASS
 $ pnpm db:data-dictionary → git diff                63 tables, 620 columns (0031 반영)
 
-$ pnpm test   (skip 0)
+$ pnpm test   (skip 7 — MinIO 미기동 S3 통합테스트, 기존 항목)
   web 28 · domain 194 · db-integration 169 · provider-adapters 212 ·
   hwpx-engine 426 · api 414 · worker 64 · contract 247 · e2e 13
 ```
@@ -133,6 +133,24 @@ ADR-37 수용 한계 7건이 정본이며 그중 운영에 직접 걸리는 셋:
    함께 온다"고 적었으나 이번에도 닫지 않았다 — 근거 검색이 참조요약 없이
    성립하고 그 값을 소비하는 곳이 아직 없다. **CC-240으로 다시 넘긴다.**
    두 번 미뤘다는 사실을 여기 남긴다.
+
+### 검토가 잡은 것 (전건 반영)
+
+이중 검토에서 **BLOCKER 2건**이 나왔고 둘 다 실측으로 재현한 뒤 닫았다.
+
+1. **`filters`가 UNI 요청을 덮어썼다.** `...input.filters`가 전개 마지막이라
+   사용자가 `{"doc_ids": []}`를 보내면 범위 제한이 사라졌다. 응답 청크는
+   걸러지지만 **원문은 걸러지지 않아** 남의 기관 문서 본문이 요청자 테넌트의
+   `provider_result`에 적재된다. `minimizePii`도 우회됐다. CR-UNI-008에
+   `filters`가 정의돼 있지 않으므로 **아예 보내지 않기로** 했다.
+2. **동결된 집합을 지울 수 있었다.** 집합 트리거가 UPDATE 전용이라 부모를
+   지우면 cascade가 근거를 데려가고, 자식 가드는 부모가 사라져 NULL을 읽고
+   통과했다. DELETE 가드 + fail-closed + `REVOKE DELETE`로 닫았다.
+
+그 밖에 고친 것: `score numeric(8,6)` 오버플로가 원문까지 롤백시켰고(수용
+한계 7 정정), Snapshot 기준선에 30초 TOCTOU 창이 있었으며, 종료된 상황에도
+근거를 모을 수 있었고, 412가 계약에 선언되지 않았고, `searchEvidence`
+capability가 미등록이었다. UNI 실패 경로 테스트도 없었다(mock에 시나리오 추가).
 
 그 밖에: A-02 충돌 탐지 없음(기관 KB 승격 워크플로 부재에 묶여 있다),
 근거 선택·제외 API 없음(설계 10에 오퍼레이션이 없다 — 화면이 붙는 시점에

@@ -34,8 +34,20 @@ COMMENT ON COLUMN evidence_set.provider_job_id IS '이 결과를 만든 UNI 검�
 ALTER TABLE evidence_item ADD COLUMN IF NOT EXISTS is_selected boolean;
 ALTER TABLE evidence_item ADD COLUMN IF NOT EXISTS excluded_reason text;
 
+-- **컬럼 한계가 원문 소실로 이어진다.** `score numeric(8,6)`(0004)은 |score| < 100과
+-- 소수 6자리를 강제하고, `provider_chunk_id varchar(150)`도 상한이 있다. UNI 점수의
+-- 척도가 미확인인데(OB-13) BM25류는 100을 쉽게 넘고, 그러면 항목 INSERT가
+-- 22003으로 죽는다 — 같은 트랜잭션의 잡·원문까지 롤백되어 "UNI가 뭘 줬는지
+-- 모른 채 500만 남는" 상태가 된다. ADR-37 D9가 피하려던 바로 그 함정이
+-- 컬럼 타입으로 열려 있었다(실측: score=100 → 22003, chunk_id 151자 → 22001).
+--
+-- 정밀도를 풀고 식별자를 넓힌다. 값을 잘라 넣지 않는 이유: 잘린 chunk id는
+-- 다른 청크를 가리킬 수 있고, 반올림한 점수는 UNI가 준 값이 아니다.
+ALTER TABLE evidence_item ALTER COLUMN score TYPE numeric;
+ALTER TABLE evidence_item ALTER COLUMN provider_chunk_id TYPE varchar(255);
+
 COMMENT ON COLUMN evidence_item.is_selected IS '동결에 포함할지. 제외한 후보도 행은 남긴다(US-SIT-011 4단계)';
-COMMENT ON COLUMN evidence_item.score IS 'UNI가 준 점수. 의미·범위는 미확인(OB-13)이라 범위 제약을 걸지 않는다';
+COMMENT ON COLUMN evidence_item.score IS 'UNI가 준 점수. 척도 미확인(OB-13)이라 정밀도·범위를 제약하지 않는다';
 
 UPDATE evidence_set SET updated_at = COALESCE(updated_at, created_at) WHERE updated_at IS NULL;
 UPDATE evidence_item SET is_selected = COALESCE(is_selected, true) WHERE is_selected IS NULL;
@@ -174,40 +186,62 @@ CREATE POLICY p_evidence_item_tenant ON evidence_item
 -- `une_app`에서 UPDATE를 회수할 수는 없다 — DRAFT는 사용자가 고치는 것이
 -- 정상이다. 그래서 **행 단위**로 막는다: 0027/0029가 provider 원문에 쓴 것과
 -- 같은 형태다.
+-- **DELETE도 막는다.** UPDATE만 막으면 부모를 지우는 것으로 우회된다 —
+-- 자식 FK가 ON DELETE CASCADE라 근거까지 함께 사라지고, 그때 자식 가드는
+-- 부모가 이미 없어져 `parent_status = NULL`을 읽고 열린 채 통과한다.
+-- 실측으로 재현했다(아키텍처 검토 BLOCKER 2-2).
 CREATE OR REPLACE FUNCTION une_guard_evidence_set_frozen()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
   IF OLD.status = 'FROZEN' THEN
-    RAISE EXCEPTION '동결된 EvidenceSet은 수정할 수 없다 (US-SIT-011, 0031)'
+    RAISE EXCEPTION '동결된 EvidenceSet은 수정·삭제할 수 없다 (US-SIT-011, 0031)'
       USING ERRCODE = '42501';
   END IF;
-  RETURN NEW;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END
 $$;
 
 DROP TRIGGER IF EXISTS trg_evidence_set_frozen_immutable ON evidence_set;
 CREATE TRIGGER trg_evidence_set_frozen_immutable
-  BEFORE UPDATE ON evidence_set
+  BEFORE UPDATE OR DELETE ON evidence_set
   FOR EACH ROW EXECUTE FUNCTION une_guard_evidence_set_frozen();
 
 -- 항목도 같다. 동결된 집합의 근거가 나중에 바뀌면 "그때 무엇을 근거로
 -- 만들었는가"가 사라진다.
+-- **fail-closed다.** 처음에는 `IF parent_status = 'FROZEN'`이었는데, 부모가
+-- 보이지 않으면(cascade로 이미 지워졌거나 RLS가 가렸거나) NULL이라 그 비교가
+-- 참이 아니고 가드가 통과한다. 이 함수는 SECURITY DEFINER가 아니라 호출자
+-- RLS를 받으므로 테넌트 문맥이 없는 세션에서도 같은 일이 생긴다.
+--
+-- 예외는 하나뿐이다: 부모가 없고 DELETE이면 **부모 삭제에서 온 cascade**이며,
+-- 그 삭제는 위 부모 가드를 이미 통과했으므로(= 부모가 DRAFT였다) 허용한다.
 CREATE OR REPLACE FUNCTION une_guard_evidence_item_frozen()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
   parent_status varchar(20);
+  target_set uuid;
 BEGIN
-  SELECT status INTO parent_status FROM evidence_set
-   WHERE evidence_set_id = COALESCE(NEW.evidence_set_id, OLD.evidence_set_id);
-  IF parent_status = 'FROZEN' THEN
+  target_set := CASE WHEN TG_OP = 'DELETE' THEN OLD.evidence_set_id ELSE NEW.evidence_set_id END;
+  SELECT status INTO parent_status FROM evidence_set WHERE evidence_set_id = target_set;
+
+  IF parent_status IS NULL THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD; -- 부모 삭제의 cascade. 부모 가드가 이미 판단했다.
+    END IF;
+    RAISE EXCEPTION '보이지 않는 EvidenceSet에 근거를 쓸 수 없다 (0031)'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF parent_status IS DISTINCT FROM 'DRAFT' THEN
     RAISE EXCEPTION '동결된 EvidenceSet의 근거는 바꿀 수 없다 (US-SIT-011, 0031)'
       USING ERRCODE = '42501';
   END IF;
-  RETURN COALESCE(NEW, OLD);
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END
 $$;
 
@@ -215,6 +249,16 @@ DROP TRIGGER IF EXISTS trg_evidence_item_frozen_immutable ON evidence_item;
 CREATE TRIGGER trg_evidence_item_frozen_immutable
   BEFORE INSERT OR UPDATE OR DELETE ON evidence_item
   FOR EACH ROW EXECUTE FUNCTION une_guard_evidence_item_frozen();
+
+-- ===========================================================================
+-- §5-1. 삭제 권한을 회수한다
+-- ===========================================================================
+-- 0011 §33-36이 "sop_version과 evidence_set의 불변은 CC-250/CC-230까지
+-- **애플리케이션 계층**에서 강제한다"고 적어 이 항목에 숙제를 넘겼다.
+-- 애플리케이션에 삭제 경로가 없으므로 권한 자체를 거둔다 — 트리거는 마지막
+-- 방어선이지 유일한 방어선이 아니다.
+REVOKE DELETE ON evidence_set FROM une_app;
+REVOKE DELETE ON evidence_item FROM une_app;
 
 -- ===========================================================================
 -- §6. 넣지 않은 것과 그 이유

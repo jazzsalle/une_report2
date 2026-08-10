@@ -331,9 +331,9 @@
 | evidence_item_id | uuid | NN | gen_random_uuid() | 근거 |
 | evidence_set_id | uuid | NN |  | 집합 |
 | knowledge_document_id | uuid | NN |  | 문서 |
-| provider_chunk_id | character varying(150) | - |  | UNI Chunk |
+| provider_chunk_id | character varying(255) | - |  | UNI Chunk |
 | rank_no | integer | NN |  | 순위 |
-| score | numeric(8,6) | - |  | UNI가 준 점수. 의미·범위는 미확인(OB-13)이라 범위 제약을 걸지 않는다 |
+| score | numeric | - |  | UNI가 준 점수. 척도 미확인(OB-13)이라 정밀도·범위를 제약하지 않는다 |
 | quote_text | text | NN |  | 근거문 |
 | source_locator_json | jsonb | NN |  | 페이지/청크 |
 | citation_key | character varying(80) | NN |  | 인용키 |

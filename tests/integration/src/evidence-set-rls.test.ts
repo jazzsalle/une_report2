@@ -206,17 +206,28 @@ describe.skipIf(!ADMIN_URL)('0031: EvidenceSet 격리와 동결 불변 (CC-230)'
   });
 
   it('남의 EvidenceSet에 근거를 붙일 수 없다', async () => {
-    await expect(
-      asApp(url, a.tenantId, (c) =>
-        c.query(
-          `INSERT INTO evidence_item
-             (evidence_set_id, knowledge_document_id, rank_no, quote_text,
-              source_locator_json, citation_key)
-           VALUES ($1, $2, 9, 'x', '{}'::jsonb, 'C9')`,
-          [b.setId, a.documentId],
+    // 거부하는 것은 RLS의 WITH CHECK가 아니라 **fail-closed 가드**다. BEFORE
+    // INSERT 트리거가 먼저 돌고, 남의 집합은 이 테넌트에게 보이지 않으므로
+    // 부모 조회가 0행이 된다. 그 자리에서 막는 것이 옳다 — 처음에는 부모가
+    // NULL이면 통과시켰고, 그것이 BLOCKER 2-2의 fail-open이었다.
+    expect(
+      await errCode(() =>
+        asApp(url, a.tenantId, (c) =>
+          c.query(
+            `INSERT INTO evidence_item
+               (evidence_set_id, knowledge_document_id, rank_no, quote_text,
+                source_locator_json, citation_key)
+             VALUES ($1, $2, 9, 'x', '{}'::jsonb, 'C9')`,
+            [b.setId, a.documentId],
+          ),
         ),
       ),
-    ).rejects.toThrow(/row-level security/i);
+    ).toBe('42501');
+
+    const leaked = await withClient(url, (c) =>
+      c.query(`SELECT count(*)::int n FROM evidence_item WHERE evidence_set_id = $1`, [b.setId]),
+    );
+    expect(leaked.rows[0].n).toBe(1);
   });
 
   it('우리가 올린 적 없는 문서는 근거가 될 수 없다 (E-02 마지막 방어선)', async () => {
@@ -306,6 +317,59 @@ describe.skipIf(!ADMIN_URL)('0031: EvidenceSet 격리와 동결 불변 (CC-230)'
           ),
         ),
       ).toBe('42501');
+    });
+
+    it('동결된 집합을 통째로 지울 수 없다 (cascade로 근거가 사라진다)', async () => {
+      // 아키텍처 검토 BLOCKER 2-2. `evidence_set`에 DELETE 가드가 없으면
+      // 부모를 지우는 것으로 cascade가 자식을 데려간다. 그때 자식 가드는
+      // 부모가 이미 사라져 `parent_status = NULL`을 읽고 **열린 채 통과**한다.
+      // 0011:33-36이 "evidence_set의 불변은 CC-230까지 애플리케이션 계층"
+      // 이라고 적어 둔 숙제가 UPDATE만 닫고 DELETE를 열어 둔 상태였다.
+      const target = await withClient(url, (c) => insertEvFixture(c, 'ev-del'));
+      await withClient(url, (c) =>
+        c.query(
+          `UPDATE evidence_set SET status='FROZEN', frozen_at=now(), frozen_by=$2
+            WHERE evidence_set_id = $1`,
+          [target.setId, target.userId],
+        ),
+      );
+
+      expect(
+        await errCode(() =>
+          asApp(url, target.tenantId, (c) =>
+            c.query(`DELETE FROM evidence_set WHERE evidence_set_id = $1`, [target.setId]),
+          ),
+        ),
+      ).toBe('42501');
+
+      const still = await withClient(url, (c) =>
+        c.query(`SELECT count(*)::int n FROM evidence_item WHERE evidence_set_id = $1`, [
+          target.setId,
+        ]),
+      );
+      expect(still.rows[0].n).toBe(1);
+    });
+
+    it('une_app으로도 동결된 집합·근거를 바꿀 수 없다', async () => {
+      // 검토 지적 2-4: 동결 불변 시험이 superuser로만 돌고 있었다. 정작
+      // 위험한 주체는 RLS·GRANT를 실제로 받는 `une_app`이다.
+      const target = await withClient(url, (c) => insertEvFixture(c, 'ev-app'));
+      await withClient(url, (c) =>
+        c.query(
+          `UPDATE evidence_set SET status='FROZEN', frozen_at=now(), frozen_by=$2
+            WHERE evidence_set_id = $1`,
+          [target.setId, target.userId],
+        ),
+      );
+      for (const sql of [
+        `UPDATE evidence_set SET query_text='바꿈' WHERE evidence_set_id = $1`,
+        `DELETE FROM evidence_item WHERE evidence_set_id = $1`,
+      ]) {
+        expect(
+          await errCode(() => asApp(url, target.tenantId, (c) => c.query(sql, [target.setId]))),
+          sql,
+        ).toBe('42501');
+      }
     });
 
     it('DRAFT는 여전히 고칠 수 있다 (불변이 너무 일찍 걸리지 않는다)', async () => {

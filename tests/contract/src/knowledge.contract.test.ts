@@ -289,3 +289,31 @@ describe('CC-230 계약: EvidenceSet 어휘와 오류코드', () => {
     expect(schemas.EvidenceSet.required).toContain('rejectedChunkCount');
   });
 });
+
+describe('CC-230 계약: 오류코드의 HTTP 상태가 responses에 선언돼 있다', () => {
+  // 검토 F5. `x-error-codes`에 EVID-412-001이 있는데 responses에 412가 없었다.
+  // 계약을 읽는 클라이언트는 412를 예상할 수 없고, 기존 게이트는 코드 문자열만
+  // 대조해 이것을 보지 못했다.
+  const sources = ['knowledge-errors.ts', 'evidence-errors.ts'].map((f) =>
+    readFileSync(repoPath('services', 'api', 'src', 'knowledge', f), 'utf8'),
+  );
+  const statusByCode = new Map<string, string>();
+  for (const src of sources) {
+    for (const m of src.matchAll(/ApiError\(\s*(\d{3}),\s*'([A-Z0-9-]+)'/g)) {
+      statusByCode.set(m[2], m[1]);
+    }
+  }
+
+  it('모든 KNOW/EVID 오퍼레이션이 자신이 던지는 상태를 선언한다', () => {
+    for (const id of [...KNOW_OPS, ...EVIDENCE_OPS]) {
+      const op = operations.get(id);
+      const declared = (op?.['x-error-codes'] as string[] | undefined) ?? [];
+      const responses = Object.keys((op?.responses as Record<string, unknown>) ?? {});
+      for (const code of declared) {
+        const status = statusByCode.get(code);
+        if (!status) continue; // COM-* 등 공통 코드는 이 파일들에 없다
+        expect(responses, `${id}: ${code}(${status})`).toContain(status);
+      }
+    }
+  });
+});

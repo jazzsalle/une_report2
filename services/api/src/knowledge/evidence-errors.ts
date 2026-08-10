@@ -22,6 +22,17 @@ export const evidenceErrors = {
   situationNotFound: (): ApiError => new ApiError(404, 'EVID-404-003', '상황을 찾을 수 없습니다.'),
 
   /**
+   * 종료된 상황 (설계 06 §7.1).
+   *
+   * 근거는 SOP의 출처가 되고 EvidenceSet은 동결되므로, 끝난 상황 위에 새
+   * 근거를 굳히면 되돌릴 방법이 없다. CC-200이 `SIT-412-001`을 같은 뜻으로 쓴다.
+   */
+  situationClosed: (status: string): ApiError =>
+    new ApiError(412, 'EVID-412-002', `종결된 상황(${status})에는 근거를 모을 수 없습니다.`, {
+      userAction: '정정이 필요하면 정정 이벤트와 새 보고 판을 사용하십시오.',
+    }),
+
+  /**
    * 확정된 판이 없다 (US-SIT-011 선행조건).
    *
    * 412다 — 요청이 잘못된 것이 아니라 **선행 상태가 아직 아니다**. CC-200이

@@ -199,6 +199,7 @@ export class MockUniKnowledgeAdapter implements UniKnowledgeProvider {
    * 시나리오(켜졌을 때):
    *   `.no-results.` 질의  결과 0건 (US-SIT-011 A-01)
    *   `.foreign.` 질의     우리가 올린 적 없는 문서를 섞어 돌려준다 (E-02)
+   *   `.search-fail.` 질의 검색이 실패한다 (US-SIT-011 E-01)
    */
   async searchEvidence(
     input: UniSearchInput,
@@ -213,6 +214,22 @@ export class MockUniKnowledgeAdapter implements UniKnowledgeProvider {
       },
       responseBody: null as unknown,
     };
+
+    if (this.scenariosEnabled && input.query.includes('.search-fail.')) {
+      // 검색 실패 경로가 mock에 없어 `UNI-422-002`와 실패 시 잡·원문 보존이
+      // 한 번도 증명되지 않았다(QA 검토 C1).
+      return uniFailure(
+        {
+          code: 'UNI_TIMEOUT',
+          message: 'mock: 검색 제한시간 초과 시나리오',
+          retryable: true,
+          // 조회는 다시 물어도 아무것도 바뀌지 않는다.
+          sideEffectUncertain: false,
+        },
+        this.meta('searchEvidence'),
+        raw,
+      );
+    }
 
     if (this.scenariosEnabled && input.query.includes('.no-results.')) {
       return uniSuccess({ chunks: [] }, this.meta('searchEvidence'), {

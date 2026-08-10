@@ -5009,6 +5009,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -5025,6 +5027,7 @@ paths:
       - EVID-404-003
       - EVID-409-002
       - EVID-412-001
+      - EVID-412-002
       - UNI-422-002
       requestBody:
         required: true

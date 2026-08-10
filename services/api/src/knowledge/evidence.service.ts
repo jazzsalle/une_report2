@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  isSituationClosed,
   checkEvidenceFreezable,
   checkEvidenceItem,
   checkEvidenceSearchable,
@@ -145,6 +146,12 @@ export class EvidenceService {
     const prepared = await this.db.withTenant(auth.tenantId, async (c) => {
       const situation = await this.situations.findSituation(c, auth.tenantId, situationId);
       if (!situation) throw evidenceErrors.situationNotFound();
+      // 종료된 상황에는 근거를 새로 모으지 않는다 — 상황 계열의 다른 모든
+      // 쓰기 경로가 같은 가드를 쓴다(fact/provider-query/resolution/snapshot).
+      // 근거는 SOP의 출처가 되고 EvidenceSet은 동결되므로, 끝난 상황 위에
+      // 새 근거를 굳히면 되돌릴 방법이 없다.
+      if (isSituationClosed(situation.status))
+        throw evidenceErrors.situationClosed(situation.status);
       const docs = await this.evidence.findEligibleDocuments(c, auth.tenantId, situationId);
       return { currentSnapshotId: situation.currentSnapshotId, docs };
     });
@@ -207,6 +214,19 @@ export class EvidenceService {
     // 않고(던지면 롤백된다) 결과로 들고 나와 밖에서 던진다. CC-220의 거부
     // 감사가 롤백과 함께 사라졌던 것과 같은 함정이다.
     const outcome = await this.db.withTenant(auth.tenantId, async (c) => {
+      // **기준선을 다시 확인한다.** 1구간의 검사와 여기 사이에 UNI 호출이
+      // 최대 30초 열려 있고, 그동안 다른 통제관이 확정하면 낡은 판 위의
+      // EvidenceSet이 만들어져 **그대로 동결된다** — D3이 막겠다고 한 상황이
+      // 정확히 그 창으로 들어온다. ADR-34 D17이 확정에서 한 것과 같이 상황
+      // 행을 잠그고 잠근 뒤에 본다(잠금은 순서만 정하지 사실을 알려주지 않는다).
+      const fresh = await this.situations.findSituation(c, auth.tenantId, situationId, {
+        forUpdate: true,
+      });
+      const staleBaseline =
+        fresh !== null && fresh.currentSnapshotId !== input.snapshotId
+          ? (fresh.currentSnapshotId ?? 'null')
+          : null;
+
       const jobId = await this.evidence.insertSearchJob(c, {
         tenantId: auth.tenantId,
         situationId,
@@ -239,7 +259,13 @@ export class EvidenceService {
           userAgent: meta.userAgent,
           detail: { situationId, providerJobId: jobId, code: searchError.code },
         });
-        return { failed: searchError.message, resource: undefined } as const;
+        return { failed: searchError.message, stale: null, resource: undefined } as const;
+      }
+
+      if (staleBaseline !== null) {
+        // 잡과 원문은 이미 커밋 대상이다 — 실제로 UNI를 불렀으므로 그 사실은
+        // 남아야 한다. EvidenceSet만 만들지 않고 밖에서 409를 던진다.
+        return { failed: null, stale: staleBaseline, resource: undefined } as const;
       }
 
       // **UNI가 돌려준 문서를 다시 대조한다**(US-SIT-011 E-02). 요청에만 필터를
@@ -321,11 +347,14 @@ export class EvidenceService {
       });
 
       const stored = await this.evidence.listItems(c, set.evidenceSetId);
-      return { failed: null, resource: toResource(set, stored, rejected) } as const;
+      return { failed: null, stale: null, resource: toResource(set, stored, rejected) } as const;
     });
 
     if (outcome.failed !== null && outcome.failed !== undefined) {
       throw evidenceErrors.searchFailed(outcome.failed);
+    }
+    if (outcome.stale !== null && outcome.stale !== undefined) {
+      throw evidenceErrors.snapshotNotCurrent(outcome.stale);
     }
     return outcome.resource;
   }

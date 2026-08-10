@@ -375,11 +375,20 @@ export class HttpUniKnowledgeAdapter implements UniKnowledgeProvider {
     ctx: UniCallContext,
   ): Promise<UniKnowledgeResult<UniSearchOutcome>> {
     const startedAt = Date.now();
+    // **`filters`를 provider에 보내지 않는다.** 처음에는 `...input.filters`를
+    // 마지막에 펼쳤는데, 그러면 클라이언트가 준 임의 객체가 `doc_ids`·`top_k`·
+    // `query`를 **덮어쓴다** — 사용자가 `{"doc_ids": []}`를 보내면 UNE가 UNI에
+    // 범위 제한 없는 질의를 대신 던지고, 그 응답 원문(남의 기관 문서 본문)이
+    // 요청자 테넌트의 `provider_result`에 영구히 적재된다(실측으로 재현했다).
+    //
+    // 예약 키만 막는 것으로 끝내지 않은 이유: CR-UNI-008의 `SearchRequest`에
+    // `filters`가 **정의되어 있지 않다.** 계약에 없는 필드를 provider에 보내는
+    // 것은 추측이다(.claude/rules/provider-adapters.md). 값은 UNE가
+    // `evidence_set.filters_json`에 보관만 하고, 규격이 닫히면 그때 싣는다.
     const body = {
       query: input.query,
       top_k: input.topK,
       doc_ids: input.documentIds,
-      ...input.filters,
     };
     const raw: UniRawTrace = {
       // 질의 원문을 남긴다 — 어떤 근거가 왜 나왔는지 재현하려면 필요하고,

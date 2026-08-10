@@ -359,6 +359,52 @@ describe.skipIf(!ADMIN_URL)('CC-230 근거 검색·EvidenceSet e2e (UNE-KNOW-004
       }
     });
 
+    it('검색이 실패해도 잡과 원문이 남고 422로 알린다 (E-01)', async () => {
+      // QA 검토 C1: 실패 경로가 mock에 없어 UNI-422-002가 한 번도 증명되지
+      // 않았다. **잡과 원문이 커밋되는 것**이 D9의 핵심이다 — 트랜잭션 안에서
+      // 던지면 롤백되어 "왜 실패했는가"에 답할 수 없다.
+      const s = await scenario('fail');
+      const res = await search(s.situationId, s.snapshotId, { query: '.search-fail. 대피' });
+      expect(res.status).toBe(422);
+      const err = (await res.json()) as { error: { code: string; recoverable: boolean } };
+      expect(err.error.code).toBe('UNI-422-002');
+      expect(err.error.recoverable).toBe(true);
+
+      const job = await withClient(dbUrl, (c) =>
+        c.query(
+          `SELECT j.status, j.error_json, r.raw_payload_json
+             FROM provider_job j LEFT JOIN provider_result r USING (provider_job_id)
+            WHERE j.provider_code='UNI' AND j.situation_id=$1`,
+          [s.situationId],
+        ),
+      );
+      expect(job.rows[0].status).toBe('FAILED');
+      expect(job.rows[0].error_json).toMatchObject({ code: 'UNI_TIMEOUT' });
+      // 원문이 남아야 "무엇을 물었고 무엇이 돌아왔는가"에 답할 수 있다.
+      expect(job.rows[0].raw_payload_json).not.toBeNull();
+
+      // EvidenceSet은 만들어지지 않는다.
+      const sets = await withClient(dbUrl, (c) =>
+        c.query(`SELECT count(*)::int n FROM evidence_set WHERE situation_id=$1`, [s.situationId]),
+      );
+      expect(sets.rows[0].n).toBe(0);
+
+      // 실패 후 다시 검색할 수 있다.
+      const retry = await search(s.situationId, s.snapshotId);
+      expect(retry.status).toBe(200);
+    });
+
+    it('종료된 상황에는 근거를 모을 수 없다', async () => {
+      const s = await scenario('closed');
+      await withClient(dbUrl, (c) =>
+        c.query(`UPDATE situation SET status='CLOSED' WHERE situation_id=$1`, [s.situationId]),
+      );
+      const res = await search(s.situationId, s.snapshotId);
+      expect(res.status).toBe(412);
+      const err = (await res.json()) as { error: { code: string } };
+      expect(err.error.code).toBe('EVID-412-002');
+    });
+
     it('질의의 개인정보를 줄여 저장한다 (US-SIT-011 1단계)', async () => {
       const s = await scenario('pii');
       const res = await search(s.situationId, s.snapshotId, {
