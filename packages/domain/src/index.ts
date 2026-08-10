@@ -22,3 +22,5 @@ export * from './situation/duplicate-conflict';
 export * from './situation/snapshot';
 export * from './knowledge/knowledge-document';
 export * from './knowledge/evidence-set';
+export * from './sop/sop-graph';
+export * from './sop/sop-job';

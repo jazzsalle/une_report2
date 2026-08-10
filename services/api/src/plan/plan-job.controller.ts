@@ -22,6 +22,15 @@ import { TocJobService, type JobResource } from './toc-job.service';
 
 const MAX_REASON_LENGTH = 500;
 
+/**
+ * 이 컨트롤러가 다루는 잡 유형 (CC-240 검토 B2).
+ *
+ * `generation_job`은 도메인을 가리지 않으므로 유형을 명시하지 않으면
+ * `PLAN_READ`/`PLAN_GENERATE`로 SOP 잡을 읽고 끄게 된다. 반대 방향은
+ * `sop-job.controller.ts`가 막는다.
+ */
+const PLAN_JOB_TYPES = ['TOC', 'CONTENT', 'AI_EDIT'] as const;
+
 interface ReasonBody {
   reason?: unknown;
   blockIds?: unknown;
@@ -56,7 +65,10 @@ export class PlanJobController {
     @Req() req: ApiRequest,
     @Param('jobId') jobId: string,
   ): Promise<SuccessEnvelope<JobResource>> {
-    return ok(req, await this.jobs.getJob(requireAuth(req), uuidParam('jobId', jobId)));
+    return ok(
+      req,
+      await this.jobs.getJob(requireAuth(req), uuidParam('jobId', jobId), PLAN_JOB_TYPES),
+    );
   }
 
   /** UNE-PLAN-011. Hand-rolled SSE instead of @Sse(): Nest's SSE path does
@@ -72,7 +84,12 @@ export class PlanJobController {
     @Param('jobId') jobId: string,
     @Headers('last-event-id') lastEventId?: string,
   ): Promise<void> {
-    const stream = await this.sse.stream(requireAuth(req), uuidParam('jobId', jobId), lastEventId);
+    const stream = await this.sse.stream(
+      requireAuth(req),
+      uuidParam('jobId', jobId),
+      PLAN_JOB_TYPES,
+      lastEventId,
+    );
 
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
@@ -108,7 +125,10 @@ export class PlanJobController {
   ): Promise<SuccessEnvelope<JobResource>> {
     const id = uuidParam('jobId', jobId);
     const reason = parseReason(body?.reason);
-    return ok(req, await this.jobs.cancelJob(requireAuth(req), id, reason, requestMeta(req)));
+    return ok(
+      req,
+      await this.jobs.cancelJob(requireAuth(req), id, reason, requestMeta(req), PLAN_JOB_TYPES),
+    );
   }
 
   /** UNE-PLAN-013. blockIds is accepted by the schema (RPT-002 field) and

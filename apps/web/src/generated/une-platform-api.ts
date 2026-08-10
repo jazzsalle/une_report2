@@ -4231,11 +4231,20 @@ export type components = {
             meta: Record<string, never>;
         };
         SopGenerationRequest: {
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description 확정 SituationSnapshot. 상황의 현재 판이어야 한다(아니면 SOP-409-002).
+             */
             snapshotId: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description 동결(FROZEN) EvidenceSet. 같은 상황·같은 판의 것이어야 한다.
+             */
             evidenceSetId: string;
-            /** @enum {string} */
+            /**
+             * @description SOP 그래프 스키마 버전. UNI SOP 매퍼 버전(sop_version.schema_version)과 다른 값이다 — 이쪽은 클라이언트가 원하는 그래프 모양이고 저쪽은 UNI 응답을 어느 규칙으로 옮겼는지다.
+             * @enum {string}
+             */
             schemaVersion: "1.0";
         };
         SopCreateRequest: {
@@ -7386,13 +7395,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["SopGenerationRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /**
+             * @description 접수됨. 상태는 QUEUED이며 UNI 호출과 그래프 적재는 워커가 한다.
+             *
+             *     생성 결과는 이 응답이 아니라 UNE-SOP-002 스트림의 job.completed 이벤트로 온다: {sopId, sopVersionId, sopVersionNo, graphHash, nodeCount, edgeCount, graphViolations, rejectedNodeCount}.
+             *
+             *     선행조건: 상황이 확정 판을 갖고 있고(snapshotId = 현재 판), 그 판 위에서 동결된 EvidenceSet이어야 한다. 진행 중인 SOP 생성 Job이 있으면 SOP-409-001이다.
+             */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7406,6 +7421,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
         };
@@ -7423,7 +7439,25 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description SSE stream */
+            /**
+             * @description text/event-stream. 공개 이벤트 어휘: job.queued, job.started, job.progress, sop.sources, sop.node, job.completed, job.failed, job.cancel_requested, job.cancelled.
+             *
+             *     각 프레임은 id(= job_event.sequence_no), event, data를 포함하며 UNE-PLAN-011과 같은 재개 규약을 따른다(Last-Event-ID, heartbeat 15초, 30분 후 서버 종료).
+             *
+             *     UNI 원문 이벤트를 그대로 흘리지 않는다. 설계 08 §1.11의 __status__/__thinking__/__compn__/__sources__/__done__/__error__는 provider의 어휘이고 화면에는 위 UNE 어휘로 투영한다. __thinking__은 사용자 화면에 표시하지 않으므로(설계 08 §1.11) SSE로도 나가지 않는다.
+             *
+             *     sop.node payload: {nodeKey, nodeType(START|ACTION|DECISION|NOTE|END), title, taskCount, warnings[]}. warnings는 UNI SOP 매퍼 경고이며 노드를 버리지 않고 무엇이 비었는지 알린다(MISSING_TITLE, MISSING_TASK, MISSING_ASSIGNEE, MISSING_DECISION_EXPRESSION, NO_SOURCE_REFS, UNKNOWN_FIELD_DROPPED, NODE_KEY_NORMALIZED).
+             *
+             *     NODE_KEY_NORMALIZED는 UNI의 compnSn이 노드 키 규칙 (sop-graph.schema.json의 ^[A-Za-z][A-Za-z0-9_-]{1,79}$)에 맞지 않아 UNE가 고쳐 썼다는 뜻이다. 원래 값은 노드의 providerNodeKey로 남는다.
+             *
+             *     sop.sources payload: {sources: [{documentId, chunkId}]}.
+             *
+             *     job.completed payload의 graphViolations는 __done__ 이후 전체 검증 결과다(NO_START, NO_END, MULTIPLE_START, ORPHAN_NODE, DANGLING_EDGE, CYCLE, DECISION_WITHOUT_BRANCH, DUPLICATE_NODE_KEY, EDGE_FROM_END). 위반이 있어도 Job은 COMPLETED이고 버전은 DRAFT로 저장된다 — 사용자가 Canvas에서 고치는 것이 다음 단계이므로, 저장하지 않으면 고칠 대상이 없다.
+             *
+             *     job.failed payload의 partialNodeCount는 실패 시점까지 받은 노드 수다. 부분결과 폐기 여부는 사용자 결정이다(설계 08 §1.11).
+             *
+             *     UNI-503-003은 이 엔드포인트의 HTTP 오류가 아니다. 스트림은 이미 200으로 열려 있으므로, UNI 호출 실패는 job.failed 프레임의 payload 코드로 도착한다: {code: UNI-503-003, reason, message, retryable, providerCode, partialNodeCount}. providerCode는 어댑터 수준 사유다 (UNI_SOP_TIMEOUT, UNI_SOP_UNTERMINATED, UNI_SOP_PROVIDER_REPORTED, UNI_SOP_MALFORMED_STREAM 등). 요청 자체가 쓸 수 없을 때는 UNI-422-003이 같은 자리에 온다.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;

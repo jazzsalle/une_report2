@@ -336,3 +336,42 @@ export {
   getUniKnowledgeCapability,
   type UniFeatureCapability,
 } from './capability/uni-knowledge-capabilities';
+
+// ── UNI SOP 생성 포트 (CC-240) ──
+// SSE 프레이밍은 UNE 가정이다(OB-04) — `.assumed` 표기가 그 사실을 드러낸다.
+export {
+  UNI_SOP_ERROR_CODES,
+  UNI_SOP_STATUSES,
+  isRetryableUniSopError,
+  type UniSopErrorCode,
+  type UniSopError,
+  type UniSopEvent,
+  type UniSopStatus,
+  type UniSopProvider,
+  type UniSopRequest,
+  type UniSopResult,
+  type UniSopResultMeta,
+  type UniSopRawTrace,
+  type UniSopCallContext,
+} from './uni/sop/uni-sop-port';
+export {
+  UNI_SOP_EVENT_KEYS,
+  UNI_SOP_STREAM_TERMINATOR,
+  UniSopSseError,
+  extractDataLines,
+  parseUniSopLine,
+  type UniSopParsedFrame,
+} from './uni/sop/uni-sop-sse.assumed';
+export { UNI_SOP_MAPPER_VERSION, mapUniCompn, type UniRawCompn } from './uni/sop/uni-sop-mapper';
+export { MockUniSopAdapter } from './uni/sop/mock-uni-sop-adapter';
+export {
+  DEFAULT_UNI_SOP_FIELDS,
+  HttpUniSopAdapter,
+  type HttpUniSopConfig,
+} from './uni/sop/http-uni-sop-adapter';
+export {
+  UNI_SOP_ADAPTERS,
+  createUniSopProvider,
+  type UniSopAdapterId,
+  type UniSopFactoryEnv,
+} from './uni/sop/uni-sop-factory';

@@ -140,7 +140,9 @@ describe('PlanJobController validation (UNE-PLAN-010/011/012/013)', () => {
     expect(res.flushHeaders).toHaveBeenCalled();
     expect(res.write).toHaveBeenCalledWith('id: 3\nevent: job.completed\ndata: {"x":1}\n\n');
     expect(res.end).toHaveBeenCalled(); // terminal observable completes the response
-    expect(stream.mock.calls[0][2]).toBe('12');
+    // 3번째 인자는 허용 잡 유형, 4번째가 Last-Event-ID다(CC-240 D20).
+    expect(stream.mock.calls[0][2]).toEqual(['TOC', 'CONTENT', 'AI_EDIT']);
+    expect(stream.mock.calls[0][3]).toBe('12');
   });
 
   it('rejects a missing job before any SSE header is written (404 as JSON envelope)', async () => {

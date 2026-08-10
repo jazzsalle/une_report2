@@ -58,6 +58,13 @@ export interface WorkerConfig {
   /** 상태 관측 주기. 설계 08 §1.14의 backoff는 문서 단위이고 이것은 스윕 단위다. */
   knowledgePollIntervalMs: number;
   knowledgeEnabled: boolean;
+  /**
+   * SOP 생성 러너를 폴러에 얹을지 (CC-240).
+   *
+   * 기본은 켬이다. 끄면 SOP 잡이 QUEUED로 남는데, 그 상태가 로그에 남지 않으면
+   * 화면은 "생성 중"인 채로 멈춘 것처럼 보인다 — 기동 로그가 그 사실을 적는다.
+   */
+  sopEnabled: boolean;
 }
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -162,6 +169,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     knowledgePollBatchSize: intFrom(env.UNE_KNOWLEDGE_POLL_BATCH_SIZE, 20),
     knowledgePollIntervalMs: intFrom(env.UNE_KNOWLEDGE_POLL_INTERVAL_MS, 15_000),
     knowledgeEnabled: env.UNE_KNOWLEDGE_ENABLED !== 'false',
+    sopEnabled: env.UNE_SOP_ENABLED !== 'false',
   };
 }
 

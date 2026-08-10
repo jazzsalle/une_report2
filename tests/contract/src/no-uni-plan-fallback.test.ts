@@ -41,11 +41,49 @@ const NON_PLAN_UNI_PATHS = [
   'packages/domain/src/knowledge',
   'services/worker/src/knowledge',
   'packages/provider-adapters/src/capability/uni-knowledge-capabilities.ts',
+  // CC-240: SOP 생성도 플랜 흐름이 아니다 — 설계 08 §1.11의 UNI SOP 스트림은
+  // 상황·SOP 자료 흐름이고 계획서 생성과 무관하다. 플랜 잡은 여전히
+  // `T3qPlanProvider`만 부른다.
+  //
+  // 워커 쪽 조립을 `sop/`에 가둔 이유가 여기 있다 — `main.ts`에 두면 플랜
+  // 러너를 조립하는 파일을 예외로 만들어야 하고, 그러면 이 규칙이 가장 필요한
+  // 자리에서 꺼진다(sop-wiring.ts 주석).
+  'services/worker/src/sop',
+  // 매퍼 어휘(`UNI_SOP_MAPPER_VERSION`, `UniRawCompn`)가 도메인에 산다 —
+  // UNI 응답을 UNE 표준으로 옮기는 규칙 자체가 도메인 지식이기 때문이다.
+  'packages/domain/src/sop',
 ];
 
 function isExempt(fullPath: string): boolean {
   const normalized = fullPath.split(sep).join('/');
   return NON_PLAN_UNI_PATHS.some((p) => normalized.includes(`/${p}`) || normalized.endsWith(p));
+}
+
+/**
+ * 계약에서 생성된 타입 파일 (CC-240).
+ *
+ * 이 파일들은 플랫폼 계약 **전체**를 옮긴 것이라 UNE-SOP-002의 설명에 들어 있는
+ * provider 오류코드(`UNI_SOP_TIMEOUT` 등)를 그대로 담는다. 그 값들은 클라이언트가
+ * `providerCode`로 실제 보게 되는 것이므로 계약에서 지울 수 없다.
+ *
+ * **그렇다고 통째로 예외로 두지는 않는다.** 주석을 걷어낸 뒤 검사한다 — 설명에
+ * UNI 코드 이름이 적히는 것과, UNI 타입·클라이언트가 생성 코드에 들어오는 것은
+ * 전혀 다른 일이다. 후자는 여전히 잡힌다.
+ */
+const GENERATED_CONTRACT_TYPES = [
+  'apps/web/src/generated/une-platform-api.ts',
+  'services/api/src/generated/une-platform-api.ts',
+];
+
+function isGeneratedContractTypes(fullPath: string): boolean {
+  const normalized = fullPath.split(sep).join('/');
+  return GENERATED_CONTRACT_TYPES.some((p) => normalized.endsWith(p));
+}
+
+/** 블록 주석과 줄 주석을 걷어낸다. 문자열 안의 `//`는 고려하지 않는다 —
+ * 생성 파일에는 그런 형태가 없고, 남겨서 잡히는 쪽이 안전하다. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
 /** UNI-specific tokens. Deliberately NOT a bare "uni" substring —
@@ -80,7 +118,8 @@ describe('no UNI fallback in the plan flow (AT-T3Q-011 static guard)', () => {
       for (const file of walk(rootPath)) {
         if (isExempt(file)) continue;
         scanned += 1;
-        const source = readFileSync(file, 'utf8');
+        const raw = readFileSync(file, 'utf8');
+        const source = isGeneratedContractTypes(file) ? stripComments(raw) : raw;
         for (const token of FORBIDDEN_TOKENS) {
           expect(source.includes(token), `${file} contains "${token}"`).toBe(false);
         }
@@ -98,6 +137,32 @@ describe('no UNI fallback in the plan flow (AT-T3Q-011 static guard)', () => {
     for (const p of NON_PLAN_UNI_PATHS) {
       expect(existsSync(repoPath(p)), `${p} 예외가 낡았다`).toBe(true);
     }
+  });
+
+  it('생성 타입 파일의 완화는 주석에만 적용된다', () => {
+    // 완화가 파일 전체로 번지면 UNI 타입이 생성 코드에 들어와도 통과한다.
+    // 주석을 걷어낸 뒤에도 토큰이 없다는 것을 여기서 못박는다.
+    for (const p of GENERATED_CONTRACT_TYPES) {
+      const full = repoPath(p);
+      expect(existsSync(full), `${p} 완화가 낡았다`).toBe(true);
+      const stripped = stripComments(readFileSync(full, 'utf8'));
+      for (const token of FORBIDDEN_TOKENS) {
+        expect(stripped.includes(token), `${p} code contains "${token}"`).toBe(false);
+      }
+      // 완화가 실제로 필요한 상태인지도 확인한다 — 필요 없어지면 지워야 한다.
+      expect(isGeneratedContractTypes(full)).toBe(true);
+    }
+  });
+
+  it('워커 조립 루트에는 UNI 토큰이 없다 (예외를 main.ts로 넓히지 않았다)', () => {
+    // 예외 경로를 늘리는 것으로 이 가드를 통과시키는 길을 막는다. `main.ts`는
+    // 플랜 잡 러너를 조립하는 파일이므로 여기에 UNI 심볼이 들어오면 플랜
+    // 흐름에 UNI를 끼워 넣는 첫 걸음이 된다.
+    const main = readFileSync(repoPath('services/worker/src/main.ts'), 'utf8');
+    for (const token of FORBIDDEN_TOKENS) {
+      expect(main.includes(token), `main.ts contains "${token}"`).toBe(false);
+    }
+    expect(isExempt(repoPath('services/worker/src/main.ts'))).toBe(false);
   });
 
   it('플랜 흐름 자체에는 예외가 없다', () => {

@@ -26,6 +26,9 @@ const EXPECTED_WORKER_GRANTS = [
   // 보고서는 INSERT만 — 둘 다 UPDATE/DELETE 없이 append-only다.
   'document:SELECT',
   'document_revision:SELECT',
+  // 0033 (CC-240): SOP 생성의 입력. 읽기뿐이다.
+  'evidence_item:SELECT',
+  'evidence_set:SELECT',
   'export_job:SELECT',
   'export_job:UPDATE',
   'file_object:INSERT',
@@ -52,6 +55,25 @@ const EXPECTED_WORKER_GRANTS = [
   'plan_context_snapshot:SELECT',
   'provider_job:SELECT',
   'provider_result:INSERT',
+  // 0033 (CC-240, ADR-38 D14): SOP 생성 러너가 확정 사실과 동결 근거를 읽는다.
+  // **읽기뿐이다** — 상황 쓰기는 `status` 한 열의 컬럼 권한이라 이 목록(테이블
+  // 단위 GRANT)에 나타나지 않고, 그 한 전이는 RESTRICTIVE 정책이 고정한다.
+  // `situation_fact`·`provider_result`·`fact_conflict` 등 나머지 상황 계열은
+  // 여전히 42501이다(situation-table-rls.test.ts가 목록째 고정한다).
+  'situation:SELECT',
+  'situation_snapshot:SELECT',
+  // 0032 (CC-240): SOP 그래프. DELETE는 어디에도 없다 — 삭제 경로가 없는데
+  // 권한이 있으면 그것이 곧 구멍이다(0031에서 배운 것).
+  'sop:INSERT',
+  'sop:SELECT',
+  'sop_edge:INSERT',
+  'sop_edge:SELECT',
+  'sop_node:INSERT',
+  'sop_node:SELECT',
+  'sop_version:INSERT',
+  'sop_version:SELECT',
+  // UPDATE는 없다 — 0032가 줬으나 쓰는 코드가 없어 0034가 회수했다. 그
+  // 권한으로는 기존 버전의 graph_hash·출처를 감사 없이 갈아치울 수 있었다.
   'template_profile:SELECT',
   'tenant:SELECT',
   'toc_node:INSERT',
@@ -175,6 +197,42 @@ describe.skipIf(!ADMIN_URL)('generation_job worker role and dispatch RLS (CC-120
       ),
     );
     expect(extra.rows[0]).toEqual({ migration_grants: 0, seq_usage: true });
+  });
+
+  it('워커의 컬럼 단위 권한 목록을 고정한다 (0030, 0033)', async () => {
+    // 테이블 단위 목록만 고정하면 컬럼 권한이 조용히 늘어난다. 실제로 그 경로로
+    // 워커가 `request_json`을 비울 수 있었던 적이 있다(0030 이전, 실측).
+    const cols = await withClient(db.url, (c) =>
+      c.query(
+        `SELECT table_name, column_name, privilege_type
+           FROM information_schema.role_column_grants
+          WHERE grantee = 'une_worker' AND table_schema = 'public'
+            AND (table_name, privilege_type) NOT IN (
+              SELECT table_name, privilege_type FROM information_schema.role_table_grants
+               WHERE grantee = 'une_worker' AND table_schema = 'public')
+          ORDER BY table_name, column_name, privilege_type`,
+      ),
+    );
+    expect(cols.rows.map((r) => `${r.table_name}.${r.column_name}:${r.privilege_type}`)).toEqual([
+      // 0030: 지식문서의 관측 결과 칸만. 파일·소유자·보존범위는 없다.
+      'knowledge_document.error_json:UPDATE',
+      'knowledge_document.provider_document_id:UPDATE',
+      'knowledge_document.reference_json:UPDATE',
+      'knowledge_document.status:UPDATE',
+      'knowledge_document.uni_observed_at:UPDATE',
+      'knowledge_document.uni_status:UPDATE',
+      // 0030: UNI 잡의 결과 칸만. request_json·redacted_at은 **없다** —
+      // 그 둘은 0026이 전용 롤 뒤로 격리한 컬럼이다.
+      'provider_job.error_json:UPDATE',
+      'provider_job.finished_at:UPDATE',
+      'provider_job.result_count:UPDATE',
+      'provider_job.status:UPDATE',
+      // 0033: 상황 상태 한 칸. current_snapshot_id·title은 여기 없다 —
+      // 그것이 열리면 감사 기록 없이 확정 사실이 바뀐다.
+      'situation.status:UPDATE',
+      // 0033: SOP가 가리키는 현재 버전.
+      'sop.current_version_id:UPDATE',
+    ]);
   });
 
   it('lets a tenant-less worker see queued jobs across tenants', async () => {

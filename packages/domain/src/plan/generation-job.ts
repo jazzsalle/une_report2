@@ -44,6 +44,11 @@ export const PUBLIC_JOB_EVENT_TYPES = [
   'job.progress',
   'toc.section',
   'content.block',
+  // CC-240 (설계 08 §1.11): UNI SOP 스트림의 화면용 투영. UNI 원문 이벤트
+  // (`__compn__`/`__sources__`)를 그대로 흘리지 않는다 — 어휘가 provider의
+  // 것이면 provider가 바뀔 때 클라이언트 계약이 함께 깨진다.
+  'sop.node',
+  'sop.sources',
   'job.completed',
   'job.failed',
   'job.cancel_requested',

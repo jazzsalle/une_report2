@@ -9,8 +9,10 @@ import {
   insertProviderResult,
   loadUploadTarget,
   markUploading,
+  recordReference,
   recordUniStatus,
   selectPollTargets,
+  selectReferenceTargets,
   settleFailed,
   settleJobFailed,
   settleRegistered,
@@ -48,6 +50,11 @@ export interface UploadSweepResult {
 export interface PollSweepResult {
   polled: number;
   advanced: number;
+}
+
+export interface ReferenceSweepResult {
+  polled: number;
+  stored: number;
 }
 
 export class KnowledgeUploadRunner {
@@ -184,6 +191,32 @@ export class KnowledgeUploadRunner {
       if (res.value.status !== t.uniStatus) advanced += 1;
     }
     return { polled: targets.length, advanced };
+  }
+
+  /**
+   * 참조요약을 한 바퀴 받아 온다 (US-SIT-010 4단계).
+   *
+   * 상태 폴링과 분리한 이유: 참조요약은 `READY` 이후에만 생기고 한 번 받으면
+   * 끝이다. 상태 스윕에 얹으면 이미 READY인 문서를 상태 때문에 계속 훑거나
+   * 참조요약 때문에 상태를 다시 묻게 된다 — 두 축의 종료 조건이 다르다.
+   */
+  async pollReferences(): Promise<ReferenceSweepResult> {
+    const targets = await this.db.withDispatchScope((c: PoolClient) =>
+      selectReferenceTargets(c, this.config.knowledgePollBatchSize),
+    );
+    let stored = 0;
+    for (const t of targets) {
+      const res = await this.uni.getReference(t.providerDocumentId, {
+        correlationId: `ref-${t.knowledgeDocumentId}`,
+      });
+      // 실패도, 아직 준비되지 않은 것(202)도 쓰지 않는다 — 다음 스윕이 다시 묻는다.
+      if (!res.ok || !res.value.ready || res.value.reference === null) continue;
+      await this.db.withTenant(t.tenantId, (c) =>
+        recordReference(c, t.tenantId, t.knowledgeDocumentId, res.value.reference),
+      );
+      stored += 1;
+    }
+    return { polled: targets.length, stored };
   }
 }
 

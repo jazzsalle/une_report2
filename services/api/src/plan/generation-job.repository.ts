@@ -159,6 +159,33 @@ export class GenerationJobRepository {
     return result.rows[0] ? toJobRow(result.rows[0]) : null;
   }
 
+  /**
+   * 상황당 활성 SOP 생성 Job은 하나다 (CC-240).
+   *
+   * `findActivePlanJob`을 재사용하지 않는 이유: 저쪽은 잡 유형을 가리지 않는데,
+   * 상황에는 SOP 말고도 다른 유형의 잡이 붙을 수 있다(정황 수집 등). SOP 두
+   * 개가 동시에 끝나면 같은 근거에서 나온 버전이 둘 생겨 "그 상황의 절차"가
+   * 무엇인지 말할 수 없게 된다 — 막아야 하는 것은 그 경우뿐이다.
+   */
+  async findActiveSopJob(
+    client: PoolClient,
+    tenantId: string,
+    situationId: string,
+  ): Promise<JobRow | null> {
+    const result = await client.query(
+      `${JOB_SELECT}
+       WHERE tenant_id = $1
+         AND job_type = 'SOP'
+         AND aggregate_type = 'SITUATION'
+         AND aggregate_id = $2
+         AND status = ANY($3::text[])
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [tenantId, situationId, ACTIVE_JOB_STATUSES],
+    );
+    return result.rows[0] ? toJobRow(result.rows[0]) : null;
+  }
+
   /** Records a status decided by the domain (canTransitionJob is evaluated by
    * the service, which holds the row FOR UPDATE). */
   async updateJobStatus(
