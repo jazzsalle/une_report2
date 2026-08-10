@@ -85,11 +85,23 @@ describe('CC-240 계약: 어휘가 네 곳에서 같다', () => {
     expect(graphSchema.$defs?.node.properties?.nodeType.enum).toEqual(fromDb);
   });
 
-  it('버전 상태는 도달 가능한 것만이다 (0022 §1)', () => {
-    // CC-240이 만드는 것은 DRAFT뿐이다. LOCKED/APPROVED를 지금 넣으면 그 값을
-    // 쓰는 코드가 없는 채로 어휘만 남는다 — CC-250이 넓힌다.
-    expect(checkValues('ck_sop_version_status')).toEqual(['DRAFT']);
-    expect(checkValues('ck_sop_status')).toEqual(['DRAFT']);
+  it('CC-240이 만드는 것은 DRAFT뿐이다 (생성 경로 기준)', () => {
+    // 어휘 자체는 CC-250이 예고대로 넓혔다(0035 §1). 여기서 고정하는 것은
+    // **생성 잡이 무엇을 만드는가**다 — 러너가 LOCKED나 APPROVED를 쓰지
+    // 않는다는 사실이 CC-240의 불변이다.
+    const runner = readFileSync(
+      repoPath('services', 'worker', 'src', 'sop', 'sop-job.runner.ts'),
+      'utf8',
+    );
+    expect(runner).not.toContain("'LOCKED'");
+    expect(runner).not.toContain("'APPROVED'");
+    const repo = readFileSync(
+      repoPath('services', 'worker', 'src', 'sop', 'sop-repositories.ts'),
+      'utf8',
+    );
+    expect(repo).toContain("VALUES ($1, $2, 'DRAFT'");
+    // 넓어진 어휘에도 모르는 값은 여전히 없다.
+    expect(checkValues('ck_sop_version_status')).toEqual(['DRAFT', 'LOCKED']);
   });
 
   it('요청 스키마 버전은 JSON Schema의 그래프 버전과 같다', () => {
