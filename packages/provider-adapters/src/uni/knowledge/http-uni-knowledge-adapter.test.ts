@@ -46,6 +46,7 @@ const HTTP_CONFIG = {
   tokenField: 'access_token',
   uploadTimeoutMs: 60_000,
   requestTimeoutMs: 30_000,
+  searchTimeoutMs: 30_000,
   fieldNames: DEFAULT_UNI_FIELD_NAMES,
 };
 

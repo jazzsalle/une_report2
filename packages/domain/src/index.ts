@@ -21,3 +21,4 @@ export * from './situation/fact-normalization';
 export * from './situation/duplicate-conflict';
 export * from './situation/snapshot';
 export * from './knowledge/knowledge-document';
+export * from './knowledge/evidence-set';

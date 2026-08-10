@@ -3,6 +3,7 @@ import { MockUniKnowledgeAdapter } from './mock-uni-knowledge-adapter';
 import {
   DEFAULT_UNI_FIELD_NAMES,
   guardUniReference,
+  guardUniSearch,
   guardUniStatus,
   guardUniUpload,
 } from './uni-knowledge-response.guard';
@@ -206,5 +207,140 @@ describe('mock 어댑터 — 설계 08 §1.9 수명주기', () => {
 
   it('자신이 mock임을 숨기지 않는다', () => {
     expect(new MockUniKnowledgeAdapter({ scenariosEnabled: true }).isMock).toBe(true);
+  });
+});
+
+describe('UNI 검색 응답 가드 (CC-230)', () => {
+  const chunk = {
+    doc_id: 'd-1',
+    chunk_id: 'c-1',
+    filename: 'a.pdf',
+    score: 0.87,
+    text: '대피 절차',
+  };
+
+  it('감싸진 배열과 최상위 배열을 모두 받는다', () => {
+    const wrapped = guardUniSearch({ results: [chunk] });
+    const bare = guardUniSearch([chunk]);
+    expect(wrapped.ok && wrapped.value.chunks).toHaveLength(1);
+    expect(bare.ok && bare.value.chunks).toEqual(wrapped.ok ? wrapped.value.chunks : null);
+  });
+
+  it('설계 06 3단계의 네 필드를 매핑한다', () => {
+    const r = guardUniSearch({ results: [chunk] });
+    expect(r.ok && r.value.chunks[0]).toEqual({
+      documentId: 'd-1',
+      chunkId: 'c-1',
+      fileName: 'a.pdf',
+      score: 0.87,
+      text: '대피 절차',
+    });
+  });
+
+  it('결과 0건은 오류가 아니다 (A-01은 정상 분기다)', () => {
+    const r = guardUniSearch({ results: [] });
+    expect(r).toEqual({ ok: true, value: { chunks: [] } });
+  });
+
+  it('문서 식별자가 없는 청크가 하나라도 있으면 응답 전체를 거부한다', () => {
+    // 부분 수용을 하지 않는다 — 근거는 동결되므로 "왜 이게 빠졌는가"에
+    // 나중에 답할 수 없다.
+    const r = guardUniSearch({ results: [chunk, { text: 'x' }] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain('1번');
+  });
+
+  it('인용문이 없는 청크도 응답 전체를 거부한다', () => {
+    expect(guardUniSearch({ results: [{ doc_id: 'd-1' }] }).ok).toBe(false);
+  });
+
+  it('점수는 없거나 숫자가 아니면 null이다 (척도가 미확인이라 강제하지 않는다)', () => {
+    const r = guardUniSearch({ results: [{ doc_id: 'd-1', text: 't', score: 'high' }] });
+    expect(r.ok && r.value.chunks[0].score).toBeNull();
+  });
+
+  it('결과 배열이 없거나 배열이 아니면 거부한다', () => {
+    expect(guardUniSearch({ items: [] }).ok).toBe(false);
+    expect(guardUniSearch({ results: 'none' }).ok).toBe(false);
+    expect(guardUniSearch(null).ok).toBe(false);
+  });
+
+  it('필드 이름을 설정으로 바꿀 수 있다 (CR-UNI-008이 닫히면 값만 바꾼다)', () => {
+    const r = guardUniSearch(
+      { hits: [{ documentId: 'd-9', passage: '내용', relevance: 0.5 }] },
+      {
+        ...DEFAULT_UNI_FIELD_NAMES,
+        searchResults: 'hits',
+        documentId: 'documentId',
+        text: 'passage',
+        score: 'relevance',
+      },
+    );
+    expect(r.ok && r.value.chunks[0]).toMatchObject({
+      documentId: 'd-9',
+      text: '내용',
+      score: 0.5,
+    });
+  });
+});
+
+describe('mock 검색 (CC-230)', () => {
+  const ready = async (uni: MockUniKnowledgeAdapter, name: string): Promise<string> => {
+    const up = await uni.uploadDocument(upload(name), CTX);
+    if (!up.ok) throw new Error('업로드 실패');
+    for (let i = 0; i < 5; i += 1) await uni.getDocumentStatus(up.value.documentId, CTX);
+    return up.value.documentId;
+  };
+
+  it('받은 문서 목록을 그대로 쓴다 (자격 판정은 호출부의 일이다)', async () => {
+    // 포트가 목록을 다시 거르면 mock을 통해 업로드하지 않은 테스트에서
+    // 항상 0건이 되고, 무엇보다 자격 판정이 두 곳에 생긴다.
+    const uni = new MockUniKnowledgeAdapter({ scenariosEnabled: true });
+    const r = await uni.searchEvidence(
+      { query: '대피', topK: 8, documentIds: ['uni-a', 'uni-b'], filters: {} },
+      CTX,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.chunks.map((c) => c.documentId)).toEqual(['uni-a', 'uni-b']);
+  });
+
+  it('topK를 넘지 않는다', async () => {
+    const uni = new MockUniKnowledgeAdapter({ scenariosEnabled: true });
+    const ids = ['u1', 'u2', 'u3'];
+    const r = await uni.searchEvidence({ query: 'q', topK: 2, documentIds: ids, filters: {} }, CTX);
+    expect(r.ok && r.value.chunks).toHaveLength(2);
+  });
+
+  it('결과 없음 시나리오 (A-01)', async () => {
+    const uni = new MockUniKnowledgeAdapter({ scenariosEnabled: true });
+    const r = await uni.searchEvidence(
+      { query: '.no-results. 없는 것', topK: 8, documentIds: ['u1'], filters: {} },
+      CTX,
+    );
+    expect(r.ok && r.value.chunks).toEqual([]);
+  });
+
+  it('외부 문서 혼입 시나리오 — 어댑터는 거르지 않는다 (호출부의 일이다)', async () => {
+    // 포트는 UNI가 무엇을 줬는지 그대로 전한다. 걸러 내는 것은 도메인
+    // `checkEvidenceItem`이며, 그래야 "무엇이 왔고 무엇을 뺐는가"가 남는다.
+    const uni = new MockUniKnowledgeAdapter({ scenariosEnabled: true });
+    const r = await uni.searchEvidence(
+      { query: '.foreign. 침입', topK: 8, documentIds: ['u1'], filters: {} },
+      CTX,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.chunks.map((c) => c.documentId)).toContain('foreign-doc-0001');
+  });
+
+  it('요청 원문에 질의와 문서 수가 남는다', async () => {
+    const uni = new MockUniKnowledgeAdapter({ scenariosEnabled: true });
+    const id = await ready(uni, 'a.pdf');
+    const r = await uni.searchEvidence(
+      { query: '대피', topK: 8, documentIds: [id], filters: {} },
+      CTX,
+    );
+    expect(r.raw.requestSummary).toMatchObject({ query: '대피', topK: 8, documentCount: 1 });
   });
 });

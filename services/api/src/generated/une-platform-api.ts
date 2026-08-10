@@ -4133,9 +4133,102 @@ export type components = {
             updatedAt: string;
         };
         EvidenceSearchRequest: {
+            /**
+             * Format: uuid
+             * @description 근거를 모을 기준 판. **요청이 명시한다** — 생략을 허용하면 서버가 "지금 최신"으로 채우게 되고 사용자가 본 판과 달라질 수 있다. EvidenceSet은 동결되므로 그 어긋남이 그대로 굳는다(ADR-34 D17과 같은 이유). 현재 판이 아니면 409 EVID-409-002.
+             */
+            snapshotId: string;
+            /** @description 검색어. 서버가 개인정보를 줄인 뒤 UNI로 보내고 줄인 값을 저장한다 (US-SIT-011 1단계). 완전한 익명화는 아니다(ADR-37 수용 한계). */
             query: string;
-            filters?: Record<string, never>;
+            filters?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description 설계 06 US-SIT-011 2단계의 기본값 8.
+             * @default 8
+             */
             topK: number;
+        };
+        EvidenceLockRequest: {
+            /** @description 동결은 되돌릴 수 없으므로 사유가 감사의 핵심이다. */
+            reason: string;
+        };
+        EvidenceItem: {
+            /** Format: uuid */
+            evidenceItemId: string;
+            /**
+             * Format: uuid
+             * @description 우리가 올린 문서만 가리킨다. UNI가 모르는 문서를 주면 버린다(US-SIT-011 E-02).
+             */
+            knowledgeDocumentId: string;
+            providerChunkId?: string | null;
+            rankNo: number;
+            /** @description UNI가 준 점수. **척도가 미확인이라 정규화하지 않는다**(OB-13). 동결 해시에도 넣지 않는다 — 재현되지 않는 값이면 내용이 같은 두 EvidenceSet의 해시가 달라진다. */
+            score?: number | null;
+            quote: string;
+            sourceLocator?: {
+                [key: string]: unknown;
+            };
+            citationKey: string;
+            /** @description 제외한 후보도 행은 남는다(US-SIT-011 4단계). 제외에는 사유가 필요하다. */
+            isSelected: boolean;
+            excludedReason?: string | null;
+        };
+        /** @description 생성 시점에 동결되는 근거 묶음. 상태는 DRAFT/FROZEN 둘뿐이다 — US-SIT-011이 말하는 SEARCHING·RESULTS_READY 등은 **화면이 지금 무엇을 하는가**이지 저장할 사실이 아니다(ADR-37 D1). FROZEN 이후에는 집합도 항목도 바뀌지 않는다(0031 트리거). */
+        EvidenceSet: {
+            /** Format: uuid */
+            evidenceSetId: string;
+            /** Format: uuid */
+            situationId: string;
+            /** Format: uuid */
+            snapshotId: string;
+            query: string;
+            filters?: {
+                [key: string]: unknown;
+            };
+            topK: number;
+            /** @enum {string} */
+            status: "DRAFT" | "FROZEN";
+            /** @description 동결 대상의 내용 해시. 점수·동결자·시각은 넣지 않는다. */
+            contentHash: string;
+            /** Format: date-time */
+            frozenAt?: string | null;
+            /** Format: uuid */
+            frozenBy?: string | null;
+            freezeReason?: string | null;
+            /** @description UNI가 돌려줬으나 우리 문서가 아니어서 버린 청크 수. 조용히 버리면 결과가 적은 이유를 설명할 수 없다(US-SIT-011 E-02). */
+            rejectedChunkCount: number;
+            items: components["schemas"]["EvidenceItem"][];
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        EvidenceSetResponse: {
+            success: boolean;
+            data: components["schemas"]["EvidenceSet"];
+            meta: Record<string, never>;
+        };
+        SourceLocator: {
+            /** Format: uuid */
+            evidenceItemId: string;
+            /** Format: uuid */
+            knowledgeDocumentId: string;
+            providerDocumentId?: string;
+            fileName: string;
+            providerChunkId?: string | null;
+            citationKey: string;
+            quote: string;
+            locator?: {
+                [key: string]: unknown;
+            };
+        };
+        SourceLocatorResponse: {
+            success: boolean;
+            data: components["schemas"]["SourceLocator"];
+            meta: Record<string, never>;
         };
         SopGenerationRequest: {
             /** Format: uuid */
@@ -7158,19 +7251,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["EvidenceSearchRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description 검색 결과로 만든 DRAFT EvidenceSet. **동기 호출이다**(설계 08 §1.14 30초·1회) — 사용자가 결과를 보고 고르는 흐름이므로 202가 아니다. 결과 0건도 정상이다(US-SIT-011 A-01). */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["EvidenceSetResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7195,13 +7288,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description EvidenceSet과 그 근거들. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["EvidenceSetResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7225,19 +7318,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["EvidenceLockRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description 동결된 EvidenceSet. 이후 집합도 항목도 바뀌지 않는다. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["EvidenceSetResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7262,13 +7355,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description 근거 하나의 원문 위치. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["SourceLocatorResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

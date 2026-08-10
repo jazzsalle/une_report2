@@ -4991,11 +4991,14 @@ paths:
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
-          description: Success
+          description: >-
+            검색 결과로 만든 DRAFT EvidenceSet. **동기 호출이다**(설계 08 §1.14
+            30초·1회) — 사용자가 결과를 보고 고르는 흐름이므로 202가 아니다.
+            결과 0건도 정상이다(US-SIT-011 A-01).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Situation'
+                $ref: '#/components/schemas/EvidenceSetResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5016,9 +5019,15 @@ paths:
       - evidence_set
       - evidence_item
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - EVID-400-001
+      - EVID-404-003
+      - EVID-409-002
+      - EVID-412-001
       - UNI-422-002
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -5050,11 +5059,11 @@ paths:
           type: string
       responses:
         '200':
-          description: Success
+          description: EvidenceSet과 그 근거들.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/EvidenceSetResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5075,6 +5084,7 @@ paths:
       - evidence_set
       - evidence_item
       x-error-codes:
+      - COM-0400
       - EVID-404-001
       security:
       - BearerAuth: []
@@ -5104,11 +5114,11 @@ paths:
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
-          description: Success
+          description: 동결된 EvidenceSet. 이후 집합도 항목도 바뀌지 않는다.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/EvidenceSetResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5129,13 +5139,18 @@ paths:
       - evidence_set
       - audit_log
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - EVID-400-001
+      - EVID-404-001
       - EVID-409-001
+      - EVID-422-001
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/EvidenceLockRequest'
       security:
       - BearerAuth: []
   /evidence-items/{id}/source:
@@ -5163,11 +5178,11 @@ paths:
           type: string
       responses:
         '200':
-          description: Success
+          description: 근거 하나의 원문 위치.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/SourceLocatorResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5188,6 +5203,7 @@ paths:
       - evidence_item
       - knowledge_document
       x-error-codes:
+      - COM-0400
       - EVID-404-002
       security:
       - BearerAuth: []
@@ -10864,17 +10880,218 @@ components:
     EvidenceSearchRequest:
       type: object
       required:
+      - snapshotId
       - query
-      - topK
+      additionalProperties: false
       properties:
+        snapshotId:
+          type: string
+          format: uuid
+          description: >-
+            근거를 모을 기준 판. **요청이 명시한다** — 생략을 허용하면 서버가
+            "지금 최신"으로 채우게 되고 사용자가 본 판과 달라질 수 있다.
+            EvidenceSet은 동결되므로 그 어긋남이 그대로 굳는다(ADR-34 D17과 같은 이유).
+            현재 판이 아니면 409 EVID-409-002.
         query:
           type: string
+          minLength: 1
+          maxLength: 2000
+          description: >-
+            검색어. 서버가 개인정보를 줄인 뒤 UNI로 보내고 줄인 값을 저장한다
+            (US-SIT-011 1단계). 완전한 익명화는 아니다(ADR-37 수용 한계).
         filters:
           type: object
+          additionalProperties: true
         topK:
           type: integer
           minimum: 1
           maximum: 50
+          default: 8
+          description: 설계 06 US-SIT-011 2단계의 기본값 8.
+    EvidenceLockRequest:
+      type: object
+      required:
+      - reason
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 동결은 되돌릴 수 없으므로 사유가 감사의 핵심이다.
+    EvidenceItem:
+      type: object
+      required:
+      - evidenceItemId
+      - knowledgeDocumentId
+      - rankNo
+      - quote
+      - citationKey
+      - isSelected
+      properties:
+        evidenceItemId:
+          type: string
+          format: uuid
+        knowledgeDocumentId:
+          type: string
+          format: uuid
+          description: 우리가 올린 문서만 가리킨다. UNI가 모르는 문서를 주면 버린다(US-SIT-011 E-02).
+        providerChunkId:
+          type: string
+          nullable: true
+        rankNo:
+          type: integer
+          minimum: 1
+        score:
+          type: number
+          nullable: true
+          description: >-
+            UNI가 준 점수. **척도가 미확인이라 정규화하지 않는다**(OB-13).
+            동결 해시에도 넣지 않는다 — 재현되지 않는 값이면 내용이 같은 두
+            EvidenceSet의 해시가 달라진다.
+        quote:
+          type: string
+          minLength: 1
+        sourceLocator:
+          type: object
+          additionalProperties: true
+        citationKey:
+          type: string
+        isSelected:
+          type: boolean
+          description: 제외한 후보도 행은 남는다(US-SIT-011 4단계). 제외에는 사유가 필요하다.
+        excludedReason:
+          type: string
+          nullable: true
+    EvidenceSet:
+      type: object
+      description: >-
+        생성 시점에 동결되는 근거 묶음. 상태는 DRAFT/FROZEN 둘뿐이다 —
+        US-SIT-011이 말하는 SEARCHING·RESULTS_READY 등은 **화면이 지금 무엇을
+        하는가**이지 저장할 사실이 아니다(ADR-37 D1). FROZEN 이후에는 집합도
+        항목도 바뀌지 않는다(0031 트리거).
+      required:
+      - evidenceSetId
+      - situationId
+      - snapshotId
+      - query
+      - topK
+      - status
+      - contentHash
+      - rejectedChunkCount
+      - items
+      - createdBy
+      - createdAt
+      - updatedAt
+      properties:
+        evidenceSetId:
+          type: string
+          format: uuid
+        situationId:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+        query:
+          type: string
+        filters:
+          type: object
+          additionalProperties: true
+        topK:
+          type: integer
+        status:
+          type: string
+          enum: [DRAFT, FROZEN]
+        contentHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: 동결 대상의 내용 해시. 점수·동결자·시각은 넣지 않는다.
+        frozenAt:
+          type: string
+          format: date-time
+          nullable: true
+        frozenBy:
+          type: string
+          format: uuid
+          nullable: true
+        freezeReason:
+          type: string
+          nullable: true
+        rejectedChunkCount:
+          type: integer
+          minimum: 0
+          description: >-
+            UNI가 돌려줬으나 우리 문서가 아니어서 버린 청크 수. 조용히 버리면
+            결과가 적은 이유를 설명할 수 없다(US-SIT-011 E-02).
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceItem'
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    EvidenceSetResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/EvidenceSet'
+        meta:
+          type: object
+    SourceLocator:
+      type: object
+      required:
+      - evidenceItemId
+      - knowledgeDocumentId
+      - fileName
+      - citationKey
+      - quote
+      properties:
+        evidenceItemId:
+          type: string
+          format: uuid
+        knowledgeDocumentId:
+          type: string
+          format: uuid
+        providerDocumentId:
+          type: string
+        fileName:
+          type: string
+        providerChunkId:
+          type: string
+          nullable: true
+        citationKey:
+          type: string
+        quote:
+          type: string
+        locator:
+          type: object
+          additionalProperties: true
+    SourceLocatorResponse:
+      type: object
+      required:
+      - success
+      - data
+      - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/SourceLocator'
+        meta:
+          type: object
     SopGenerationRequest:
       type: object
       required:

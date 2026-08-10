@@ -10,12 +10,15 @@ import {
   type UniKnowledgeResult,
   type UniRawTrace,
   type UniReferenceOutcome,
+  type UniSearchInput,
+  type UniSearchOutcome,
   type UniStatusOutcome,
   type UniUploadInput,
   type UniUploadOutcome,
 } from './uni-knowledge-port';
 import {
   guardUniReference,
+  guardUniSearch,
   guardUniStatus,
   guardUniUpload,
   type UniFieldNames,
@@ -54,6 +57,8 @@ export interface HttpUniKnowledgeConfig {
   /** 설계 08 §1.14: 업로드 60초. 나머지는 UNE 기준선이며 provider 합의값이 아니다. */
   uploadTimeoutMs: number;
   requestTimeoutMs: number;
+  /** 설계 08 §1.14: UNI Search 30초, 1회. */
+  searchTimeoutMs: number;
   fieldNames: UniFieldNames;
 }
 
@@ -356,6 +361,109 @@ export class HttpUniKnowledgeAdapter implements UniKnowledgeProvider {
       );
     }
     return uniSuccess(guarded.value, this.meta('getReference', startedAt, res.status), raw);
+  }
+
+  /**
+   * 근거 검색 (CC-230).
+   *
+   * **재시도하지 않는다.** 설계 08 §1.14가 "30초, 1회"이고, US-SIT-011 E-01은
+   * 실패 시 "1회 재시도 후 직접 Context/수동"이라 **재시도 여부를 사용자가**
+   * 고른다. 어댑터가 조용히 다시 부르면 그 선택지가 사라지고 30초가 60초가 된다.
+   */
+  async searchEvidence(
+    input: UniSearchInput,
+    ctx: UniCallContext,
+  ): Promise<UniKnowledgeResult<UniSearchOutcome>> {
+    const startedAt = Date.now();
+    const body = {
+      query: input.query,
+      top_k: input.topK,
+      doc_ids: input.documentIds,
+      ...input.filters,
+    };
+    const raw: UniRawTrace = {
+      // 질의 원문을 남긴다 — 어떤 근거가 왜 나왔는지 재현하려면 필요하고,
+      // PII 최소화는 호출부가 이미 마쳤다(도메인 minimizePii).
+      requestSummary: {
+        query: input.query,
+        topK: input.topK,
+        documentCount: input.documentIds.length,
+        correlationId: ctx.correlationId,
+      },
+      responseBody: null,
+    };
+
+    const send = async (token: string) => {
+      try {
+        const res = await this.fetchImpl(`${this.config.baseUrl}/search/`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+            'x-correlation-id': ctx.correlationId,
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(this.config.searchTimeoutMs),
+        });
+        return { res, retriedAuth: false };
+      } catch (err) {
+        return { authError: `검색 호출 실패: ${(err as Error).message}` };
+      }
+    };
+
+    const outcome = await this.authorized(send);
+    if ('authError' in outcome) {
+      const timedOut = /timeout|abort/i.test(outcome.authError);
+      return this.fail(
+        timedOut ? 'UNI_TIMEOUT' : 'UNI_CONNECTION_ERROR',
+        outcome.authError,
+        'searchEvidence',
+        startedAt,
+        raw,
+      );
+    }
+
+    const res = outcome.res;
+    const text = await res.text().catch(() => '');
+    raw.responseText = text;
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      return this.fail(
+        'UNI_MALFORMED_RESPONSE',
+        '검색 응답이 JSON이 아니다',
+        'searchEvidence',
+        startedAt,
+        raw,
+        res.status,
+      );
+    }
+    raw.responseBody = parsed;
+
+    if (!res.ok) {
+      return this.fail(
+        uniErrorFromStatus(res.status),
+        `검색이 거절됐다 (${res.status})`,
+        'searchEvidence',
+        startedAt,
+        raw,
+        res.status,
+      );
+    }
+
+    const guarded = guardUniSearch(parsed, this.config.fieldNames);
+    if (!guarded.ok) {
+      return this.fail(
+        'UNI_RESPONSE_CONTRACT_VIOLATION',
+        guarded.reason,
+        'searchEvidence',
+        startedAt,
+        raw,
+        res.status,
+      );
+    }
+    return uniSuccess(guarded.value, this.meta('searchEvidence', startedAt, res.status), raw);
   }
 
   private async getJson(

@@ -58,6 +58,10 @@ const RLS_TABLES = [
   'provider_result',
   // 0025 (CC-210): 중복군은 계산 결과지만 어느 상황의 것인지가 곧 테넌트다.
   'fact_duplicate_group',
+  // 0031 (CC-230): 0004부터 정책이 한 번도 없었다 — 0011의 일괄 GRANT 때문에
+  // 정책 없는 테이블은 전 테넌트 공개였고, CC-230이 첫 쓰기 경로를 연다.
+  'evidence_set',
+  'evidence_item',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -72,11 +76,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 30 baseline migrations', async () => {
+  it('applies all 31 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(30);
+    expect(applied.rows).toHaveLength(31);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -114,6 +118,10 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     // 0030 (CC-220 검토 반영): 0028의 테이블 단위 UPDATE가 워커에게 마스킹
     // 컬럼과 종결 잡까지 열어 줬다(실측). 컬럼 GRANT + 제한 정책으로 좁힌다.
     expect(applied.rows[29].name).toBe('0030_worker_column_grants_and_open_job_guard');
+    // 0031 (CC-230): evidence_set/evidence_item에 어휘·상관식·FK를 세우고
+    // **정책이 한 번도 없던 두 테이블에 RLS를 켠다** — 0023이 상황 계열에서
+    // 발견한 것과 같은 상태였다. 테이블은 늘지 않는다.
+    expect(applied.rows[30].name).toBe('0031_evidence_set_and_items');
   });
 
   // 61 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
@@ -212,11 +220,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0030 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0031 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0030
+    await migrate(db.url); // remaining: 0011 ~ 0031
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -231,7 +239,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(30);
+    expect(applied.rows[0].n).toBe(31);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });
