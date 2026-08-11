@@ -5932,7 +5932,7 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
@@ -5957,14 +5957,21 @@ paths:
       x-db-tables:
       - sop_run
       - task
+      - execution_event
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-404-001
+      - SOP-404-002
+      - SOP-404-003
+      - SOP-412-004
       - SOP-422-008
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/SopSimulationRequest'
       security:
       - BearerAuth: []
   /sops/{sopId}/runs:
@@ -5992,7 +5999,7 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
@@ -6018,11 +6025,17 @@ paths:
       - sop_run
       - task
       - execution_event
-      - outbox_message
+      - situation
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-404-001
+      - SOP-404-002
+      - SOP-404-003
       - SOP-409-005
+      - SOP-412-004
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -6058,7 +6071,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SopRun'
+                $ref: '#/components/schemas/SopRunDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6078,8 +6091,11 @@ paths:
       x-db-tables:
       - sop_run
       - task
+      - sop_node
+      - sop_edge
       x-error-codes:
-      - SOP-404-002
+      - COM-0400
+      - SOP-404-004
       security:
       - BearerAuth: []
   /sop-runs/{runId}/events:
@@ -6107,7 +6123,23 @@ paths:
           type: string
       responses:
         '200':
-          description: SSE stream
+          description: 'text/event-stream. 공개 이벤트 어휘: RUN_CREATED, RUN_STARTED,
+            RUN_PAUSED, RUN_RESUMED, RUN_TERMINATED, TASK_CREATED, TASK_ACTIVATED,
+            TASK_CANCELLED.
+
+
+            각 프레임은 id(= execution_event 순번), event, data를 포함하며
+            UNE-PLAN-011과 같은 재개 규약을 따른다(Last-Event-ID, heartbeat 15초,
+            30분 후 서버 종료).
+
+
+            execution_event는 append-only 사실원장이다(0011). 정정은 새 이벤트이며
+            corrects_event_id로 원본을 가리킨다 — 기존 이벤트를 고치지 않는다.
+
+
+            SOP-503-001은 이 엔드포인트의 HTTP 오류가 아니다. 스트림이 200으로
+            열린 뒤의 장애는 프레임이 끊기는 것으로 나타나고, 클라이언트는
+            Last-Event-ID로 재개한다.'
           content:
             text/event-stream:
               schema:
@@ -6131,6 +6163,8 @@ paths:
       x-db-tables:
       - execution_event
       x-error-codes:
+      - COM-0400
+      - SOP-404-004
       - SOP-503-001
       security:
       - BearerAuth: []
@@ -6185,13 +6219,16 @@ paths:
       - sop_run
       - execution_event
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-404-004
       - SOP-409-006
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/SopRunControlRequest'
       security:
       - BearerAuth: []
   /sop-runs/{runId}/resume:
@@ -6245,13 +6282,16 @@ paths:
       - sop_run
       - execution_event
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-404-004
       - SOP-409-007
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/SopRunControlRequest'
       security:
       - BearerAuth: []
   /sop-runs/{runId}/terminate:
@@ -6305,15 +6345,19 @@ paths:
       - sop_run
       - task
       - execution_event
-      - outbox_message
+      - situation
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-400-003
+      - SOP-404-004
       - SOP-409-008
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/SopRunTerminateRequest'
       security:
       - BearerAuth: []
   /tasks:
@@ -12827,10 +12871,178 @@ components:
           format: date-time
     SopRun:
       type: object
-      additionalProperties: true
+      additionalProperties: false
+      required:
+      - runId
+      - sopVersionId
+      - situationId
+      - snapshotId
+      - mode
+      - status
+      - startedAt
+      properties:
+        runId:
+          type: string
+          format: uuid
+        sopVersionId:
+          type: string
+          format: uuid
+          description: 승인(LOCKED)된 버전만 실행한다.
+        situationId:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          description: |
+            DRY_RUN은 상황 상태를 바꾸지 않고 전파도 내보내지 않는다 — 모의
+            때문에 대시보드·일지가 "대응 중"으로 보이면 안 된다.
+          enum:
+          - LIVE
+          - EXERCISE
+          - DRY_RUN
+        status:
+          type: string
+          description: |
+            COMPLETED/FAILED는 완료 보고(CC-280)가 열 때 추가된다. 지금은 그
+            값을 만드는 경로가 없다.
+          enum:
+          - READY
+          - RUNNING
+          - PAUSED
+          - TERMINATED
+        startedBy:
+          type: string
+          format: uuid
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        correlationId:
+          type: string
     Task:
       type: object
-      additionalProperties: true
+      additionalProperties: false
+      required:
+      - taskId
+      - runId
+      - nodeKey
+      - title
+      - status
+      - createdAt
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+        nodeKey:
+          type: string
+        title:
+          type: string
+          maxLength: 300
+        status:
+          type: string
+          description: SENT/DELIVERED는 전파(CC-270), ACKNOWLEDGED~COMPLETED는 수행(CC-280)이 연다.
+          enum:
+          - CREATED
+          - CANCELLED
+        assigneeUserId:
+          type: string
+          format: uuid
+          nullable: true
+        assigneeHint:
+          type: string
+          nullable: true
+          description: 노드가 적어 둔 담당 문구. 실제 배정은 CC-280이다.
+        dueAt:
+          type: string
+          format: date-time
+          nullable: true
+        progressPct:
+          type: number
+        activatedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            수행 차례가 된 시각. null이면 선행 임무가 남아 있다 — "만들어진
+            임무"와 "지금 해야 하는 임무"는 다르다.
+        instructions:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    SopRunDetail:
+      type: object
+      additionalProperties: false
+      required:
+      - run
+      - tasks
+      - activeNodeKeys
+      properties:
+        run:
+          $ref: '#/components/schemas/SopRun'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+        activeNodeKeys:
+          type: array
+          description: |
+            지금 수행할 차례인 노드. **저장하지 않고 계산한다** — 커서를 두면
+            그래프·임무 상태와 어긋날 수 있고 어느 쪽이 참인지 말할 수 없다.
+          items:
+            type: string
+    SopSimulationRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - versionId
+      - snapshotId
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+        scenario:
+          type: string
+          nullable: true
+          maxLength: 2000
+    SopRunControlRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          nullable: true
+          maxLength: 2000
+    SopRunTerminateRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - confirmCode
+      properties:
+        reason:
+          type: string
+          nullable: true
+          maxLength: 2000
+        confirmCode:
+          type: string
+          description: |
+            실행 id의 앞 8자. 되돌릴 수 없는 조작이라 사용자가 화면에서 읽어
+            옮겨야 하고, 그 확인 자체가 "무엇을 끄는가"의 확인이 된다.
     Journal:
       type: object
       additionalProperties: true
