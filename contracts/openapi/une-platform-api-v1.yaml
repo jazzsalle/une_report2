@@ -6487,12 +6487,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/Dispatch'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6513,14 +6513,21 @@ paths:
       - dispatch
       - dispatch_recipient
       - outbox_message
+      - execution_event
+      - audit_log
       x-error-codes:
-      - OUTBOX-503-001
+      - COM-0400
+      - COM-0409
+      - TASK-400-001
+      - TASK-404-001
+      - TASK-412-001
+      - TASK-412-002
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskDispatchRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/acknowledge:
@@ -7101,7 +7108,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/DispatchStatus'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7121,8 +7128,10 @@ paths:
       x-db-tables:
       - dispatch
       - dispatch_recipient
-      - channel_delivery
+      - outbox_message
+      - outbox_attempt
       x-error-codes:
+      - COM-0400
       - DISP-404-001
       security:
       - BearerAuth: []
@@ -7156,7 +7165,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/Dispatch'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7175,15 +7184,21 @@ paths:
       x-permission: TASK_DISPATCH
       x-db-tables:
       - outbox_message
-      - outbox_attempt
+      - dispatch_recipient
+      - dispatch
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - DISP-404-001
       - DISP-409-001
+      - TASK-400-001
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/DispatchRetryRequest'
       security:
       - BearerAuth: []
   /situations/{id}/dashboard:
@@ -11794,6 +11809,202 @@ components:
           enum:
           - AUTO
           - MANUAL
+    DispatchRecipient:
+      type: object
+      additionalProperties: false
+      required:
+      - recipientId
+      - channel
+      - deliveryStatus
+      - simulated
+      properties:
+        recipientId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+        organizationId:
+          type: string
+          format: uuid
+          nullable: true
+        channel:
+          type: string
+          enum:
+          - SYSTEM
+          - SMS
+          - EMAIL
+          - PUSH
+        deliveryStatus:
+          type: string
+          description: |
+            DELIVERED는 수신영수증을 주는 실제 채널이 붙을 때 열린다(OB-06).
+            시뮬레이션 채널은 "받았다"(SENT)까지만 말한다.
+          enum:
+          - PENDING
+          - SENT
+          - FAILED
+        simulated:
+          type: boolean
+          description: |
+            true면 이 채널은 **실제로 나가지 않는다**(OB-06). 화면이 "전파됐다"로
+            읽으면 안 된다.
+    Dispatch:
+      type: object
+      additionalProperties: false
+      required:
+      - dispatchId
+      - situationId
+      - messageType
+      - messageBody
+      - status
+      - createdAt
+      - recipients
+      properties:
+        dispatchId:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+          nullable: true
+        situationId:
+          type: string
+          format: uuid
+        messageType:
+          type: string
+          enum:
+          - SITUATION
+          - TASK
+          - ESCALATION
+        messageBody:
+          type: string
+        status:
+          type: string
+          description: |
+            수신자 상태의 합이다. 아직 진행 중인 수신자가 있으면 SENDING이고,
+            끝난 것들이 갈리면 PARTIAL이다 — 절반이 받았는데 FAILED로 보이면
+            운영자가 전부 다시 보낸다.
+          enum:
+          - PENDING
+          - SENDING
+          - SENT
+          - PARTIAL
+          - FAILED
+        createdBy:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        recipients:
+          type: array
+          items:
+            $ref: '#/components/schemas/DispatchRecipient'
+    DispatchAttempt:
+      type: object
+      additionalProperties: false
+      required:
+      - channel
+      - attemptNo
+      - resultStatus
+      properties:
+        recipientId:
+          type: string
+          format: uuid
+          nullable: true
+        channel:
+          type: string
+        attemptNo:
+          type: integer
+          minimum: 1
+        resultStatus:
+          type: string
+          enum:
+          - SUCCESS
+          - RETRY
+          - FAIL
+        providerMessageId:
+          type: string
+          nullable: true
+        simulated:
+          type: boolean
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+    DispatchStatus:
+      allOf:
+      - $ref: '#/components/schemas/Dispatch'
+      - type: object
+        required:
+        - attempts
+        properties:
+          attempts:
+            type: array
+            description: |
+              발송 시도 이력. `channel_delivery` 테이블을 만들지 않은 이유가
+              여기 있다 — 시도별 상세는 outbox_attempt가, 수신자별 결과는
+              dispatch_recipient가 이미 담는다(ADR-41 D6).
+            items:
+              $ref: '#/components/schemas/DispatchAttempt'
+    TaskDispatchRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - channels
+      - recipients
+      properties:
+        channels:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum:
+            - SYSTEM
+            - SMS
+            - EMAIL
+            - PUSH
+        recipients:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              userId:
+                type: string
+                format: uuid
+                nullable: true
+              organizationId:
+                type: string
+                format: uuid
+                nullable: true
+        messageTemplate:
+          type: string
+          nullable: true
+          maxLength: 4000
+          description: 생략하면 임무 제목과 지시문으로 본문을 만든다.
+    DispatchRetryRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        recipientIds:
+          type: array
+          nullable: true
+          description: |
+            생략하면 이 전파의 dead letter 전부를 되살린다. **성공한 줄은 절대
+            건드리지 않는다** — 다시 보내면 같은 지시를 두 번 받는다.
+          items:
+            type: string
+            format: uuid
     TaskActionRequest:
       type: object
       additionalProperties: true
@@ -12950,9 +13161,13 @@ components:
           maxLength: 300
         status:
           type: string
-          description: SENT/DELIVERED는 전파(CC-270), ACKNOWLEDGED~COMPLETED는 수행(CC-280)이 연다.
+          description: |
+            CC-270이 SENT를 열었다(전파가 나간 임무). DELIVERED는 수신영수증을
+            주는 실제 채널이 붙어야 오고(OB-06), ACKNOWLEDGED~COMPLETED는
+            수행(CC-280)이 연다.
           enum:
           - CREATED
+          - SENT
           - CANCELLED
         assigneeUserId:
           type: string

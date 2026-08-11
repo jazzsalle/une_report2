@@ -375,3 +375,23 @@ export {
   type UniSopAdapterId,
   type UniSopFactoryEnv,
 } from './uni/sop/uni-sop-factory';
+
+// ── 전파 채널 포트 (CC-270) ──
+// 실제 SMS·이메일·푸시 계약이 OB-06으로 열려 있다. SYSTEM만 진짜이고 나머지는
+// 시뮬레이션이며, `isSimulated`가 그 사실을 결과에 실어 나른다.
+export {
+  CHANNEL_ERROR_CODES,
+  isRetryableChannelError,
+  type ChannelErrorCode,
+  type ChannelProvider,
+  type ChannelSendContext,
+  type ChannelSendInput,
+  type ChannelSendResult,
+} from './channel/channel-port';
+export {
+  SimulationChannelAdapter,
+  SystemChannelAdapter,
+  createChannelRegistry,
+  type ChannelRegistryEnv,
+  type SimulationChannelOptions,
+} from './channel/simulation-channel-adapter';

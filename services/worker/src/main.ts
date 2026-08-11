@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import {
   createObjectStorage,
   createT3qPlanProvider,
+  createChannelRegistry,
   createUniKnowledgeProvider,
   describeRuntimeCapability,
   describeRuntimeFeature,
@@ -21,6 +22,7 @@ import { ExportJobRunner } from './document-export/export-job.runner';
 import { PayloadRetentionRunner } from './retention/payload-retention.runner';
 import { KnowledgeUploadRunner } from './knowledge/knowledge-upload.runner';
 import { createSopWiring } from './sop/sop-wiring';
+import { OutboxRelayRunner } from './dispatch/outbox-relay.runner';
 
 function factoryOptions(config: WorkerConfig): PlanProviderFactoryOptions {
   switch (config.planAdapter) {
@@ -77,6 +79,17 @@ async function bootstrap(): Promise<void> {
   } else {
     console.warn(
       '[une-worker] SOP 생성 러너 DISABLED (UNE_SOP_ENABLED=false) — SOP 잡이 QUEUED로 남는다',
+    );
+  }
+
+  // CC-270: Outbox 릴레이. 잡 폴러에 얹는다 — 같은 "집어서 처리하고 결과를
+  // 남긴다" 규약이고, 전파도 밀리면 즉시 재폴링되어야 한다.
+  const channels = createChannelRegistry(process.env);
+  if (config.outboxEnabled) {
+    runners.push(new OutboxRelayRunner(db, channels, config));
+  } else {
+    console.warn(
+      '[une-worker] Outbox 릴레이 DISABLED (UNE_OUTBOX_ENABLED=false) — 전파가 PENDING으로 쌓인다',
     );
   }
 
@@ -188,6 +201,14 @@ async function bootstrap(): Promise<void> {
   // RUNTIME, never a bare UNE_ADAPTER_READY.
   console.warn(`[une-worker] capability ${describeRuntimeCapability(adapter, 'toc')}`);
   console.warn(`[une-worker] capability ${sopWiring.capabilityLine}`);
+  // 채널별로 시뮬레이션 여부를 적는다. 이것이 로그에 없으면 시뮬레이션 성공을
+  // 실제 도달로 읽게 된다(OB-06이 열려 있는 동안 특히).
+  for (const [name, provider] of channels) {
+    console.warn(
+      `[une-worker] channel ${name}=${provider.adapterId}` +
+        (provider.isSimulated ? ' [SIMULATION — 실제로 나가지 않는다, OB-06]' : ' [실제 발송]'),
+    );
+  }
   console.warn(`[une-worker] capability ${describeRuntimeCapability(adapter, 'content')}`);
   if (adapter.variant === 'target-v2') {
     // CC-135 AC "mock-only status visible": every finer-grained v2 feature

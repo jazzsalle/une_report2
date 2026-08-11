@@ -512,7 +512,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-260
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - atomic write
   - retry/backoff/dead letter
@@ -522,7 +522,10 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-41-cc270-transactional-outbox-and-simulation-channels.md
+  - docs/evidence/CC-270-outbox-and-dispatch.md
+  - database/migrations/0037_outbox_relay_and_dispatch.sql
 - id: CC-280
   title: Implement field task acknowledge/start/progress/complete/reject/reassign
   gate: G3

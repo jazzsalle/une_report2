@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+- CC-270 (2026-08-12): Transactional Outbox and simulation channels
+  (UNE-TASK-003/013/014, ADR-41, migration 0037).
+
+  CC-260 created tasks that reached nobody. This sends them — except there is
+  no real SMS, email or push contract yet (OB-06), so three of the four
+  channels are simulations that record a send and deliver nothing.
+
+  Because "state change, execution event and outbox insert are one
+  transaction" is non-negotiable, the channel call cannot sit inside it. The
+  API commits *decided to send* — dispatch, recipients, outbox rows, ledger
+  entry, audit — and the worker relay picks the queue up afterwards. The
+  contract gate enforces it: no `.send(` inside the transaction body.
+
+  Whether a channel is simulated rides along in four places (adapter, attempt
+  record, API response, startup log). Reading a simulated success as "it went
+  out" means believing an order reached people who never got it, and in
+  disaster response that misreading is expensive.
+
+  DELIVERED is deliberately absent from the recipient vocabulary. Knowing
+  something arrived needs a delivery receipt and nothing here produces one;
+  adding the value now would park a state on the screen that can never be
+  reached. Tasks stop at SENT for the same reason.
+
+  Partial failure is not FAILED. If half the recipients got it and the screen
+  says failed, the operator resends everything and that half gets the same
+  order twice. And while any recipient is still in flight the rollup refuses to
+  conclude — calling it PARTIAL now would be a claim that becomes false when
+  the rest succeed.
+
+  Retries back off exponentially with a five-minute ceiling and deterministic
+  jitter: without the ceiling a blocked channel is retried after the incident
+  is over, and without jitter the hundreds that failed together retry together
+  and knock the channel down a second time. A non-retryable failure (bad
+  address) dead-letters on the first attempt rather than burning five.
+
+  channel_delivery was not created. Design 10 names it, but attempt detail
+  already lives in outbox_attempt and per-recipient outcome in
+  dispatch_recipient, and recipients already carry their channel — nothing is
+  left for it to hold. Same conclusion ADR-33 D4 reached for malware_scan.
+
+  The duplicate-suppression index gained a tenant column. 0007 keyed it on
+  (idempotency_key, channel), so two organisations using the same key would
+  have silently swallowed one of the two dispatches.
+
+  Two defects found by running it:
+    * the RESTRICTIVE worker policy used only USING, and USING applies to the
+      new row too — so the relay could not settle anything and messages sat in
+      SENDING. The rule is about not reopening finished rows, which is a
+      statement about the old row; WITH CHECK (true) fixes it.
+    * marking a task SENT hit "permission denied for table sop_run", because
+      the task RLS policy joins it and policy expressions run with the querying
+      role's privileges. Same shape as the gap 0033 closed.
+
+  Closed dispatch, dispatch_recipient and outbox_attempt in the RLS coverage
+  list — nine tables still open.
+
+  Tests: domain 23, contract 318 (dispatch gate 18), API slice e2e 9,
+  integration 197, full suite green. Migrations 36 -> 37, tables 65 unchanged,
+  dictionary 65/646.
+  Files: database/migrations/0037_outbox_relay_and_dispatch.sql,
+  packages/domain/src/dispatch/outbox.ts,
+  packages/provider-adapters/src/channel/,
+  services/worker/src/dispatch/, services/api/src/dispatch/,
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-41-cc270-transactional-outbox-and-simulation-channels.md,
+  docs/evidence/CC-270-outbox-and-dispatch.md,
+  tests/contract/src/dispatch.contract.test.ts,
+  tests/e2e/src/dispatch-outbox.e2e.test.ts.
+
 - CC-260 (2026-08-11): SopRun, Task and the explicit state machine
   (UNE-SOP-010~016, ADR-40, migration 0036).
 
