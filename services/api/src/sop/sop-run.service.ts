@@ -47,10 +47,12 @@ export interface SopRunResource {
 export interface TaskResource {
   taskId: string;
   runId: string;
+  situationId: string;
   nodeKey: string;
   title: string;
   status: string;
   assigneeUserId: string | null;
+  assigneeOrgId: string | null;
   assigneeHint: string | null;
   dueAt: string | null;
   progressPct: number;
@@ -82,14 +84,16 @@ function toRunResource(row: SopRunRow): SopRunResource {
   };
 }
 
-function toTaskResource(row: TaskRow): TaskResource {
+function toTaskResource(row: TaskRow, situationId: string): TaskResource {
   return {
     taskId: row.taskId,
     runId: row.runId,
+    situationId,
     nodeKey: row.nodeKey,
     title: row.title,
     status: row.status,
     assigneeUserId: row.assigneeUserId,
+    assigneeOrgId: row.assigneeOrgId,
     assigneeHint: row.assigneeHint,
     dueAt: iso(row.dueAt),
     progressPct: row.progressPct,
@@ -228,7 +232,7 @@ export class SopRunService {
         : [];
       return {
         run: toRunResource(run),
-        tasks: tasks.map(toTaskResource),
+        tasks: tasks.map((t) => toTaskResource(t, run.situationId)),
         // 활성 목록은 저장된 값이 아니라 **계산 결과**다.
         activeNodeKeys,
       };

@@ -59,6 +59,9 @@ import { KnowledgeService } from './knowledge/knowledge.service';
 import { DispatchController, TaskDispatchController } from './dispatch/dispatch.controller';
 import { DispatchRepository } from './dispatch/dispatch.repository';
 import { DispatchService } from './dispatch/dispatch.service';
+import { TaskController } from './task/task.controller';
+import { TaskRepository } from './task/task.repository';
+import { TaskService } from './task/task.service';
 import { SopController } from './sop/sop.controller';
 import { SopRunController, SopRunStartController } from './sop/sop-run.controller';
 import { SopRunRepository } from './sop/sop-run.repository';
@@ -104,6 +107,7 @@ export class AppModule {
         SopRunController,
         TaskDispatchController,
         DispatchController,
+        TaskController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -162,6 +166,8 @@ export class AppModule {
         // 실제 발송은 워커 릴레이가 한다 — 외부 호출이 트랜잭션 안에 없다.
         DispatchRepository,
         DispatchService,
+        TaskRepository,
+        TaskService,
         objectStorageProvider,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;

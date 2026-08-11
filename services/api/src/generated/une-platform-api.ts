@@ -1759,6 +1759,36 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sop-generation-jobs/{jobId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * SOP 생성 Job 취소
+         * @description 권한: SOP_GENERATE
+         *
+         *     핵심 요청: reason
+         *
+         *     핵심 응답: GenerationJob
+         *
+         *     오류: JOB-409-001
+         *
+         *     **UNE 신설(CC-240).** 설계 10 SOP 표에는 없다. UNE-PLAN-012(생성 Job 취소)가 이미 있으나 그쪽은 PLAN_GENERATE를 요구하므로, 그것으로 SOP 잡을 끄면 SOP 운용자는 자기 잡을 못 끄고 계획서 작성자는 남의 SOP 잡을 끌 수 있다. SOP-409-001이 사용자에게 "진행 중인 Job을 기다리거나 취소하십시오"라고 안내하므로 취소 경로가 없으면 그 안내가 막다른 길이 된다. 근거 ADR-38 D19.
+         *
+         *     QUEUED는 즉시 CANCELLED가 되고, RUNNING은 취소 요청만 기록한 뒤 워커 체크포인트가 종결한다(UNE-PLAN-012와 같은 상태기계).
+         */
+        post: operations["une_sop_017"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sops": {
         parameters: {
             query?: never;
@@ -2122,7 +2152,7 @@ export type paths = {
          *
          *     핵심 응답: Page<Task>
          *
-         *     오류: TASK-7001
+         *     오류: TASK-400-001
          */
         get: operations["une_task_001"];
         put?: never;
@@ -4247,6 +4277,172 @@ export type components = {
              */
             schemaVersion: "1.0";
         };
+        SopPage: {
+            items: components["schemas"]["Sop"][];
+            page: number;
+            size: number;
+            totalElements: number;
+        };
+        Sop: {
+            /** Format: uuid */
+            sopId: string;
+            /** Format: uuid */
+            situationId?: string | null;
+            title: string;
+            hazardType: string;
+            /**
+             * @description RETIRED는 폐기 경로가 생길 때 연다(0035 §1, 도달 가능한 상태만).
+             * @enum {string}
+             */
+            status: "DRAFT" | "IN_REVIEW" | "APPROVED";
+            /** Format: uuid */
+            currentVersionId?: string | null;
+            currentVersionNo?: number | null;
+            /** Format: uuid */
+            createdBy?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SopVersion: {
+            /** Format: uuid */
+            sopVersionId: string;
+            /** Format: uuid */
+            sopId: string;
+            versionNo: number;
+            /**
+             * @description LOCKED는 승인이 만든다. 그 뒤로 그래프까지 불변이다(0035 §3).
+             * @enum {string}
+             */
+            status: "DRAFT" | "LOCKED";
+            graphHash: string;
+            /** @description 매퍼 버전. 사람이 만든 버전은 편집기 버전이다. */
+            schemaVersion: string;
+            /** Format: uuid */
+            sourceSnapshotId?: string | null;
+            /** Format: uuid */
+            sourceEvidenceSetId?: string | null;
+            graphViolations?: string[] | null;
+            adapterId?: string | null;
+            /** @description true면 mock 산출물이다 — provider 지원의 증거가 아니다. */
+            generatedByMock?: boolean | null;
+            /** Format: uuid */
+            approvedBy?: string | null;
+            /** Format: date-time */
+            approvedAt?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SopGraphNode: {
+            nodeKey: string;
+            /** @enum {string} */
+            nodeType: "START" | "ACTION" | "DECISION" | "NOTE" | "END";
+            title: string;
+            tasks?: {
+                instruction?: string;
+                assigneeHint?: string | null;
+            }[];
+            decisionExpression?: string | null;
+            /** @description UNE knowledge_document_id 목록이다(provider id가 아니다). */
+            sourceRefs?: string[];
+            /** @description provider가 준 원래 키. 정규화하지 않았으면 nodeKey와 같다. */
+            providerNodeKey?: string | null;
+            mappingWarnings?: string[] | null;
+            position?: {
+                x: number;
+                y: number;
+            } | null;
+        };
+        SopGraphEdge: {
+            fromNodeKey: string;
+            toNodeKey: string;
+            conditionExpr?: string | null;
+            label?: string | null;
+            priority?: number;
+        };
+        SopGraphResource: {
+            sop: components["schemas"]["Sop"];
+            version: components["schemas"]["SopVersion"];
+            nodes: components["schemas"]["SopGraphNode"][];
+            edges: components["schemas"]["SopGraphEdge"][];
+        };
+        SopVersionSaveRequest: {
+            /**
+             * Format: uuid
+             * @description 무엇을 고쳐서 만든 버전인가. SOP의 현재 버전과 다르면 409
+             *     (SOP-409-001) — 그 사이 누군가 저장했다는 뜻이므로 덮어쓰지 않는다.
+             */
+            baseVersionId: string;
+            nodes: components["schemas"]["SopGraphNode"][];
+            edges: components["schemas"]["SopGraphEdge"][];
+        };
+        SopValidationIssue: {
+            code: string;
+            /** @description 그래프 전체 문제면 null이다. */
+            nodeKey?: string | null;
+            message: string;
+        };
+        SopValidationReport: {
+            /** Format: uuid */
+            sopVersionId: string;
+            /** @enum {string} */
+            status: "PASS" | "FAIL";
+            /**
+             * @description 절차를 실행할 수 없게 만드는 것. 구조 위반 전부와 MISSING_TASK가
+             *     여기 온다 — 임무 없는 실행 노드는 무엇을 할지가 없다.
+             */
+            errors: components["schemas"]["SopValidationIssue"][];
+            /**
+             * @description 승인을 막지 않지만 화면에 보여야 하는 것(담당 미지정, 근거 없음,
+             *     범위 밖 근거 등).
+             */
+            warnings: components["schemas"]["SopValidationIssue"][];
+            validatorVersion: string;
+            /** Format: date-time */
+            validatedAt: string;
+        };
+        SopValidateRequest: {
+            /**
+             * Format: uuid
+             * @description 생략하면 SOP의 현재 버전을 검증한다.
+             */
+            versionId?: string | null;
+        };
+        SopSubmitReviewRequest: {
+            /** Format: uuid */
+            versionId: string;
+            /**
+             * @description 알림 대상이다. 승인 게이트는 SOP_APPROVE 권한이지 이 목록이 아니다
+             *     (검토자별 개별 응답은 그 흐름이 생길 때 연다 — ADR-39).
+             */
+            reviewers: string[];
+            message?: string | null;
+        };
+        SopApproveRequest: {
+            /** Format: uuid */
+            versionId: string;
+            comment?: string | null;
+        };
+        ReviewRequest: {
+            /** Format: uuid */
+            reviewRequestId: string;
+            /** Format: uuid */
+            sopId: string;
+            /** Format: uuid */
+            sopVersionId: string;
+            /**
+             * @description 반려·철회는 그 엔드포인트가 생길 때 연다(0035 §6).
+             * @enum {string}
+             */
+            status: "REQUESTED" | "APPROVED";
+            reviewers: string[];
+            message?: string | null;
+            /** Format: uuid */
+            requestedBy?: string | null;
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            resolvedAt?: string | null;
+        };
         SopCreateRequest: {
             /** Format: uuid */
             situationId?: string | null;
@@ -4267,8 +4463,313 @@ export type components = {
             /** @enum {string} */
             startPolicy?: "AUTO" | "MANUAL";
         };
-        TaskActionRequest: {
-            [key: string]: unknown;
+        DispatchRecipient: {
+            /** Format: uuid */
+            recipientId: string;
+            /** Format: uuid */
+            userId?: string | null;
+            /** Format: uuid */
+            organizationId?: string | null;
+            /** @enum {string} */
+            channel: "SYSTEM" | "SMS" | "EMAIL" | "PUSH";
+            /**
+             * @description DELIVERED는 수신영수증을 주는 실제 채널이 붙을 때 열린다(OB-06).
+             *     시뮬레이션 채널은 "받았다"(SENT)까지만 말한다.
+             * @enum {string}
+             */
+            deliveryStatus: "PENDING" | "SENT" | "FAILED";
+            /**
+             * @description true면 이 채널은 **실제로 나가지 않는다**(OB-06). 화면이 "전파됐다"로
+             *     읽으면 안 된다.
+             */
+            simulated: boolean;
+        };
+        Dispatch: {
+            /** Format: uuid */
+            dispatchId: string;
+            /** Format: uuid */
+            taskId?: string | null;
+            /** Format: uuid */
+            situationId: string;
+            /**
+             * @description TASK는 **임무 지시 전파**이고 그것만 임무를 SENT로 만든다.
+             *     TASK_NOTICE는 수행 알림(수행불가·반려·재배정)이라 같은 임무를
+             *     가리키지만 임무 상태를 건드리지 않는다(0039).
+             * @enum {string}
+             */
+            messageType: "SITUATION" | "TASK" | "TASK_NOTICE" | "ESCALATION";
+            messageBody: string;
+            /**
+             * @description 수신자 상태의 합이다. 아직 진행 중인 수신자가 있으면 SENDING이고,
+             *     끝난 것들이 갈리면 PARTIAL이다 — 절반이 받았는데 FAILED로 보이면
+             *     운영자가 전부 다시 보낸다.
+             * @enum {string}
+             */
+            status: "PENDING" | "SENDING" | "SENT" | "PARTIAL" | "FAILED";
+            /** Format: uuid */
+            createdBy?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            recipients: components["schemas"]["DispatchRecipient"][];
+        };
+        DispatchAttempt: {
+            /** Format: uuid */
+            recipientId?: string | null;
+            channel: string;
+            attemptNo: number;
+            /** @enum {string} */
+            resultStatus: "SUCCESS" | "RETRY" | "FAIL";
+            providerMessageId?: string | null;
+            simulated?: boolean | null;
+            /** Format: date-time */
+            finishedAt?: string | null;
+            errorCode?: string | null;
+        };
+        DispatchStatus: components["schemas"]["Dispatch"] & {
+            /**
+             * @description 발송 시도 이력. `channel_delivery` 테이블을 만들지 않은 이유가
+             *     여기 있다 — 시도별 상세는 outbox_attempt가, 수신자별 결과는
+             *     dispatch_recipient가 이미 담는다(ADR-41 D6).
+             */
+            attempts: components["schemas"]["DispatchAttempt"][];
+        };
+        TaskDispatchRequest: {
+            channels: ("SYSTEM" | "SMS" | "EMAIL" | "PUSH")[];
+            recipients: {
+                /** Format: uuid */
+                userId?: string | null;
+                /** Format: uuid */
+                organizationId?: string | null;
+            }[];
+            /** @description 생략하면 임무 제목과 지시문으로 본문을 만든다. */
+            messageTemplate?: string | null;
+        };
+        DispatchRetryRequest: {
+            /**
+             * @description 생략하면 이 전파의 dead letter 전부를 되살린다. **성공한 줄은 절대
+             *     건드리지 않는다** — 다시 보내면 같은 지시를 두 번 받는다.
+             */
+            recipientIds?: string[] | null;
+        };
+        /** @description UNE-TASK-004 수신확인. */
+        TaskAcknowledgeRequest: {
+            /**
+             * Format: date-time
+             * @description 현장에서 실제로 받은 시각. 오프라인이었다면 서버 도착 시각과 다르다.
+             */
+            receivedAt?: string;
+            /**
+             * @description **모델·OS 수준까지만** 받는다. 기기 식별자를 받으면 개인 위치추적
+             *     자료가 되고 그것을 요구한 근거가 없다.
+             */
+            deviceInfo?: {
+                platform?: string | null;
+                osVersion?: string | null;
+                appVersion?: string | null;
+            } | null;
+        };
+        /** @description UNE-TASK-005 착수. */
+        TaskStartRequest: {
+            /** Format: date-time */
+            startedAt?: string;
+            note?: string | null;
+        };
+        /**
+         * @description UNE-TASK-006 진행보고. **상태를 바꾸지 않는다** - 진행보고는 몇 번이든
+         *     올 수 있고 그때마다 상태가 바뀌면 이력이 의미를 잃는다.
+         */
+        TaskProgressRequest: {
+            /**
+             * @description 뒤로 가는 진행률을 막지 않는다 - 현장이 상황을 다시 보고 낮춰 잡는
+             *     일이 실제로 있고, 그것을 막으면 사람이 거짓 숫자를 남긴다.
+             */
+            progress: number;
+            note?: string | null;
+            attachmentIds?: string[];
+        };
+        /**
+         * @description UNE-TASK-007 완료 보고. outcome이 UNABLE이면 수행불가 보고다(설계 09
+         *     SCR-TASK-003의 두 번째 버튼) - 엔드포인트를 늘리지 않고 결과를 가른다.
+         */
+        TaskCompleteRequest: {
+            /**
+             * @default DONE
+             * @enum {string}
+             */
+            outcome: "DONE" | "UNABLE";
+            /** Format: date-time */
+            completedAt?: string;
+            /**
+             * @description 무엇을 했는가. SOP가 완료조건을 적지 않았어도 기본으로 요구한다 -
+             *     빈 완료보고는 상황일지에서 빈 칸이 된다.
+             */
+            result?: string;
+            /** @description 충족했다고 표시한 완료조건 key. */
+            checklist?: string[];
+            /**
+             * @description outcome=UNABLE일 때 필수. 자유서술만 받으면 훈련 평가가 집계할 수 없다.
+             * @enum {string|null}
+             */
+            unableReasonCode?: "SAFETY" | "RESOURCE" | "ACCESS" | "UNCLEAR" | "OTHER" | null;
+        };
+        /** @description UNE-TASK-008 완료 승인. 마지막 임무면 실행도 여기서 끝난다. */
+        TaskApproveCompletionRequest: {
+            comment?: string | null;
+        };
+        /**
+         * @description UNE-TASK-009 완료 반려. 임무는 IN_PROGRESS로 돌아간다 - REJECTED라는
+         *     상태를 두지 않는 이유는 그것이 어떤 순간에도 관측되지 않기 때문이다.
+         */
+        TaskRejectCompletionRequest: {
+            /** @description 사유 없이 반려하면 담당자가 무엇을 고쳐야 하는지 모른다. */
+            reason: string;
+        };
+        /**
+         * @description UNE-TASK-010 재배정. 임무는 **새 담당자의 SENT**가 된다 - 진행 중이던
+         *     상태를 물려주면 받지도 않은 사람이 착수해 있는 임무가 생긴다.
+         */
+        TaskReassignRequest: {
+            /** Format: uuid */
+            assigneeId?: string | null;
+            /** Format: uuid */
+            assigneeOrgId?: string | null;
+            reason: string;
+        };
+        /** @description UNE-TASK-011 Escalation. 상태를 바꾸지 않고 위로 알린다. */
+        TaskEscalateRequest: {
+            /**
+             * @default L1
+             * @enum {string}
+             */
+            level: "L1" | "L2" | "L3";
+            reason: string;
+            targetIds: string[];
+        };
+        /**
+         * @description UNE-TASK-012 현장 파일 등록. 업로드는 파일 API가 하고 여기서는 이미
+         *     올라간 파일을 임무에 건다 - 악성코드 검사를 통과한 것만 걸린다.
+         */
+        TaskAttachmentRequest: {
+            /** Format: uuid */
+            fileId: string;
+            /**
+             * @default PHOTO
+             * @enum {string}
+             */
+            category: "PHOTO" | "DOC" | "VIDEO" | "OTHER";
+            caption?: string | null;
+            /**
+             * @description 위치. 필수가 아니다 - 위치권한을 거부한 기기에서도 보고할 수 있어야
+             *     한다. **임의 JSON을 받지 않는다**: 개인 위치정보이므로 형태를 좁히고
+             *     소수점 5자리(약 1m)로 깎는다.
+             */
+            geo?: {
+                lat: number;
+                lon: number;
+            } | null;
+            /**
+             * Format: date-time
+             * @description 미래 시각은 거부한다(설계 09 TASK-5205).
+             */
+            capturedAt?: string | null;
+        };
+        /**
+         * @description 임무 이벤트. **append-only다** - 틀렸으면 정정 이벤트를 더한다.
+         *
+         *     `taskStatus`는 **그 이벤트가 남긴** 상태다(현재 상태가 아니다). 기록
+         *     시점에 페이로드에 함께 굳히므로 과거 이벤트도 자기 시점의 값을 말한다.
+         */
+        TaskEvent: {
+            /** Format: uuid */
+            taskEventId: string;
+            /** Format: uuid */
+            taskId: string;
+            /** @enum {string} */
+            eventType: "ACKNOWLEDGED" | "STARTED" | "PROGRESS_REPORTED" | "COMPLETION_SUBMITTED" | "UNABLE_REPORTED" | "COMPLETION_APPROVED" | "COMPLETION_REJECTED" | "REASSIGNED" | "ESCALATED" | "ATTACHMENT_ADDED";
+            /** Format: date-time */
+            eventTime: string;
+            /** Format: uuid */
+            actorId?: string | null;
+            payload: {
+                [key: string]: unknown;
+            };
+            taskStatus: components["schemas"]["TaskStatus"];
+        };
+        TaskAttachment: {
+            /** Format: uuid */
+            taskAttachmentId: string;
+            /** Format: uuid */
+            taskId: string;
+            /** Format: uuid */
+            fileId: string;
+            /** @enum {string} */
+            category: "PHOTO" | "DOC" | "VIDEO" | "OTHER";
+            caption?: string | null;
+            geo?: {
+                lat: number;
+                lon: number;
+            } | null;
+            /** Format: date-time */
+            capturedAt?: string | null;
+            /** Format: uuid */
+            uploadedBy: string;
+            originalName: string;
+            mimeType: string;
+            sizeBytes: number;
+        };
+        /**
+         * @description 담당 이력. **append-only다** - 배정 구간의 끝은 다음 행의 assignedAt이
+         *     말한다. released_at 같은 컬럼을 두면 이력 행을 나중에 고쳐야 하고,
+         *     고칠 수 있는 이력은 이력이 아니다.
+         */
+        TaskAssignment: {
+            /** Format: uuid */
+            taskAssignmentId: string;
+            /** Format: uuid */
+            assigneeUserId?: string | null;
+            /** Format: uuid */
+            assigneeOrgId?: string | null;
+            /** Format: uuid */
+            assignedBy?: string | null;
+            /** Format: date-time */
+            assignedAt: string;
+            /** @enum {string} */
+            source: "DISPATCH" | "REASSIGN";
+            reason?: string | null;
+        };
+        /**
+         * @description 완료조건. SOP 노드의 config에서 **임무 생성 시점에 굳는다** - 승인된
+         *     버전은 불변이므로 이 사본은 시간이 지나도 같은 것을 말한다.
+         */
+        TaskCompletionPolicy: {
+            checklist: {
+                key: string;
+                label: string;
+                requiresEvidence: boolean;
+            }[];
+            /**
+             * @description 기본 0이다. 사진을 찍을 수 없는 임무가 실제로 있고(전화 통보, 방송
+             *     요청), 못 지킬 조건을 기본값으로 걸면 현장이 아무 사진이나 올려
+             *     조건을 우회한다.
+             */
+            minAttachments: number;
+            /** @description 기본 true. SOP가 조건을 적지 않은 것은 조건 없음이 아니라 대개 아직 적지 못한 것이다. */
+            requireResult: boolean;
+        };
+        TaskDetail: {
+            task: components["schemas"]["Task"];
+            runStatus: string;
+            runMode: string;
+            completionPolicy: components["schemas"]["TaskCompletionPolicy"];
+            events: components["schemas"]["TaskEvent"][];
+            attachments: components["schemas"]["TaskAttachment"][];
+            assignments: components["schemas"]["TaskAssignment"][];
+        };
+        TaskPage: {
+            items: components["schemas"]["Task"][];
+            page: number;
+            size: number;
+            total: number;
         };
         JournalProjectionRequest: {
             /** Format: uuid */
@@ -4688,10 +5189,102 @@ export type components = {
             observedAt?: string | null;
         } | null;
         SopRun: {
-            [key: string]: unknown;
+            /** Format: uuid */
+            runId: string;
+            /**
+             * Format: uuid
+             * @description 승인(LOCKED)된 버전만 실행한다.
+             */
+            sopVersionId: string;
+            /** Format: uuid */
+            situationId: string;
+            /** Format: uuid */
+            snapshotId: string;
+            /**
+             * @description DRY_RUN은 상황 상태를 바꾸지 않고 전파도 내보내지 않는다 — 모의
+             *     때문에 대시보드·일지가 "대응 중"으로 보이면 안 된다.
+             * @enum {string}
+             */
+            mode: "LIVE" | "EXERCISE" | "DRY_RUN";
+            /**
+             * @description CC-280이 COMPLETED를 열었다 - 마지막 임무가 승인되면 실행이 스스로
+             *     끝난다(사람이 누르는 것이 아니다). FAILED는 여전히 그 값을 만드는
+             *     경로가 없어 넣지 않는다.
+             * @enum {string}
+             */
+            status: "READY" | "RUNNING" | "PAUSED" | "COMPLETED" | "TERMINATED";
+            /** Format: uuid */
+            startedBy?: string | null;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            endedAt?: string | null;
+            correlationId?: string;
         };
+        /**
+         * @description CC-280이 수행 상태를 열었다. 설계 09의 Task 상태표는 열하나를 적지만
+         *     셋은 **관측되지 않아** 넣지 않는다: DELIVERED(수신영수증을 주는 실제
+         *     채널이 없다 - OB-06), REJECTED(반려하는 순간 IN_PROGRESS가 된다),
+         *     REASSIGNED(재배정하면 새 담당자의 SENT가 된다). 뒤의 둘은 상태가
+         *     아니라 전이이고 TaskEvent가 들고 있다.
+         * @enum {string}
+         */
+        TaskStatus: "CREATED" | "SENT" | "ACKNOWLEDGED" | "IN_PROGRESS" | "COMPLETION_SUBMITTED" | "COMPLETED" | "UNABLE_REPORTED" | "CANCELLED";
         Task: {
-            [key: string]: unknown;
+            /** Format: uuid */
+            taskId: string;
+            /** Format: uuid */
+            runId: string;
+            nodeKey: string;
+            title: string;
+            status: components["schemas"]["TaskStatus"];
+            /** Format: uuid */
+            situationId: string;
+            /** Format: uuid */
+            assigneeUserId?: string | null;
+            /** Format: uuid */
+            assigneeOrgId?: string | null;
+            /** @description 노드가 적어 둔 담당 문구. 실제 배정은 CC-280이다. */
+            assigneeHint?: string | null;
+            /** Format: date-time */
+            dueAt?: string | null;
+            progressPct?: number;
+            /**
+             * Format: date-time
+             * @description 수행 차례가 된 시각. null이면 선행 임무가 남아 있다 — "만들어진
+             *     임무"와 "지금 해야 하는 임무"는 다르다.
+             */
+            activatedAt?: string | null;
+            instructions?: string[];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SopRunDetail: {
+            run: components["schemas"]["SopRun"];
+            tasks: components["schemas"]["Task"][];
+            /**
+             * @description 지금 수행할 차례인 노드. **저장하지 않고 계산한다** — 커서를 두면
+             *     그래프·임무 상태와 어긋날 수 있고 어느 쪽이 참인지 말할 수 없다.
+             */
+            activeNodeKeys: string[];
+        };
+        SopSimulationRequest: {
+            /** Format: uuid */
+            versionId: string;
+            /** Format: uuid */
+            snapshotId: string;
+            scenario?: string | null;
+        };
+        SopRunControlRequest: {
+            reason?: string | null;
+        };
+        SopRunTerminateRequest: {
+            reason?: string | null;
+            /**
+             * @description 실행 id의 앞 8자. 되돌릴 수 없는 조작이라 사용자가 화면에서 읽어
+             *     옮겨야 하고, 그 확인 자체가 "무엇을 끄는가"의 확인이 된다.
+             */
+            confirmCode: string;
         };
         Journal: {
             [key: string]: unknown;
@@ -7404,7 +7997,7 @@ export interface operations {
             /**
              * @description 접수됨. 상태는 QUEUED이며 UNI 호출과 그래프 적재는 워커가 한다.
              *
-             *     생성 결과는 이 응답이 아니라 UNE-SOP-002 스트림의 job.completed 이벤트로 온다: {sopId, sopVersionId, sopVersionNo, graphHash, nodeCount, edgeCount, graphViolations, rejectedNodeCount}.
+             *     생성 결과는 이 응답이 아니라 UNE-SOP-002 스트림의 job.completed 이벤트로 온다: {sopId, sopVersionId, sopVersionNo, graphHash, nodeCount, edgeCount, graphViolations, rejectedNodeCount, outOfScopeNodeCount}.
              *
              *     선행조건: 상황이 확정 판을 갖고 있고(snapshotId = 현재 판), 그 판 위에서 동결된 EvidenceSet이어야 한다. 진행 중인 SOP 생성 Job이 있으면 SOP-409-001이다.
              */
@@ -7446,13 +8039,13 @@ export interface operations {
              *
              *     UNI 원문 이벤트를 그대로 흘리지 않는다. 설계 08 §1.11의 __status__/__thinking__/__compn__/__sources__/__done__/__error__는 provider의 어휘이고 화면에는 위 UNE 어휘로 투영한다. __thinking__은 사용자 화면에 표시하지 않으므로(설계 08 §1.11) SSE로도 나가지 않는다.
              *
-             *     sop.node payload: {nodeKey, nodeType(START|ACTION|DECISION|NOTE|END), title, taskCount, warnings[]}. warnings는 UNI SOP 매퍼 경고이며 노드를 버리지 않고 무엇이 비었는지 알린다(MISSING_TITLE, MISSING_TASK, MISSING_ASSIGNEE, MISSING_DECISION_EXPRESSION, NO_SOURCE_REFS, UNKNOWN_FIELD_DROPPED, NODE_KEY_NORMALIZED).
+             *     sop.node payload: {nodeKey, nodeType(START|ACTION|DECISION|NOTE|END), title, taskCount, warnings[]}. warnings는 UNI SOP 매퍼 경고이며 노드를 버리지 않고 무엇이 비었는지 알린다(MISSING_TITLE, MISSING_TASK, MISSING_ASSIGNEE, MISSING_DECISION_EXPRESSION, NO_SOURCE_REFS, UNKNOWN_FIELD_DROPPED, NODE_KEY_NORMALIZED, TITLE_TRUNCATED, SOURCE_OUT_OF_SCOPE).
              *
-             *     NODE_KEY_NORMALIZED는 UNI의 compnSn이 노드 키 규칙 (sop-graph.schema.json의 ^[A-Za-z][A-Za-z0-9_-]{1,79}$)에 맞지 않아 UNE가 고쳐 썼다는 뜻이다. 원래 값은 노드의 providerNodeKey로 남는다.
+             *     NODE_KEY_NORMALIZED는 UNI의 compnSn이 노드 키 규칙 (sop-graph.schema.json의 ^[A-Za-z][A-Za-z0-9_-]{1,79}$)에 맞지 않아 UNE가 고쳐 썼다는 뜻이다. 원래 값은 노드의 providerNodeKey로 남는다. TITLE_TRUNCATED는 provider 제목이 sop_node.title(varchar 300)을 넘어 잘렸다는 뜻이고, SOURCE_OUT_OF_SCOPE는 그 노드가 요청한 동결 근거 **범위 밖 문서**를 출처로 들었다는 뜻이다 — 차단하지 않고 표시한다 (LLM 출력은 권위 있는 사실 출처가 아니다).
              *
-             *     sop.sources payload: {sources: [{documentId, chunkId}]}.
+             *     sop.sources payload: {sources: [{documentId, providerDocumentId, chunkId, inScope}]}. documentId는 **UNE knowledge_document_id**이며 범위 밖 출처면 null이다. provider가 쓰는 식별자는 providerDocumentId에 따로 싣는다 — 그래야 클라이언트가 UNE 문서와 대조할 수 있고, UNI가 id 체계를 바꿔도 저장된 근거 참조가 끊기지 않는다. 노드의 sourceRefs도 같은 규칙으로 UNE id를 담는다.
              *
-             *     job.completed payload의 graphViolations는 __done__ 이후 전체 검증 결과다(NO_START, NO_END, MULTIPLE_START, ORPHAN_NODE, DANGLING_EDGE, CYCLE, DECISION_WITHOUT_BRANCH, DUPLICATE_NODE_KEY, EDGE_FROM_END). 위반이 있어도 Job은 COMPLETED이고 버전은 DRAFT로 저장된다 — 사용자가 Canvas에서 고치는 것이 다음 단계이므로, 저장하지 않으면 고칠 대상이 없다.
+             *     job.completed payload의 graphViolations는 __done__ 이후 전체 검증 결과다(NO_START, NO_END, MULTIPLE_START, ORPHAN_NODE, DANGLING_EDGE, CYCLE, DECISION_WITHOUT_BRANCH, EDGE_FROM_END). DUPLICATE_NODE_KEY는 저장 전에 해소되므로(같은 키가 둘이면 순번을 붙여 확정한다) 여기에 나타나지 않는다 — 해소하지 않으면 유니크 제약이 저장 자체를 막아 "위반과 함께 저장한다"는 원칙이 성립하지 않는다. 위반이 있어도 Job은 COMPLETED이고 버전은 DRAFT로 저장된다 — 사용자가 Canvas에서 고치는 것이 다음 단계이므로, 저장하지 않으면 고칠 대상이 없다.
              *
              *     job.failed payload의 partialNodeCount는 실패 시점까지 받은 노드 수다. 부분결과 폐기 여부는 사용자 결정이다(설계 08 §1.11).
              *
@@ -7475,6 +8068,40 @@ export interface operations {
             503: components["responses"]["ProviderError"];
         };
     };
+    une_sop_017: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["GenerationJobCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description 취소됨(QUEUED) 또는 취소 요청 접수됨(RUNNING). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerationJob"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     une_sop_004: {
         parameters: {
             query?: never;
@@ -7492,7 +8119,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SopRun"];
+                    "application/json": components["schemas"]["SopPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7514,7 +8141,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["SopCreateRequest"];
             };
@@ -7526,7 +8153,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SopRun"];
+                    "application/json": components["schemas"]["Sop"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7557,7 +8184,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SopRun"];
+                    "application/json": components["schemas"]["SopGraphResource"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7581,19 +8208,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["SopGraph"];
+                "application/json": components["schemas"]["SopVersionSaveRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SopRun"];
+                    "application/json": components["schemas"]["SopVersion"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7617,9 +8244,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["SopValidateRequest"];
             };
         };
         responses: {
@@ -7629,7 +8256,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SopRun"];
+                    "application/json": components["schemas"]["SopValidationReport"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7653,19 +8280,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["SopSubmitReviewRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SopRun"];
+                    "application/json": components["schemas"]["ReviewRequest"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7689,9 +8316,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["SopApproveRequest"];
             };
         };
         responses: {
@@ -7701,7 +8328,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SopRun"];
+                    "application/json": components["schemas"]["SopVersion"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7725,14 +8352,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["SopSimulationRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7761,14 +8388,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["SopRunCreateRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7804,7 +8431,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SopRun"];
+                    "application/json": components["schemas"]["SopRunDetail"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7829,7 +8456,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description SSE stream */
+            /**
+             * @description text/event-stream. 공개 이벤트 어휘: RUN_CREATED, RUN_STARTED, RUN_PAUSED, RUN_RESUMED, RUN_TERMINATED, RUN_COMPLETED, TASK_CREATED, TASK_ACTIVATED, TASK_CANCELLED.
+             *
+             *     각 프레임은 id(= execution_event 순번), event, data를 포함하며 UNE-PLAN-011과 같은 재개 규약을 따른다(Last-Event-ID, heartbeat 15초, 30분 후 서버 종료).
+             *
+             *     execution_event는 append-only 사실원장이다(0011). 정정은 새 이벤트이며 corrects_event_id로 원본을 가리킨다 — 기존 이벤트를 고치지 않는다.
+             *
+             *     SOP-503-001은 이 엔드포인트의 HTTP 오류가 아니다. 스트림이 200으로 열린 뒤의 장애는 프레임이 끊기는 것으로 나타나고, 클라이언트는 Last-Event-ID로 재개한다.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7859,9 +8494,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["SopRunControlRequest"];
             };
         };
         responses: {
@@ -7895,9 +8530,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["SopRunControlRequest"];
             };
         };
         responses: {
@@ -7931,9 +8566,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["SopRunTerminateRequest"];
             };
         };
         responses: {
@@ -7957,7 +8592,19 @@ export interface operations {
     };
     une_task_001: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description `me` 또는 사용자 UUID. 현장 앱의 첫 화면은 `me`를 쓴다 - 클라이언트가
+                 *     자기 id를 실어 보내게 하면 남의 목록을 요청할 수 있는지 매번 따져야 한다.
+                 */
+                assignee?: string;
+                status?: components["schemas"]["TaskStatus"];
+                situationId?: string;
+                /** @description 이 시각까지 기한인 임무만. ISO-8601. */
+                due?: string;
+                page?: number;
+                size?: number;
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -7972,7 +8619,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8003,7 +8650,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskDetail"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8027,19 +8674,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskDispatchRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["Dispatch"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8065,17 +8712,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskAcknowledgeRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8101,17 +8748,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskStartRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8135,19 +8782,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskProgressRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8173,17 +8820,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskCompleteRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8209,17 +8856,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskApproveCompletionRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8243,19 +8890,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskRejectCompletionRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8279,19 +8926,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskReassignRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8315,19 +8962,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskEscalateRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8351,9 +8998,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskActionRequest"];
+                "application/json": components["schemas"]["TaskAttachmentRequest"];
             };
         };
         responses: {
@@ -8363,7 +9010,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Task"];
+                    "application/json": components["schemas"]["TaskAttachment"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8394,7 +9041,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["DispatchStatus"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8418,9 +9065,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["DispatchRetryRequest"];
             };
         };
         responses: {
@@ -8430,7 +9077,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["Dispatch"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -6124,8 +6124,8 @@ paths:
       responses:
         '200':
           description: 'text/event-stream. 공개 이벤트 어휘: RUN_CREATED, RUN_STARTED,
-            RUN_PAUSED, RUN_RESUMED, RUN_TERMINATED, TASK_CREATED, TASK_ACTIVATED,
-            TASK_CANCELLED.
+            RUN_PAUSED, RUN_RESUMED, RUN_TERMINATED, RUN_COMPLETED, TASK_CREATED,
+            TASK_ACTIVATED, TASK_CANCELLED.
 
 
             각 프레임은 id(= execution_event 순번), event, data를 포함하며
@@ -6375,16 +6375,57 @@ paths:
         핵심 응답: Page<Task>
 
 
-        오류: TASK-7001'
+        오류: TASK-400-001'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
+      - name: assignee
+        in: query
+        required: false
+        description: |
+          `me` 또는 사용자 UUID. 현장 앱의 첫 화면은 `me`를 쓴다 - 클라이언트가
+          자기 id를 실어 보내게 하면 남의 목록을 요청할 수 있는지 매번 따져야 한다.
+        schema:
+          type: string
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/TaskStatus'
+      - name: situationId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: due
+        in: query
+        required: false
+        description: 이 시각까지 기한인 임무만. ISO-8601.
+        schema:
+          type: string
+          format: date-time
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskPage'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6403,9 +6444,11 @@ paths:
       x-permission: TASK_READ
       x-db-tables:
       - task
-      - task_assignment
+      - sop_run
+      - sop_node
       x-error-codes:
-      - TASK-7001
+      - COM-0400
+      - TASK-400-001
       security:
       - BearerAuth: []
   /tasks/{taskId}:
@@ -6437,7 +6480,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6458,7 +6501,9 @@ paths:
       - task
       - task_event
       - task_attachment
+      - task_assignment
       x-error-codes:
+      - COM-0400
       - TASK-404-001
       security:
       - BearerAuth: []
@@ -6555,12 +6600,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6581,14 +6626,22 @@ paths:
       - task
       - task_event
       - execution_event
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - TASK-400-001
+      - TASK-403-001
+      - TASK-404-001
       - TASK-409-001
+      - TASK-409-010
+      - TASK-412-002
+      - TASK-412-003
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskAcknowledgeRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/start:
@@ -6616,12 +6669,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6642,14 +6695,22 @@ paths:
       - task
       - task_event
       - execution_event
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - TASK-400-001
+      - TASK-403-001
+      - TASK-404-001
       - TASK-409-002
+      - TASK-409-010
+      - TASK-412-002
+      - TASK-412-003
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskStartRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/progress:
@@ -6677,12 +6738,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6700,16 +6761,25 @@ paths:
       x-une-api-id: UNE-TASK-006
       x-permission: TASK_ASSIGNEE
       x-db-tables:
+      - task
       - task_event
       - execution_event
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - TASK-403-001
+      - TASK-404-001
+      - TASK-409-003
+      - TASK-409-010
+      - TASK-412-002
+      - TASK-412-003
       - TASK-422-006
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskProgressRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/complete:
@@ -6737,12 +6807,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6762,15 +6832,30 @@ paths:
       x-db-tables:
       - task
       - task_event
+      - task_attachment
       - execution_event
+      - dispatch
+      - dispatch_recipient
+      - outbox_message
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - TASK-400-001
+      - TASK-403-001
+      - TASK-404-001
+      - TASK-409-008
+      - TASK-409-009
+      - TASK-409-010
+      - TASK-412-002
+      - TASK-412-003
       - TASK-422-008
+      - TASK-422-009
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskCompleteRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/approve-completion:
@@ -6798,12 +6883,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6824,14 +6909,20 @@ paths:
       - task
       - task_event
       - execution_event
+      - sop_run
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - TASK-404-001
       - TASK-409-004
+      - TASK-409-010
+      - TASK-412-002
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskApproveCompletionRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/reject-completion:
@@ -6859,12 +6950,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6885,15 +6976,23 @@ paths:
       - task
       - task_event
       - execution_event
+      - dispatch
+      - dispatch_recipient
       - outbox_message
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - TASK-400-001
+      - TASK-404-001
       - TASK-409-005
+      - TASK-409-010
+      - TASK-412-002
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskRejectCompletionRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/reassign:
@@ -6921,12 +7020,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6946,16 +7045,26 @@ paths:
       x-db-tables:
       - task
       - task_assignment
+      - task_event
       - execution_event
+      - dispatch
+      - dispatch_recipient
       - outbox_message
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - TASK-400-001
+      - TASK-404-001
       - TASK-409-006
+      - TASK-409-010
+      - TASK-412-002
+      - TASK-422-010
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskReassignRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/escalate:
@@ -6983,12 +7092,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7006,17 +7115,26 @@ paths:
       x-une-api-id: UNE-TASK-011
       x-permission: TASK_SUPERVISE
       x-db-tables:
+      - task
       - task_event
       - execution_event
+      - dispatch
+      - dispatch_recipient
       - outbox_message
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - TASK-400-001
+      - TASK-404-001
       - TASK-409-007
+      - TASK-412-002
+      - TASK-422-011
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskEscalateRequest'
       security:
       - BearerAuth: []
   /tasks/{taskId}/attachments:
@@ -7049,7 +7167,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskAttachment'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7069,14 +7187,23 @@ paths:
       x-db-tables:
       - task_attachment
       - file_object
+      - task_event
+      - execution_event
+      - audit_log
       x-error-codes:
+      - COM-0400
       - FILE-422-003
+      - TASK-403-001
+      - TASK-404-001
+      - TASK-409-003
+      - TASK-412-002
+      - TASK-412-003
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskActionRequest'
+              $ref: '#/components/schemas/TaskAttachmentRequest'
       security:
       - BearerAuth: []
   /dispatches/{id}:
@@ -11874,9 +12001,14 @@ components:
           format: uuid
         messageType:
           type: string
+          description: |
+            TASK는 **임무 지시 전파**이고 그것만 임무를 SENT로 만든다.
+            TASK_NOTICE는 수행 알림(수행불가·반려·재배정)이라 같은 임무를
+            가리키지만 임무 상태를 건드리지 않는다(0039).
           enum:
           - SITUATION
           - TASK
+          - TASK_NOTICE
           - ESCALATION
         messageBody:
           type: string
@@ -12005,9 +12137,455 @@ components:
           items:
             type: string
             format: uuid
-    TaskActionRequest:
+    TaskAcknowledgeRequest:
       type: object
-      additionalProperties: true
+      additionalProperties: false
+      description: UNE-TASK-004 수신확인.
+      properties:
+        receivedAt:
+          type: string
+          format: date-time
+          description: 현장에서 실제로 받은 시각. 오프라인이었다면 서버 도착 시각과 다르다.
+        deviceInfo:
+          type: object
+          additionalProperties: false
+          nullable: true
+          description: |
+            **모델·OS 수준까지만** 받는다. 기기 식별자를 받으면 개인 위치추적
+            자료가 되고 그것을 요구한 근거가 없다.
+          properties:
+            platform:
+              type: string
+              maxLength: 40
+              nullable: true
+            osVersion:
+              type: string
+              maxLength: 40
+              nullable: true
+            appVersion:
+              type: string
+              maxLength: 40
+              nullable: true
+    TaskStartRequest:
+      type: object
+      additionalProperties: false
+      description: UNE-TASK-005 착수.
+      properties:
+        startedAt:
+          type: string
+          format: date-time
+        note:
+          type: string
+          maxLength: 2000
+          nullable: true
+    TaskProgressRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - progress
+      description: |
+        UNE-TASK-006 진행보고. **상태를 바꾸지 않는다** - 진행보고는 몇 번이든
+        올 수 있고 그때마다 상태가 바뀌면 이력이 의미를 잃는다.
+      properties:
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: |
+            뒤로 가는 진행률을 막지 않는다 - 현장이 상황을 다시 보고 낮춰 잡는
+            일이 실제로 있고, 그것을 막으면 사람이 거짓 숫자를 남긴다.
+        note:
+          type: string
+          maxLength: 2000
+          nullable: true
+        attachmentIds:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            format: uuid
+    TaskCompleteRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        UNE-TASK-007 완료 보고. outcome이 UNABLE이면 수행불가 보고다(설계 09
+        SCR-TASK-003의 두 번째 버튼) - 엔드포인트를 늘리지 않고 결과를 가른다.
+      properties:
+        outcome:
+          type: string
+          default: DONE
+          enum:
+          - DONE
+          - UNABLE
+        completedAt:
+          type: string
+          format: date-time
+        result:
+          type: string
+          maxLength: 4000
+          description: |
+            무엇을 했는가. SOP가 완료조건을 적지 않았어도 기본으로 요구한다 -
+            빈 완료보고는 상황일지에서 빈 칸이 된다.
+        checklist:
+          type: array
+          description: 충족했다고 표시한 완료조건 key.
+          items:
+            type: string
+        unableReasonCode:
+          type: string
+          nullable: true
+          description: outcome=UNABLE일 때 필수. 자유서술만 받으면 훈련 평가가 집계할 수 없다.
+          enum:
+          - SAFETY
+          - RESOURCE
+          - ACCESS
+          - UNCLEAR
+          - OTHER
+    TaskApproveCompletionRequest:
+      type: object
+      additionalProperties: false
+      description: UNE-TASK-008 완료 승인. 마지막 임무면 실행도 여기서 끝난다.
+      properties:
+        comment:
+          type: string
+          maxLength: 2000
+          nullable: true
+    TaskRejectCompletionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - reason
+      description: |
+        UNE-TASK-009 완료 반려. 임무는 IN_PROGRESS로 돌아간다 - REJECTED라는
+        상태를 두지 않는 이유는 그것이 어떤 순간에도 관측되지 않기 때문이다.
+      properties:
+        reason:
+          type: string
+          maxLength: 2000
+          description: 사유 없이 반려하면 담당자가 무엇을 고쳐야 하는지 모른다.
+    TaskReassignRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - reason
+      description: |
+        UNE-TASK-010 재배정. 임무는 **새 담당자의 SENT**가 된다 - 진행 중이던
+        상태를 물려주면 받지도 않은 사람이 착수해 있는 임무가 생긴다.
+      properties:
+        assigneeId:
+          type: string
+          format: uuid
+          nullable: true
+        assigneeOrgId:
+          type: string
+          format: uuid
+          nullable: true
+        reason:
+          type: string
+          maxLength: 2000
+    TaskEscalateRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - reason
+      - targetIds
+      description: UNE-TASK-011 Escalation. 상태를 바꾸지 않고 위로 알린다.
+      properties:
+        level:
+          type: string
+          default: L1
+          enum:
+          - L1
+          - L2
+          - L3
+        reason:
+          type: string
+          maxLength: 2000
+        targetIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            format: uuid
+    TaskAttachmentRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - fileId
+      description: |
+        UNE-TASK-012 현장 파일 등록. 업로드는 파일 API가 하고 여기서는 이미
+        올라간 파일을 임무에 건다 - 악성코드 검사를 통과한 것만 걸린다.
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        category:
+          type: string
+          default: PHOTO
+          enum:
+          - PHOTO
+          - DOC
+          - VIDEO
+          - OTHER
+        caption:
+          type: string
+          maxLength: 500
+          nullable: true
+        geo:
+          type: object
+          additionalProperties: false
+          nullable: true
+          description: |
+            위치. 필수가 아니다 - 위치권한을 거부한 기기에서도 보고할 수 있어야
+            한다. **임의 JSON을 받지 않는다**: 개인 위치정보이므로 형태를 좁히고
+            소수점 5자리(약 1m)로 깎는다.
+          required:
+          - lat
+          - lon
+          properties:
+            lat:
+              type: number
+              minimum: -90
+              maximum: 90
+            lon:
+              type: number
+              minimum: -180
+              maximum: 180
+        capturedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 미래 시각은 거부한다(설계 09 TASK-5205).
+    TaskEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - taskEventId
+      - taskId
+      - eventType
+      - eventTime
+      - payload
+      - taskStatus
+      description: |
+        임무 이벤트. **append-only다** - 틀렸으면 정정 이벤트를 더한다.
+
+        `taskStatus`는 **그 이벤트가 남긴** 상태다(현재 상태가 아니다). 기록
+        시점에 페이로드에 함께 굳히므로 과거 이벤트도 자기 시점의 값을 말한다.
+      properties:
+        taskEventId:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          enum:
+          - ACKNOWLEDGED
+          - STARTED
+          - PROGRESS_REPORTED
+          - COMPLETION_SUBMITTED
+          - UNABLE_REPORTED
+          - COMPLETION_APPROVED
+          - COMPLETION_REJECTED
+          - REASSIGNED
+          - ESCALATED
+          - ATTACHMENT_ADDED
+        eventTime:
+          type: string
+          format: date-time
+        actorId:
+          type: string
+          format: uuid
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+        taskStatus:
+          $ref: '#/components/schemas/TaskStatus'
+    TaskAttachment:
+      type: object
+      additionalProperties: false
+      required:
+      - taskAttachmentId
+      - taskId
+      - fileId
+      - category
+      - uploadedBy
+      - originalName
+      - mimeType
+      - sizeBytes
+      properties:
+        taskAttachmentId:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+        fileId:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum:
+          - PHOTO
+          - DOC
+          - VIDEO
+          - OTHER
+        caption:
+          type: string
+          nullable: true
+        geo:
+          type: object
+          additionalProperties: false
+          nullable: true
+          required:
+          - lat
+          - lon
+          properties:
+            lat:
+              type: number
+            lon:
+              type: number
+        capturedAt:
+          type: string
+          format: date-time
+          nullable: true
+        uploadedBy:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+    TaskAssignment:
+      type: object
+      additionalProperties: false
+      required:
+      - taskAssignmentId
+      - assignedAt
+      - source
+      description: |
+        담당 이력. **append-only다** - 배정 구간의 끝은 다음 행의 assignedAt이
+        말한다. released_at 같은 컬럼을 두면 이력 행을 나중에 고쳐야 하고,
+        고칠 수 있는 이력은 이력이 아니다.
+      properties:
+        taskAssignmentId:
+          type: string
+          format: uuid
+        assigneeUserId:
+          type: string
+          format: uuid
+          nullable: true
+        assigneeOrgId:
+          type: string
+          format: uuid
+          nullable: true
+        assignedBy:
+          type: string
+          format: uuid
+          nullable: true
+        assignedAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum:
+          - DISPATCH
+          - REASSIGN
+        reason:
+          type: string
+          nullable: true
+    TaskCompletionPolicy:
+      type: object
+      additionalProperties: false
+      required:
+      - checklist
+      - minAttachments
+      - requireResult
+      description: |
+        완료조건. SOP 노드의 config에서 **임무 생성 시점에 굳는다** - 승인된
+        버전은 불변이므로 이 사본은 시간이 지나도 같은 것을 말한다.
+      properties:
+        checklist:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - key
+            - label
+            - requiresEvidence
+            properties:
+              key:
+                type: string
+              label:
+                type: string
+              requiresEvidence:
+                type: boolean
+        minAttachments:
+          type: integer
+          description: |
+            기본 0이다. 사진을 찍을 수 없는 임무가 실제로 있고(전화 통보, 방송
+            요청), 못 지킬 조건을 기본값으로 걸면 현장이 아무 사진이나 올려
+            조건을 우회한다.
+        requireResult:
+          type: boolean
+          description: 기본 true. SOP가 조건을 적지 않은 것은 조건 없음이 아니라 대개 아직 적지 못한 것이다.
+    TaskDetail:
+      type: object
+      additionalProperties: false
+      required:
+      - task
+      - runStatus
+      - runMode
+      - completionPolicy
+      - events
+      - attachments
+      - assignments
+      properties:
+        task:
+          $ref: '#/components/schemas/Task'
+        runStatus:
+          type: string
+        runMode:
+          type: string
+        completionPolicy:
+          $ref: '#/components/schemas/TaskCompletionPolicy'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskEvent'
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskAttachment'
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskAssignment'
+    TaskPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      - size
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
     JournalProjectionRequest:
       type: object
       required:
@@ -13117,12 +13695,14 @@ components:
         status:
           type: string
           description: |
-            COMPLETED/FAILED는 완료 보고(CC-280)가 열 때 추가된다. 지금은 그
-            값을 만드는 경로가 없다.
+            CC-280이 COMPLETED를 열었다 - 마지막 임무가 승인되면 실행이 스스로
+            끝난다(사람이 누르는 것이 아니다). FAILED는 여전히 그 값을 만드는
+            경로가 없어 넣지 않는다.
           enum:
           - READY
           - RUNNING
           - PAUSED
+          - COMPLETED
           - TERMINATED
         startedBy:
           type: string
@@ -13137,12 +13717,30 @@ components:
           nullable: true
         correlationId:
           type: string
+    TaskStatus:
+      type: string
+      description: |
+        CC-280이 수행 상태를 열었다. 설계 09의 Task 상태표는 열하나를 적지만
+        셋은 **관측되지 않아** 넣지 않는다: DELIVERED(수신영수증을 주는 실제
+        채널이 없다 - OB-06), REJECTED(반려하는 순간 IN_PROGRESS가 된다),
+        REASSIGNED(재배정하면 새 담당자의 SENT가 된다). 뒤의 둘은 상태가
+        아니라 전이이고 TaskEvent가 들고 있다.
+      enum:
+      - CREATED
+      - SENT
+      - ACKNOWLEDGED
+      - IN_PROGRESS
+      - COMPLETION_SUBMITTED
+      - COMPLETED
+      - UNABLE_REPORTED
+      - CANCELLED
     Task:
       type: object
       additionalProperties: false
       required:
       - taskId
       - runId
+      - situationId
       - nodeKey
       - title
       - status
@@ -13160,16 +13758,15 @@ components:
           type: string
           maxLength: 300
         status:
+          $ref: '#/components/schemas/TaskStatus'
+        situationId:
           type: string
-          description: |
-            CC-270이 SENT를 열었다(전파가 나간 임무). DELIVERED는 수신영수증을
-            주는 실제 채널이 붙어야 오고(OB-06), ACKNOWLEDGED~COMPLETED는
-            수행(CC-280)이 연다.
-          enum:
-          - CREATED
-          - SENT
-          - CANCELLED
+          format: uuid
         assigneeUserId:
+          type: string
+          format: uuid
+          nullable: true
+        assigneeOrgId:
           type: string
           format: uuid
           nullable: true

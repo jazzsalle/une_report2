@@ -2,6 +2,106 @@
 
 ## Unreleased
 
+- CC-280 (2026-08-12): field task execution and two-layer assignee checks
+  (UNE-TASK-001/002/004-012, ADR-42, migration 0038).
+
+  CC-260 created tasks and CC-270 sent them, but nobody could actually do one.
+  This adds receiving, starting, reporting and finishing - and with it the run
+  finally ends by itself (`sop_run.COMPLETED`, which CC-260 left open).
+
+  No signed-link authentication. Design 09 routes the field screen at
+  `/task/:signedToken` and even numbers the errors, but there is currently no
+  way to deliver such a link: every channel except SYSTEM is simulated and
+  recipient addresses are not stored at all. A bearer path with zero users is
+  attack surface and nothing else, and its lifetime/rotation policy would be
+  pure guesswork until a real channel exists. Design 10 - which outranks the
+  screen design - gives these APIs `TASK_ASSIGNEE`/`TASK_SUPERVISE` and no
+  token. The reversal cost is asymmetric too: adding it later is an addition,
+  building it now and finding the real contract wants a different model is a
+  demolition.
+
+  Permission is not assignment. `TASK_ASSIGNEE` is a role many field workers
+  share, so it alone does not make someone the person who does this task. The
+  service checks the assignee, and every transition then runs as a conditional
+  UPDATE (`WHERE status = ... AND assignee_user_id = ...`). The second layer
+  matters because reassignment during a shift change is common: without it the
+  old assignee's in-flight request still lands. The e2e opens that window
+  deliberately.
+
+  Three states from design 09 are absent. DELIVERED needs a delivery receipt
+  nothing produces (OB-06). REJECTED is unobservable - rejecting *is* the move
+  back to IN_PROGRESS. REASSIGNED likewise: reassignment produces the new
+  assignee's SENT, and "previous assignee sees it read-only" is a per-viewer
+  screen state the UI computes from who holds the task. The last two live in
+  task_event and the screen draws its badge from the most recent one.
+
+  No acknowledged_at/started_at/completed_at columns. task_event already holds
+  actor, time and content append-only; a second copy makes "when did this
+  start" have two answers.
+
+  Completion requires a written result even when the SOP author left the
+  criteria blank - that usually means not-yet-written, not no-conditions, and
+  an empty completion report becomes an empty cell in the situation journal.
+  Attachments are *not* required by default: some tasks cannot be
+  photographed (a phone call, a broadcast request), and an unmeetable default
+  just teaches the field to upload any picture.
+
+  A run with an UNABLE_REPORTED task does not complete. Counting it as done
+  would leave a procedure step nobody performed sitting inside a finished run.
+
+  Notifications reuse the CC-270 outbox rather than calling a channel, and
+  they pick their recipient by kind - unable-to-perform goes to the commander,
+  not to the assignee who just filed it.
+
+  The field app's offline guarantee is one line: the idempotency key is made
+  once when queuing and reused on every retry. Design 09's acceptance
+  criterion is "syncs without duplicates after recovery" and that is all of
+  it. The queue drains in order and stops at the first network failure
+  (acknowledge before start, start before progress); server rejections are
+  dropped from the queue and shown, because retrying them forever would block
+  every valid report behind them. And the screen says "queued", never "sent" -
+  showing sent makes people believe the command post knows.
+
+  Added task_assignment (append-only, no released_at - an editable history is
+  not a history) and closed task_attachment in the RLS coverage list; eight
+  tables remain and the execution and dispatch families are now fully covered.
+
+  Dual review found thirteen real defects; all are fixed (ADR-42 D13-D15,
+  migration 0039). The worst: notification dispatches were quietly flipping
+  tasks to SENT, because the relay looked at `dispatch.task_id` without
+  checking the message type - escalating a task that had never been dispatched
+  was enough to make it read as "sent", and that transition went through
+  neither the state machine nor the ledger. A `TASK_NOTICE` type separates
+  them. Second: `advanceRun` took no lock, so approving two tasks at once left
+  every task COMPLETED and the run stuck in RUNNING with no way back. Third,
+  and mine to own: the contract's `SopRun.status` never gained COMPLETED even
+  though the server now serves it - and the assertion that would have caught
+  that is one I deleted in the same change. It is restored.
+
+  Also fixed: RUN_COMPLETED missing from the SSE vocabulary; event history
+  stamping every past event with the *current* status; the field screen not
+  knowing about `requiresEvidence`; the offline queue minting a fresh
+  idempotency key on every press (so re-entry duplicates survived, and
+  progress reports do not change state to absorb them); 401 treated as a
+  rejection, which threw away queued field reports on an expired session;
+  repositories leaning on RLS alone instead of the ADR-21 explicit tenant
+  join; the attachment policy ignoring the file's tenant; `geo` accepted as
+  shapeless JSON; and ADR/evidence text claiming an e2e proved something it
+  did not.
+
+  Tests: domain 298, field app 19, contract 352 (CC-280 gate 33), API 434,
+  integration 197, e2e 90 (CC-280 34), full suite green. Migrations 37 -> 39,
+  tables 65 -> 66, dictionary 66/654.
+  Files: database/migrations/0038_field_task_execution.sql,
+  database/migrations/0039_task_notice_and_settled_runs.sql,
+  packages/domain/src/task/field-task.ts, services/api/src/task/,
+  apps/field-web/src/{api,task,generated}/,
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-42-cc280-field-task-execution.md,
+  docs/evidence/CC-280-field-task-execution.md,
+  tests/contract/src/field-task.contract.test.ts,
+  tests/e2e/src/field-task.e2e.test.ts.
+
 - CC-270 (2026-08-12): Transactional Outbox and simulation channels
   (UNE-TASK-003/013/014, ADR-41, migration 0037).
 

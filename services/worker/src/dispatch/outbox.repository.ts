@@ -177,8 +177,10 @@ export async function findTaskIdOfDispatch(
   client: PoolClient,
   dispatchId: string,
 ): Promise<string | null> {
-  const result = await client.query(`SELECT task_id FROM dispatch WHERE dispatch_id = $1`, [
-    dispatchId,
-  ]);
+  const result = await client.query(
+    `SELECT task_id FROM dispatch
+        WHERE dispatch_id = $1 AND message_type = 'TASK'`,
+    [dispatchId],
+  );
   return result.rows[0] ? ((result.rows[0].task_id as string | null) ?? null) : null;
 }
