@@ -572,7 +572,7 @@ work_items:
   dependencies:
   - CC-290
   - CC-160
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - snapshot+event projection
   - AI wording guard
@@ -582,7 +582,12 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-44-cc300-journal-projection-and-locked-facts.md
+  - docs/evidence/CC-300-journal-projection.md
+  - database/migrations/0042_journal_projection_and_review.sql
+  - database/migrations/0043_revision_origin_projection.sql
+  - database/migrations/0044_journal_event_types.sql
 - id: CC-310
   title: Implement exercise close, evaluation, and improvement feedback
   gate: G3

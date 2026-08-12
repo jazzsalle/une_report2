@@ -80,6 +80,12 @@ const RLS_TABLES = [
   // 0038 (CC-280): 현장 첨부와 담당 이력. 이로써 실행 계열이 전부 닫혔다.
   'task_attachment',
   'task_assignment',
+  // 0042 (CC-300): 일지 계열. RLS 커버리지 목록에서 journal·journal_projection_item을
+  // 닫으면서 검토·승인 둘도 처음부터 정책과 함께 만들었다.
+  'journal',
+  'journal_projection_item',
+  'journal_review_request',
+  'journal_approval',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -94,11 +100,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 41 baseline migrations', async () => {
+  it('applies all 44 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(41);
+    expect(applied.rows).toHaveLength(44);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -168,7 +174,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
   // CC-280이 `task_assignment` 하나를 더한다 — 0036 §7이 "재배정 이력이 필요한
   // 시점에 온다"고 예고한 것이다. `task.assignee_user_id`는 지금의 담당자이고
   // 이 테이블은 거쳐 간 담당자 전부다(append-only).
-  it('creates the 66-table baseline (+ sop_review_request, sop_approval, task_assignment)', async () => {
+  it('creates the 68-table baseline (+ sop_review_request, sop_approval, task_assignment)', async () => {
     const tables = await withClient(db.url, (c) =>
       c.query(
         `SELECT count(*)::int AS n FROM information_schema.tables
@@ -176,7 +182,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
            AND table_name <> 'pgmigrations'`,
       ),
     );
-    expect(tables.rows[0].n).toBe(66);
+    expect(tables.rows[0].n).toBe(68);
   });
 
   it('enables and forces RLS on all tenant-isolated tables', async () => {
@@ -250,11 +256,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0041 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0044 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0041
+    await migrate(db.url); // remaining: 0011 ~ 0044
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -269,7 +275,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(41);
+    expect(applied.rows[0].n).toBe(44);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

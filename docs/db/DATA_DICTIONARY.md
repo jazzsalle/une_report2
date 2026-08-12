@@ -5,8 +5,8 @@
 적용된 마이그레이션에서 자동 생성된 데이터 사전이다 (G-DB 게이트 증거).
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
-- 테이블 수: 66
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state, 0037_outbox_relay_and_dispatch, 0038_field_task_execution, 0039_task_notice_and_settled_runs, 0040_execution_log_projection, 0041_execution_log_review_fixes
+- 테이블 수: 68
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state, 0037_outbox_relay_and_dispatch, 0038_field_task_execution, 0039_task_notice_and_settled_runs, 0040_execution_log_projection, 0041_execution_log_review_fixes, 0042_journal_projection_and_review, 0043_revision_origin_projection, 0044_journal_event_types
 
 ## api_idempotency
 
@@ -267,7 +267,7 @@
 - 격리: RLS enforced (FORCE)
 - ck_document_revision_ir_hash: CHECK ((ir_hash ~ '^[0-9a-f]{64}$'::text))
 - ck_document_revision_no: CHECK ((revision_no > 0))
-- ck_document_revision_origin: CHECK (((origin)::text = ANY ((ARRAY['IMPORT'::character varying, 'MATERIALIZE'::character varying, 'CHANGESET'::character varying, 'AUTOSAVE'::character varying, 'UNDO'::character varying, 'REDO'::character varying, 'RESTORE'::character varying])::text[])))
+- ck_document_revision_origin: CHECK (((origin)::text = ANY ((ARRAY['IMPORT'::character varying, 'MATERIALIZE'::character varying, 'PROJECTION'::character varying, 'CHANGESET'::character varying, 'AUTOSAVE'::character varying, 'UNDO'::character varying, 'REDO'::character varying, 'RESTORE'::character varying])::text[])))
 - document_revision_pkey: PRIMARY KEY (revision_id)
 - fk_document_revision_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_document_revision_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
@@ -285,7 +285,7 @@
 | change_summary | text | - |  | 변경요약 |
 | created_by | uuid | NN |  | 작성자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
-| origin | character varying(20) | NN | 'CHANGESET'::character varying | 리비전 출처 IMPORT/MATERIALIZE/CHANGESET/AUTOSAVE/UNDO/REDO/RESTORE |
+| origin | character varying(20) | NN | 'CHANGESET'::character varying | 이 판을 만든 기제. IMPORT(파일 반입)/MATERIALIZE(생성물 편집본 전환)/PROJECTION(확정 판·사실원장 투영, CC-300)/CHANGESET(사람 편집)/AUTOSAVE/UNDO/REDO/RESTORE. ChangeSet.origin("누가 요청했나")과 축이 다르다(0019 §3.3). |
 | checkpoint_label | character varying(100) | - |  | Checkpoint 라벨(자동/수동, 없으면 NULL) |
 
 ## evaluation
@@ -648,13 +648,19 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 
 ## journal
 
-- 격리: RLS 없음
-- fk_journal_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
+- 격리: RLS enforced (FORCE)
+- ck_journal_period: CHECK ((period_start < period_end))
+- ck_journal_projection_hash: CHECK ((projection_hash ~ '^[0-9a-f]{64}$'::text))
+- ck_journal_status: CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'REVIEW'::character varying, 'CHANGES_REQUESTED'::character varying, 'APPROVED'::character varying])::text[])))
+- fk_journal_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id)
+- fk_journal_document: FOREIGN KEY (document_id) REFERENCES document(document_id)
 - fk_journal_document_id: FOREIGN KEY (document_id) REFERENCES document(document_id) DEFERRABLE INITIALLY DEFERRED
+- fk_journal_situation: FOREIGN KEY (situation_id) REFERENCES situation(situation_id)
 - fk_journal_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
+- fk_journal_snapshot: FOREIGN KEY (snapshot_id) REFERENCES situation_snapshot(snapshot_id)
 - fk_journal_snapshot_id: FOREIGN KEY (snapshot_id) REFERENCES situation_snapshot(snapshot_id) DEFERRABLE INITIALLY DEFERRED
 - journal_pkey: PRIMARY KEY (journal_id)
-- 인덱스: journal_pkey
+- 인덱스: ix_journal_situation, journal_pkey, uk_journal_document
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -664,28 +670,84 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 | document_id | uuid | NN |  | rhwp 문서 |
 | period_start | timestamp with time zone | NN |  | 시작 |
 | period_end | timestamp with time zone | NN |  | 종료 |
-| status | character varying(20) | NN |  | CONFIGURING~APPROVED |
+| status | character varying(20) | NN |  | DRAFT/REVIEW/CHANGES_REQUESTED/APPROVED. CONFIGURING·PROJECTING은 투영이 동기라 도달하지 않는다(0042 §1) |
 | projection_hash | character(64) | NN |  | Projection 해시 |
 | created_by | uuid | NN |  | 생성자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+| event_types | text[] | NN | '{}'::text[] | 담기로 한 이벤트 종류(UNE-JNL-005 eventTypes). 빈 배열은 전부. 재투영·드리프트 판정이 같은 범위로 다시 접기 위해 저장한다(0044). |
+
+## journal_approval
+
+상황일지 승인·반려 (UNE-JNL-010, append-only)
+- 격리: RLS enforced (FORCE)
+- ck_journal_approval_decision: CHECK (((decision)::text = ANY ((ARRAY['APPROVED'::character varying, 'CHANGES_REQUESTED'::character varying])::text[])))
+- ck_journal_approval_hash: CHECK ((projection_hash ~ '^[0-9a-f]{64}$'::text))
+- fk_journal_approval_decider: FOREIGN KEY (decided_by) REFERENCES app_user(user_id)
+- fk_journal_approval_journal: FOREIGN KEY (journal_id) REFERENCES journal(journal_id) ON DELETE CASCADE
+- fk_journal_approval_request: FOREIGN KEY (journal_review_request_id) REFERENCES journal_review_request(journal_review_request_id)
+- fk_journal_approval_revision: FOREIGN KEY (revision_id) REFERENCES document_revision(revision_id)
+- journal_approval_pkey: PRIMARY KEY (journal_approval_id)
+- 인덱스: ix_journal_approval_journal, journal_approval_pkey
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| journal_approval_id | uuid | NN | gen_random_uuid() |  |
+| journal_id | uuid | NN |  |  |
+| revision_id | uuid | NN |  |  |
+| journal_review_request_id | uuid | - |  |  |
+| decision | character varying(20) | NN |  |  |
+| decided_by | uuid | NN |  |  |
+| decided_at | timestamp with time zone | NN | now() |  |
+| comment | character varying(2000) | - |  |  |
+| projection_hash | character(64) | NN |  | 승인한 순간의 투영 해시. 그 뒤 사실이 바뀌면 "승인된 것"과 "지금 사실"이 다르다는 것이 이 값으로 드러난다 |
 
 ## journal_projection_item
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_journal_narrative_authorship: CHECK ((((narrative_source)::text = 'PROJECTED'::text) OR ((narrative_updated_at IS NOT NULL) AND (narrative_updated_by IS NOT NULL))))
+- ck_journal_narrative_source: CHECK (((narrative_source)::text = ANY ((ARRAY['PROJECTED'::character varying, 'AI'::character varying, 'USER'::character varying])::text[])))
+- fk_journal_projection_item_editor: FOREIGN KEY (narrative_updated_by) REFERENCES app_user(user_id)
+- fk_journal_projection_item_journal: FOREIGN KEY (journal_id) REFERENCES journal(journal_id) ON DELETE CASCADE
 - fk_journal_projection_item_journal_id: FOREIGN KEY (journal_id) REFERENCES journal(journal_id) DEFERRABLE INITIALLY DEFERRED
 - journal_projection_item_pkey: PRIMARY KEY (projection_item_id)
-- 인덱스: journal_projection_item_pkey
+- 인덱스: journal_projection_item_pkey, uk_journal_projection_section
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
 | projection_item_id | uuid | NN | gen_random_uuid() | 투영항목 |
 | journal_id | uuid | NN |  | 일지 |
-| section_key | character varying(80) | NN |  | 섹션 |
+| section_key | character varying(80) | NN |  | 섹션. 문서 IR의 문단 ID 규약 `{section_key}::FACT` / `::NARRATIVE`로 문서와 잇는다. document_block에는 아직 쓰지 않는다(ADR-30 수용 한계, 0044 §2에서 0042 주석 정정). |
 | source_event_ids | uuid[] | NN |  | 근거 Event |
 | fact_payload_json | jsonb | NN |  | 잠금 사실값 |
 | narrative_text | text | - |  | 서술 |
 | sort_order | integer | NN | 0 | 정렬 |
 | locked_fields_json | jsonb | NN |  | 잠금필드 |
+| narrative_source | character varying(20) | NN | 'PROJECTED'::character varying | PROJECTED(투영이 만든 문장)/AI(제안을 수락)/USER(사람이 씀). USER는 재투영이 덮지 않는다 |
+| narrative_updated_at | timestamp with time zone | - |  |  |
+| narrative_updated_by | uuid | - |  |  |
+
+## journal_review_request
+
+상황일지 검토요청 (UNE-JNL-009)
+- 격리: RLS enforced (FORCE)
+- ck_journal_review_reviewers: CHECK ((array_length(reviewer_ids, 1) >= 1))
+- ck_journal_review_status: CHECK (((status)::text = ANY ((ARRAY['OPEN'::character varying, 'APPROVED'::character varying, 'CHANGES_REQUESTED'::character varying])::text[])))
+- fk_journal_review_journal: FOREIGN KEY (journal_id) REFERENCES journal(journal_id) ON DELETE CASCADE
+- fk_journal_review_requester: FOREIGN KEY (requested_by) REFERENCES app_user(user_id)
+- fk_journal_review_revision: FOREIGN KEY (revision_id) REFERENCES document_revision(revision_id)
+- journal_review_request_pkey: PRIMARY KEY (journal_review_request_id)
+- 인덱스: ix_journal_review_journal, journal_review_request_pkey
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| journal_review_request_id | uuid | NN | gen_random_uuid() |  |
+| journal_id | uuid | NN |  |  |
+| revision_id | uuid | NN |  | 검토 대상 Revision — 그 뒤 편집은 새 요청이다 |
+| requested_by | uuid | NN |  |  |
+| requested_at | timestamp with time zone | NN | now() |  |
+| message | character varying(2000) | - |  |  |
+| reviewer_ids | uuid[] | NN |  |  |
+| status | character varying(20) | NN |  | OPEN/APPROVED/CHANGES_REQUESTED |
 
 ## knowledge_document
 

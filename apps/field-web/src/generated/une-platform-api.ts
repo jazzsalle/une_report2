@@ -2623,6 +2623,8 @@ export type paths = {
          *     핵심 응답: Journal
          *
          *     오류: JOURNAL-412-001
+         *
+         *     설계의 `templateId`는 여기서 `templateFileId`로 구체화했다 - 가리키는 것이 검증된 HWPX `file_object`이지 `template_profile` 행이 아니기 때문이다(ADR-44 D9).
          */
         post: operations["une_jnl_005"];
         delete?: never;
@@ -2709,6 +2711,32 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/journals/{journalId}/fact-refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 상황일지 사실 갱신
+         * @description 권한: JOURNAL_EDIT
+         *
+         *     드리프트한 사실칸을 다시 접는다. **자동으로 돌지 않는다** - 사람이 누를 때만 갱신하고, `narrative_source=USER`인 문장은 그대로 둔다(ADR-44 D6).
+         *
+         *     설계 10의 JNL 표에는 이 연산이 없다. 드리프트를 드러내되 자동 갱신하지 않기로 하면서 "사람이 누르는 자리"가 필요해졌고, 편집(JNL-008)과 같은 권한·같은 상태 조건이라 그 옆에 두었다.
+         *
+         *     오류: JOURNAL-404-001, JOURNAL-412-001
+         */
+        post: operations["une_jnl_008_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/journals/{journalId}/submit-review": {
         parameters: {
             query?: never;
@@ -2774,7 +2802,7 @@ export type paths = {
          * 상황일지 HWPX/PDF/DOCX
          * @description 권한: JOURNAL_EXPORT
          *
-         *     핵심 요청: format,revisionId
+         *     핵심 요청: format (revisionId는 받지 않는다 - 승인된 판만 나간다)
          *
          *     핵심 응답: ExportJob
          *
@@ -3878,10 +3906,10 @@ export type components = {
             meta: components["schemas"]["Meta"];
         };
         /**
-         * @description 리비전이 어떤 기제로 만들어졌는가(ck_document_revision_origin). ChangeSet의 출처(누가 요청했나)와 축이 다르다 — USER/AI 편집은 둘 다 CHANGESET이다.
+         * @description 리비전이 어떤 기제로 만들어졌는가(ck_document_revision_origin). ChangeSet의 출처(누가 요청했나)와 축이 다르다 — USER/AI 편집은 둘 다 CHANGESET이다. PROJECTION은 확정 판·사실원장에서 접은 상황일지 첫 판이다(CC-300, 0043).
          * @enum {string}
          */
-        RevisionOrigin: "IMPORT" | "MATERIALIZE" | "CHANGESET" | "AUTOSAVE" | "UNDO" | "REDO" | "RESTORE";
+        RevisionOrigin: "IMPORT" | "MATERIALIZE" | "PROJECTION" | "CHANGESET" | "AUTOSAVE" | "UNDO" | "REDO" | "RESTORE";
         RevisionResource: {
             /** Format: uuid */
             revisionId: string;
@@ -4771,16 +4799,6 @@ export type components = {
             size: number;
             total: number;
         };
-        JournalProjectionRequest: {
-            /** Format: uuid */
-            snapshotId: string;
-            /** Format: date-time */
-            from: string;
-            /** Format: date-time */
-            to: string;
-            /** Format: uuid */
-            templateId?: string | null;
-        };
         EvaluationRequest: {
             criteria: Record<string, never>[];
             comments?: string | null;
@@ -5479,6 +5497,229 @@ export type components = {
                     stored: string;
                 }[];
             };
+        };
+        /**
+         * @description 설계 09 Journal 상태표는 여섯을 적지만 CONFIGURING·PROJECTING은 도달하지
+         *     않는다 - **투영이 동기이기 때문이다**(저장소 안의 데이터를 접는 계산이라
+         *     바깥을 기다리지 않는다). 값을 만드는 코드가 없는 채로 어휘만 남기지 않는다.
+         * @enum {string}
+         */
+        JournalStatus: "DRAFT" | "REVIEW" | "CHANGES_REQUESTED" | "APPROVED";
+        /**
+         * @description 섹션 key. 문서 IR의 문단 ID 규약 `{sectionKey}::FACT` / `::NARRATIVE`로 사실칸과
+         *     문서 문단을 잇는다 - 그 연결이 없으면 편집이 종이에 닿지 않는다. (`document_block`
+         *     테이블에는 아직 아무도 쓰지 않는다 - ADR-30 수용 한계, 0044 §2 정정.)
+         * @enum {string}
+         */
+        JournalSection: "OVERVIEW" | "SITUATION_FACTS" | "RESPONSE_TIMELINE" | "TASK_SUMMARY" | "UNRESOLVED";
+        /**
+         * @description 서술이 사실을 반박한 자리. **대조 방향이 핵심이다** - 한국어 자유
+         *     텍스트에서 수치를 열린 집합으로 뽑지 않고, 사실칸에서 결정론적으로 뽑은
+         *     닫힌 집합을 서술에서 역탐색한다. 서술이 값을 빠뜨린 것은 모순이 아니다.
+         */
+        FactContradiction: {
+            field: string;
+            factValue: number;
+            narrativeValue: number;
+            /** @description 서술에서 그 값을 발견한 자리. 화면이 그 부분을 짚어 준다. */
+            excerpt: string;
+        };
+        JournalFactCell: {
+            sectionKey: components["schemas"]["JournalSection"];
+            title: string;
+            sortOrder: number;
+            /**
+             * @description **여기 있는 값이 권위다.** SituationSnapshot과 Execution Log에서
+             *     투영됐고 API 어느 경로로도 바뀌지 않는다. 사실이 틀렸다면 원 도메인
+             *     에서 정정 이벤트를 남긴다(UNE-JNL-004).
+             */
+            factPayload: {
+                [key: string]: unknown;
+            };
+            /** @description 사람이 읽을 표시행. **문서 문단과 같은 함수에서 나온다** - 화면이 자기 라벨 표를 따로 들면 종이에 나간 것과 화면이 갈라진다. 내부 식별자 (snapshotId, entries 같은 원시 배열)는 여기서 빠진다. */
+            factRows: {
+                label: string;
+                value: string;
+            }[];
+            lockedFields: string[];
+            /** @description 이 사실을 만든 이벤트. drill-down의 시작점(설계 09 REG-05). */
+            sourceEventIds: string[];
+            narrativeText?: string | null;
+            /**
+             * @description PROJECTED(투영이 만든 문장)/AI(제안을 수락)/USER(사람이 씀).
+             *     **USER는 재투영이 덮지 않는다** - 비협상 규칙 "user-edited blocks are
+             *     protected from regeneration".
+             * @enum {string}
+             */
+            narrativeSource: "PROJECTED" | "AI" | "USER";
+            narrativeUpdatedAt?: string | null;
+            narrativeUpdatedBy?: string | null;
+            /**
+             * @description 지금 서술이 사실을 반박하는가. **사람 편집에는 경고로만 쓴다** -
+             *     오탐으로 편집을 막으면 사람이 우회로를 찾는다. AI 제안에는 거절이다.
+             */
+            contradictions: components["schemas"]["FactContradiction"][];
+        };
+        JournalResource: {
+            /** Format: uuid */
+            journalId: string;
+            /** Format: uuid */
+            situationId: string;
+            /**
+             * Format: uuid
+             * @description 확정된 상황 판. 미확정 후보로는 일지를 만들 수 없다.
+             */
+            snapshotId: string;
+            /**
+             * Format: uuid
+             * @description **일지는 문서다.** 리비전·변경집합·Export는 CC-150/CC-160의 것을
+             *     그대로 쓴다 - 병렬 스택을 세우면 편집·Diff·Undo를 두 벌 유지해야 한다.
+             */
+            documentId: string;
+            currentRevisionId?: string | null;
+            /** Format: date-time */
+            periodStart: string;
+            /** Format: date-time */
+            periodEnd: string;
+            status: components["schemas"]["JournalStatus"];
+            /** @description 만들 때 접은 사실의 해시. **서술은 넣지 않는다** - 문장을 다듬을 때마다 바뀌면 신호가 무의미해진다. */
+            projectionHash: string;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * @description 만든 뒤 바깥의 사실이 움직였다. **자동으로 갱신하지 않는다** -
+             *     검토·승인 중인 문서가 소리 없이 변하면 "검토자가 본 것"과 "승인된 것"이
+             *     갈라진다. 사람이 사실 갱신을 눌러야 반영된다.
+             */
+            drifted: boolean;
+            currentProjectionHash: string;
+        };
+        JournalDetail: {
+            journal: components["schemas"]["JournalResource"];
+            cells: components["schemas"]["JournalFactCell"][];
+            approvals: {
+                /** Format: uuid */
+                journalApprovalId: string;
+                /** Format: uuid */
+                revisionId: string;
+                /** @enum {string} */
+                decision: "APPROVED" | "CHANGES_REQUESTED";
+                /** Format: uuid */
+                decidedBy: string;
+                /** Format: date-time */
+                decidedAt: string;
+                comment?: string | null;
+                /** @description 승인한 순간의 사실 해시. 그 뒤 사실이 바뀌면 이 값으로 드러난다. */
+                projectionHash: string;
+            }[];
+            openReview?: {
+                /** Format: uuid */
+                journalReviewRequestId: string;
+                /** Format: uuid */
+                revisionId: string;
+                /** Format: uuid */
+                requestedBy: string;
+                /** Format: date-time */
+                requestedAt: string;
+                message?: string | null;
+                reviewerIds: string[];
+            } | null;
+        };
+        /** @description UNE-JNL-005. 확정된 상황 판과 기간을 정해 사실을 접는다. 일지는 반입된 HWPX 양식 사본 위에 만들어진다(US-SIT-030 3단계, US-SIT-034 4단계). */
+        JournalProjectionRequest: {
+            /** @description 생략하면 가장 최근 확정 판이다. */
+            snapshotId?: string | null;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /**
+             * Format: uuid
+             * @description 검증된(uploadState=VERIFIED) HWPX 양식 file_object. 이 바이트에서 일지 전용 문서 사본을 만들고 revision 1로 삼는다. 원본이 있어야 CC-160 보존 Export가 성립하므로 **선택 항목이 아니다**. 투영 내용은 양식의 표 칸을 채우는 것이 아니라 절 표제 뒤에 부기된다(ADR-44 수용 한계 2).
+             */
+            templateFileId: string;
+            /** @description 이 종류만 담는다. 비면 전부. */
+            eventTypes?: string[];
+        };
+        /**
+         * @description UNE-JNL-007. **AI에는 fail-closed다** - 제안이 사실을 반박하면 반영하지
+         *     않는다. 거절 비용은 "운영자가 그 문장을 직접 쓴다"뿐이고, 통과 비용은 틀린
+         *     숫자가 승인된 일지에 남는 것이다.
+         */
+        JournalAiDraftRequest: {
+            /** @description 비면 전부. */
+            sections?: components["schemas"]["JournalSection"][];
+            /** @description 어투·길이 같은 표현 규칙. 사실에는 영향을 주지 않는다. */
+            styleRules?: {
+                [key: string]: unknown;
+            };
+        };
+        NarrativeProposal: {
+            /** Format: uuid */
+            journalId: string;
+            sectionKey: components["schemas"]["JournalSection"];
+            currentNarrative: string;
+            proposedNarrative: string;
+            /**
+             * @description **시뮬레이션임을 숨기지 않는다.** T3Q의 두 계약 어느 쪽에도 일지 서술
+             *     연산이 없어(OB-03) 지금 붙은 것은 규칙 기반 어댑터 하나다. mock 성공을
+             *     T3Q 지원으로 보고하지 않는다.
+             */
+            simulated: boolean;
+            adapterId: string;
+            contradictions: components["schemas"]["FactContradiction"][];
+            /** @description 반영됐는가. 사실을 반박하거나 사람이 쓴 문장이면 false다. */
+            accepted: boolean;
+        };
+        /**
+         * @description UNE-JNL-008. **서술만 바꾼다** - 사실칸에 닿는 필드는 거절한다. 서술이
+         *     사실을 반박하면 응답의 contradictions에 실리되 막지 않는다.
+         */
+        JournalEditRequest: {
+            baseRevisionId?: string | null;
+            operations: {
+                sectionKey: components["schemas"]["JournalSection"];
+                narrativeText: string;
+            }[];
+        };
+        JournalReviewRequest: {
+            reviewers: string[];
+            message?: string | null;
+        };
+        /**
+         * @description UNE-JNL-010. 설계 10은 승인 하나를 적지만 검토는 반려로도 끝난다(설계 09
+         *     Journal 상태표의 CHANGES_REQUESTED). 엔드포인트를 늘리지 않고 decision이
+         *     가른다.
+         */
+        JournalApproveRequest: {
+            /**
+             * @default APPROVED
+             * @enum {string}
+             */
+            decision: "APPROVED" | "CHANGES_REQUESTED";
+            /** @description 반려는 사유가 필수다 - 없으면 작성자가 무엇을 고쳐야 하는지 모른다. */
+            comment?: string | null;
+            revisionId?: string | null;
+        };
+        /**
+         * @description UNE-JNL-011. **CC-160 경로에 위임한다** - HWPX 보존 직렬화와 Track A
+         *     검증이 거기 있고, 일지만의 두 번째 Export 경로를 만들면 그 검증을 우회할
+         *     수 있게 된다.
+         *
+         *     여기서 더하는 선행조건은 둘이다: **승인된 일지만** 나가고(US-SIT-034
+         *     3~4단계), 나가는 것은 **승인된 판**이다. 판을 클라이언트가 고를 수 없다 -
+         *     고르게 하면 승인 전 판이나 투영 이전의 빈 양식을 승인된 일지로 내보낼 수
+         *     있다(ADR-44 D10).
+         *
+         *     드리프트는 여기서 막지 않는다. 승인된 일지는 그 시점의 기록이고, 살아
+         *     있는 상황에서는 승인 직후부터 사실이 계속 움직인다 - 여기서 막으면 승인된
+         *     일지를 영영 내보낼 수 없다. 낡음을 막는 자리는 검토요청(JNL-009)이다.
+         */
+        JournalExportRequest: {
+            /** @default HWPX */
+            format: string;
         };
         /**
          * @description CC-280이 수행 상태를 열었다. 설계 09의 Task 상태표는 열하나를 적지만
@@ -9502,7 +9743,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["JournalProjectionRequest"];
             };
@@ -9514,7 +9755,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["JournalDetail"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9545,7 +9786,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Journal"];
+                    "application/json": components["schemas"]["JournalDetail"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9571,17 +9812,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["JournalAiDraftRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenerationJob"];
+                    "application/json": components["schemas"]["NarrativeProposal"][];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9605,19 +9846,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["ChangeSetRequest"];
+                "application/json": components["schemas"]["JournalEditRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Journal"];
+                    "application/json": components["schemas"]["JournalDetail"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9627,6 +9868,38 @@ export interface operations {
             409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
             503: components["responses"]["ProviderError"];
+        };
+    };
+    une_jnl_008_refresh: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                journalId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     une_jnl_009: {
@@ -9641,19 +9914,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["JournalReviewRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Journal"];
+                    "application/json": components["schemas"]["JournalDetail"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9679,17 +9952,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["JournalApproveRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Journal"];
+                    "application/json": components["schemas"]["JournalDetail"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9715,17 +9988,17 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["ExportRequest"];
+                "application/json": components["schemas"]["JournalExportRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Journal"];
+                    "application/json": components["schemas"]["ExportJobResource"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -267,6 +267,26 @@ export class DocumentRepository {
    * `MAX(revision_no)`로 되돌아간다 — 포인터는 편의이고 진실은 순번이다
    * (uk_document_revision_no가 그 순번의 유일성을 보장한다).
    */
+  /**
+   * 문서 상태를 옮긴다 (CC-300).
+   *
+   * CC-150의 편집 표면은 `status !== 'EDITING'`이면 전부 거절한다
+   * (`change-set.service.ts`). 승인된 상황일지의 **본문**을 얼리는 방법이
+   * 이것이다 — 일지 테이블만 얼리면 종이가 되는 IR은 계속 편집된다.
+   */
+  async setDocumentStatus(
+    client: PoolClient,
+    tenantId: string,
+    documentId: string,
+    status: string,
+  ): Promise<void> {
+    await client.query(
+      `UPDATE document SET status = $3, updated_at = now()
+        WHERE document_id = $2 AND tenant_id = $1`,
+      [tenantId, documentId, status],
+    );
+  }
+
   async findHeadRevision(
     client: PoolClient,
     documentId: string,

@@ -387,6 +387,21 @@ function hasSectionProperties(element: XmlElement): boolean {
   return false;
 }
 
+/**
+ * 이 문단을 복제 원본으로 쓸 수 있는가.
+ *
+ * 단순 텍스트 run이 하나는 있어야 하고, 탭·인라인 컨트롤이 섞인 run이 하나도
+ * 없어야 한다 — 그런 run을 비우면 우리가 해석하지 않는 구조를 없애는 것이
+ * 되어 §1.10-3을 어긴다.
+ */
+function isClonableShape(element: XmlElement): boolean {
+  const shapes = elementsOf(element)
+    .filter((child) => child.localName === 'run')
+    .map((run) => classifyRun(run));
+  if (shapes.some((shape) => shape.kind === 'COMPLEX')) return false;
+  return shapes.some((shape) => shape.kind === 'SIMPLE');
+}
+
 function pickCloneSource(
   context: PartContext,
   paragraph: ParagraphIR,
@@ -403,7 +418,12 @@ function pickCloneSource(
   if (
     anchorParagraph &&
     sameStyle(anchorParagraph.styleRef, paragraph.styleRef) &&
-    !hasSectionProperties(anchorElement)
+    !hasSectionProperties(anchorElement) &&
+    // **빠른 길에서도 복제 가능성을 확인한다** (CC-300 이중검토 F1).
+    // 아래 탐색 루프는 이 검사를 하는데 여기서만 빠져 있었다. 앵커 문단의
+    // run에 탭·인라인 컨트롤이 섞여 있으면, 같은 서식의 복제 가능한 문단이
+    // 문서에 있어도 그것을 그대로 골라 뒤에서 HWPX-1103으로 죽는다.
+    isClonableShape(anchorElement)
   ) {
     return anchorElement;
   }
@@ -416,10 +436,7 @@ function pickCloneSource(
     if (!element) continue;
     // 복제 가능한 모양인지 여기서 확인한다. 뒤에서 실패하면 "어느 문단을
     // 고르다 실패했는지"가 오류에 남지 않는다.
-    const runElements = elementsOf(element).filter((child) => child.localName === 'run');
-    const shapes = runElements.map((run) => classifyRun(run));
-    if (shapes.some((shape) => shape.kind === 'COMPLEX')) continue;
-    if (!shapes.some((shape) => shape.kind === 'SIMPLE')) continue;
+    if (!isClonableShape(element)) continue;
     // 구역 속성을 복제하면 섹션에 secPr가 둘이 된다(M-7).
     if (hasSectionProperties(element)) continue;
     return element;

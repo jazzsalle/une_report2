@@ -158,7 +158,20 @@ export class DocumentImportService {
    */
   async importFromFileObject(
     auth: AuthContext,
-    input: { fileId: string; planId?: string | null; title?: string },
+    input: {
+      fileId: string;
+      planId?: string | null;
+      title?: string;
+      /**
+       * 어떤 종류의 문서를 만드는가. 기본은 계획서다(UNE-DOC-003).
+       *
+       * CC-300이 이 문을 열었다: 상황일지도 **반입된 양식 위에서** 시작한다
+       * (US-SIT-034 4단계 "원본 Template Prototype을 상속해 HWPX를 저장한다").
+       * 양식 사본을 만드는 기제는 반입과 같으므로 새로 만들지 않는다 —
+       * 한 파일에서 여러 문서를 만드는 것은 여기서 이미 되던 일이다.
+       */
+      documentType?: string;
+    },
     meta: RequestMetaLike,
   ): Promise<ImportedDocumentResource> {
     const file = await this.db.withTenant(auth.tenantId, (c) =>
@@ -206,6 +219,7 @@ export class DocumentImportService {
         title: input.title,
         sourceFileId: file.fileId,
         planId: input.planId ?? null,
+        documentType: input.documentType,
       },
       meta,
     );
@@ -219,7 +233,7 @@ export class DocumentImportService {
       documentId: result.documentId,
       planId: input.planId ?? null,
       title: input.title ?? file.originalName,
-      documentType: 'PLAN',
+      documentType: input.documentType ?? 'PLAN',
       status: 'EDITING',
       sourceFileId: file.fileId,
       revisionId: result.revisionId,

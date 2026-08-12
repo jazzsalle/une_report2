@@ -7636,7 +7636,11 @@ paths:
         핵심 응답: Journal
 
 
-        오류: JOURNAL-412-001'
+        오류: JOURNAL-412-001
+
+
+        설계의 `templateId`는 여기서 `templateFileId`로 구체화했다 - 가리키는 것이
+        검증된 HWPX `file_object`이지 `template_profile` 행이 아니기 때문이다(ADR-44 D9).'
       parameters:
       - $ref: '#/components/parameters/CorrelationId'
       - name: id
@@ -7651,7 +7655,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Situation'
+                $ref: '#/components/schemas/JournalDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7670,12 +7674,24 @@ paths:
       x-permission: JOURNAL_CREATE
       x-db-tables:
       - journal
-      - journal_revision
-      - journal_section
+      - journal_projection_item
+      - document
+      - document_revision
+      - situation_snapshot
+      - execution_event
+      - task
+      - document
+      - document_revision
+      - template_profile
+      - audit_log
       x-error-codes:
+      - COM-0400
       - JOURNAL-412-001
+      - JOURNAL-422-001
+      - JOURNAL-422-007
+      - SIT-404-001
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -7711,7 +7727,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Journal'
+                $ref: '#/components/schemas/JournalDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7730,8 +7746,12 @@ paths:
       x-permission: JOURNAL_READ
       x-db-tables:
       - journal
-      - journal_revision
+      - journal_projection_item
+      - journal_approval
+      - journal_review_request
+      - document
       x-error-codes:
+      - COM-0400
       - JOURNAL-404-001
       security:
       - BearerAuth: []
@@ -7760,12 +7780,14 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenerationJob'
+                type: array
+                items:
+                  $ref: '#/components/schemas/NarrativeProposal'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7783,16 +7805,22 @@ paths:
       x-une-api-id: UNE-JNL-007
       x-permission: JOURNAL_AI_EDIT
       x-db-tables:
-      - generation_job
-      - ai_edit_proposal
+      - journal
+      - journal_projection_item
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - JOURNAL-400-001
+      - JOURNAL-404-001
+      - JOURNAL-409-001
       - JOURNAL-422-004
+      - JOURNAL-422-006
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/JournalAiDraftRequest'
       security:
       - BearerAuth: []
   /journals/{journalId}/changesets:
@@ -7820,12 +7848,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Journal'
+                $ref: '#/components/schemas/JournalDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7843,16 +7871,86 @@ paths:
       x-une-api-id: UNE-JNL-008
       x-permission: JOURNAL_EDIT
       x-db-tables:
-      - journal_revision
-      - change_set
+      - journal
+      - journal_projection_item
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - JOURNAL-400-001
+      - JOURNAL-404-001
       - JOURNAL-409-001
+      - JOURNAL-409-002
+      - JOURNAL-409-003
+      - JOURNAL-422-005
+      - JOURNAL-422-006
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ChangeSetRequest'
+              $ref: '#/components/schemas/JournalEditRequest'
+      security:
+      - BearerAuth: []
+  /journals/{journalId}/fact-refresh:
+    post:
+      tags:
+      - JNL
+      summary: 상황일지 사실 갱신
+      operationId: une_jnl_008_refresh
+      description: '권한: JOURNAL_EDIT
+
+
+        드리프트한 사실칸을 다시 접는다. **자동으로 돌지 않는다** - 사람이 누를 때만
+        갱신하고, `narrative_source=USER`인 문장은 그대로 둔다(ADR-44 D6).
+
+
+        설계 10의 JNL 표에는 이 연산이 없다. 드리프트를 드러내되 자동 갱신하지
+        않기로 하면서 "사람이 누르는 자리"가 필요해졌고, 편집(JNL-008)과 같은
+        권한·같은 상태 조건이라 그 옆에 두었다.
+
+
+        오류: JOURNAL-404-001, JOURNAL-412-001'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: journalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+      x-une-api-id: UNE-JNL-008R
+      x-permission: JOURNAL_EDIT
+      x-db-tables:
+      - journal
+      - journal_projection_item
+      - document_revision
+      - audit_log
+      x-error-codes:
+      - COM-0400
+      - JOURNAL-404-001
+      - JOURNAL-409-003
+      - JOURNAL-412-001
       security:
       - BearerAuth: []
   /journals/{journalId}/submit-review:
@@ -7880,12 +7978,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Journal'
+                $ref: '#/components/schemas/JournalDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7903,15 +8001,20 @@ paths:
       x-une-api-id: UNE-JNL-009
       x-permission: JOURNAL_EDIT
       x-db-tables:
-      - review_request
+      - journal
+      - journal_review_request
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - JOURNAL-400-001
+      - JOURNAL-404-001
       - JOURNAL-412-002
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/JournalReviewRequest'
       security:
       - BearerAuth: []
   /journals/{journalId}/approve:
@@ -7939,12 +8042,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Journal'
+                $ref: '#/components/schemas/JournalDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7963,15 +8066,21 @@ paths:
       x-permission: JOURNAL_APPROVE
       x-db-tables:
       - journal
-      - approval
+      - journal_approval
+      - journal_review_request
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - JOURNAL-400-001
+      - JOURNAL-404-001
+      - JOURNAL-409-002
       - JOURNAL-412-003
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/JournalApproveRequest'
       security:
       - BearerAuth: []
   /journals/{journalId}/exports:
@@ -7983,7 +8092,7 @@ paths:
       description: '권한: JOURNAL_EXPORT
 
 
-        핵심 요청: format,revisionId
+        핵심 요청: format (revisionId는 받지 않는다 - 승인된 판만 나간다)
 
 
         핵심 응답: ExportJob
@@ -7999,12 +8108,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '202':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Journal'
+                $ref: '#/components/schemas/ExportJobResource'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -8022,15 +8131,22 @@ paths:
       x-une-api-id: UNE-JNL-011
       x-permission: JOURNAL_EXPORT
       x-db-tables:
+      - journal
+      - document
       - export_job
       x-error-codes:
+      - COM-0400
+      - EXPORT-422-001
       - EXPORT-422-002
+      - JOURNAL-400-001
+      - JOURNAL-404-001
+      - JOURNAL-412-004
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ExportRequest'
+              $ref: '#/components/schemas/JournalExportRequest'
       security:
       - BearerAuth: []
   /situations/{id}/close:
@@ -10614,9 +10730,11 @@ components:
       type: string
       description: 리비전이 어떤 기제로 만들어졌는가(ck_document_revision_origin).
         ChangeSet의 출처(누가 요청했나)와 축이 다르다 — USER/AI 편집은 둘 다 CHANGESET이다.
+        PROJECTION은 확정 판·사실원장에서 접은 상황일지 첫 판이다(CC-300, 0043).
       enum:
       - IMPORT
       - MATERIALIZE
+      - PROJECTION
       - CHANGESET
       - AUTOSAVE
       - UNDO
@@ -12659,26 +12777,6 @@ components:
           type: integer
         total:
           type: integer
-    JournalProjectionRequest:
-      type: object
-      required:
-      - snapshotId
-      - from
-      - to
-      properties:
-        snapshotId:
-          type: string
-          format: uuid
-        from:
-          type: string
-          format: date-time
-        to:
-          type: string
-          format: date-time
-        templateId:
-          type: string
-          format: uuid
-          nullable: true
     EvaluationRequest:
       type: object
       required:
@@ -14251,6 +14349,465 @@ components:
                     - type: 'null'
                   stored:
                     type: string
+    JournalStatus:
+      type: string
+      description: |
+        설계 09 Journal 상태표는 여섯을 적지만 CONFIGURING·PROJECTING은 도달하지
+        않는다 - **투영이 동기이기 때문이다**(저장소 안의 데이터를 접는 계산이라
+        바깥을 기다리지 않는다). 값을 만드는 코드가 없는 채로 어휘만 남기지 않는다.
+      enum:
+      - DRAFT
+      - REVIEW
+      - CHANGES_REQUESTED
+      - APPROVED
+    JournalSection:
+      type: string
+      description: |
+        섹션 key. 문서 IR의 문단 ID 규약 `{sectionKey}::FACT` / `::NARRATIVE`로 사실칸과
+        문서 문단을 잇는다 - 그 연결이 없으면 편집이 종이에 닿지 않는다. (`document_block`
+        테이블에는 아직 아무도 쓰지 않는다 - ADR-30 수용 한계, 0044 §2 정정.)
+      enum:
+      - OVERVIEW
+      - SITUATION_FACTS
+      - RESPONSE_TIMELINE
+      - TASK_SUMMARY
+      - UNRESOLVED
+    FactContradiction:
+      type: object
+      additionalProperties: false
+      required:
+      - field
+      - factValue
+      - narrativeValue
+      - excerpt
+      description: |
+        서술이 사실을 반박한 자리. **대조 방향이 핵심이다** - 한국어 자유
+        텍스트에서 수치를 열린 집합으로 뽑지 않고, 사실칸에서 결정론적으로 뽑은
+        닫힌 집합을 서술에서 역탐색한다. 서술이 값을 빠뜨린 것은 모순이 아니다.
+      properties:
+        field:
+          type: string
+        factValue:
+          type: number
+        narrativeValue:
+          type: number
+        excerpt:
+          type: string
+          description: 서술에서 그 값을 발견한 자리. 화면이 그 부분을 짚어 준다.
+    JournalFactCell:
+      type: object
+      additionalProperties: false
+      required:
+      - sectionKey
+      - title
+      - sortOrder
+      - factPayload
+      - factRows
+      - lockedFields
+      - sourceEventIds
+      - narrativeSource
+      - contradictions
+      properties:
+        sectionKey:
+          $ref: '#/components/schemas/JournalSection'
+        title:
+          type: string
+        sortOrder:
+          type: integer
+        factPayload:
+          type: object
+          additionalProperties: true
+          description: |
+            **여기 있는 값이 권위다.** SituationSnapshot과 Execution Log에서
+            투영됐고 API 어느 경로로도 바뀌지 않는다. 사실이 틀렸다면 원 도메인
+            에서 정정 이벤트를 남긴다(UNE-JNL-004).
+        factRows:
+          type: array
+          description: 사람이 읽을 표시행. **문서 문단과 같은 함수에서 나온다** - 화면이
+            자기 라벨 표를 따로 들면 종이에 나간 것과 화면이 갈라진다. 내부 식별자
+            (snapshotId, entries 같은 원시 배열)는 여기서 빠진다.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - label
+            - value
+            properties:
+              label:
+                type: string
+              value:
+                type: string
+        lockedFields:
+          type: array
+          items:
+            type: string
+        sourceEventIds:
+          type: array
+          description: 이 사실을 만든 이벤트. drill-down의 시작점(설계 09 REG-05).
+          items:
+            type: string
+            format: uuid
+        narrativeText:
+          anyOf:
+          - type: string
+          - type: 'null'
+        narrativeSource:
+          type: string
+          description: |
+            PROJECTED(투영이 만든 문장)/AI(제안을 수락)/USER(사람이 씀).
+            **USER는 재투영이 덮지 않는다** - 비협상 규칙 "user-edited blocks are
+            protected from regeneration".
+          enum:
+          - PROJECTED
+          - AI
+          - USER
+        narrativeUpdatedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        narrativeUpdatedBy:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        contradictions:
+          type: array
+          description: |
+            지금 서술이 사실을 반박하는가. **사람 편집에는 경고로만 쓴다** -
+            오탐으로 편집을 막으면 사람이 우회로를 찾는다. AI 제안에는 거절이다.
+          items:
+            $ref: '#/components/schemas/FactContradiction'
+    JournalResource:
+      type: object
+      additionalProperties: false
+      required:
+      - journalId
+      - situationId
+      - snapshotId
+      - documentId
+      - periodStart
+      - periodEnd
+      - status
+      - projectionHash
+      - createdBy
+      - createdAt
+      - drifted
+      - currentProjectionHash
+      properties:
+        journalId:
+          type: string
+          format: uuid
+        situationId:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+          description: 확정된 상황 판. 미확정 후보로는 일지를 만들 수 없다.
+        documentId:
+          type: string
+          format: uuid
+          description: |
+            **일지는 문서다.** 리비전·변경집합·Export는 CC-150/CC-160의 것을
+            그대로 쓴다 - 병렬 스택을 세우면 편집·Diff·Undo를 두 벌 유지해야 한다.
+        currentRevisionId:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/JournalStatus'
+        projectionHash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: 만들 때 접은 사실의 해시. **서술은 넣지 않는다** - 문장을 다듬을 때마다 바뀌면 신호가 무의미해진다.
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        drifted:
+          type: boolean
+          description: |
+            만든 뒤 바깥의 사실이 움직였다. **자동으로 갱신하지 않는다** -
+            검토·승인 중인 문서가 소리 없이 변하면 "검토자가 본 것"과 "승인된 것"이
+            갈라진다. 사람이 사실 갱신을 눌러야 반영된다.
+        currentProjectionHash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+    JournalDetail:
+      type: object
+      additionalProperties: false
+      required:
+      - journal
+      - cells
+      - approvals
+      properties:
+        journal:
+          $ref: '#/components/schemas/JournalResource'
+        cells:
+          type: array
+          items:
+            $ref: '#/components/schemas/JournalFactCell'
+        approvals:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - journalApprovalId
+            - revisionId
+            - decision
+            - decidedBy
+            - decidedAt
+            - projectionHash
+            properties:
+              journalApprovalId:
+                type: string
+                format: uuid
+              revisionId:
+                type: string
+                format: uuid
+              decision:
+                type: string
+                enum:
+                - APPROVED
+                - CHANGES_REQUESTED
+              decidedBy:
+                type: string
+                format: uuid
+              decidedAt:
+                type: string
+                format: date-time
+              comment:
+                anyOf:
+                - type: string
+                - type: 'null'
+              projectionHash:
+                type: string
+                description: 승인한 순간의 사실 해시. 그 뒤 사실이 바뀌면 이 값으로 드러난다.
+        openReview:
+          anyOf:
+          - type: object
+            additionalProperties: false
+            required:
+            - journalReviewRequestId
+            - revisionId
+            - requestedBy
+            - requestedAt
+            - reviewerIds
+            properties:
+              journalReviewRequestId:
+                type: string
+                format: uuid
+              revisionId:
+                type: string
+                format: uuid
+              requestedBy:
+                type: string
+                format: uuid
+              requestedAt:
+                type: string
+                format: date-time
+              message:
+                anyOf:
+                - type: string
+                - type: 'null'
+              reviewerIds:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+          - type: 'null'
+    JournalProjectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - templateFileId
+      - from
+      - to
+      description: UNE-JNL-005. 확정된 상황 판과 기간을 정해 사실을 접는다. 일지는 반입된
+        HWPX 양식 사본 위에 만들어진다(US-SIT-030 3단계, US-SIT-034 4단계).
+      properties:
+        snapshotId:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          description: 생략하면 가장 최근 확정 판이다.
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        templateFileId:
+          type: string
+          format: uuid
+          description: 검증된(uploadState=VERIFIED) HWPX 양식 file_object. 이 바이트에서
+            일지 전용 문서 사본을 만들고 revision 1로 삼는다. 원본이 있어야 CC-160 보존
+            Export가 성립하므로 **선택 항목이 아니다**. 투영 내용은 양식의 표 칸을 채우는
+            것이 아니라 절 표제 뒤에 부기된다(ADR-44 수용 한계 2).
+        eventTypes:
+          type: array
+          description: 이 종류만 담는다. 비면 전부.
+          items:
+            type: string
+            maxLength: 50
+    JournalAiDraftRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        UNE-JNL-007. **AI에는 fail-closed다** - 제안이 사실을 반박하면 반영하지
+        않는다. 거절 비용은 "운영자가 그 문장을 직접 쓴다"뿐이고, 통과 비용은 틀린
+        숫자가 승인된 일지에 남는 것이다.
+      properties:
+        sections:
+          type: array
+          description: 비면 전부.
+          items:
+            $ref: '#/components/schemas/JournalSection'
+        styleRules:
+          type: object
+          additionalProperties: true
+          description: 어투·길이 같은 표현 규칙. 사실에는 영향을 주지 않는다.
+    NarrativeProposal:
+      type: object
+      additionalProperties: false
+      required:
+      - journalId
+      - sectionKey
+      - currentNarrative
+      - proposedNarrative
+      - simulated
+      - adapterId
+      - contradictions
+      - accepted
+      properties:
+        journalId:
+          type: string
+          format: uuid
+        sectionKey:
+          $ref: '#/components/schemas/JournalSection'
+        currentNarrative:
+          type: string
+        proposedNarrative:
+          type: string
+        simulated:
+          type: boolean
+          description: |
+            **시뮬레이션임을 숨기지 않는다.** T3Q의 두 계약 어느 쪽에도 일지 서술
+            연산이 없어(OB-03) 지금 붙은 것은 규칙 기반 어댑터 하나다. mock 성공을
+            T3Q 지원으로 보고하지 않는다.
+        adapterId:
+          type: string
+        contradictions:
+          type: array
+          items:
+            $ref: '#/components/schemas/FactContradiction'
+        accepted:
+          type: boolean
+          description: 반영됐는가. 사실을 반박하거나 사람이 쓴 문장이면 false다.
+    JournalEditRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - operations
+      description: |
+        UNE-JNL-008. **서술만 바꾼다** - 사실칸에 닿는 필드는 거절한다. 서술이
+        사실을 반박하면 응답의 contradictions에 실리되 막지 않는다.
+      properties:
+        baseRevisionId:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        operations:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - sectionKey
+            - narrativeText
+            properties:
+              sectionKey:
+                $ref: '#/components/schemas/JournalSection'
+              narrativeText:
+                type: string
+                maxLength: 8000
+    JournalReviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - reviewers
+      properties:
+        reviewers:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            format: uuid
+        message:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+    JournalApproveRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        UNE-JNL-010. 설계 10은 승인 하나를 적지만 검토는 반려로도 끝난다(설계 09
+        Journal 상태표의 CHANGES_REQUESTED). 엔드포인트를 늘리지 않고 decision이
+        가른다.
+      properties:
+        decision:
+          type: string
+          default: APPROVED
+          enum:
+          - APPROVED
+          - CHANGES_REQUESTED
+        comment:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          description: 반려는 사유가 필수다 - 없으면 작성자가 무엇을 고쳐야 하는지 모른다.
+        revisionId:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+    JournalExportRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        UNE-JNL-011. **CC-160 경로에 위임한다** - HWPX 보존 직렬화와 Track A
+        검증이 거기 있고, 일지만의 두 번째 Export 경로를 만들면 그 검증을 우회할
+        수 있게 된다.
+
+        여기서 더하는 선행조건은 둘이다: **승인된 일지만** 나가고(US-SIT-034
+        3~4단계), 나가는 것은 **승인된 판**이다. 판을 클라이언트가 고를 수 없다 -
+        고르게 하면 승인 전 판이나 투영 이전의 빈 양식을 승인된 일지로 내보낼 수
+        있다(ADR-44 D10).
+
+        드리프트는 여기서 막지 않는다. 승인된 일지는 그 시점의 기록이고, 살아
+        있는 상황에서는 승인 직후부터 사실이 계속 움직인다 - 여기서 막으면 승인된
+        일지를 영영 내보낼 수 없다. 낡음을 막는 자리는 검토요청(JNL-009)이다.
+      properties:
+        format:
+          type: string
+          default: HWPX
     TaskStatus:
       type: string
       description: |
