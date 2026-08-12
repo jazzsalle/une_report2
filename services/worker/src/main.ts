@@ -20,6 +20,7 @@ import { ContentJobRunner } from './plan-content/content-job.runner';
 import { ExportJobRunner } from './document-export/export-job.runner';
 import { PayloadRetentionRunner } from './retention/payload-retention.runner';
 import { KnowledgeUploadRunner } from './knowledge/knowledge-upload.runner';
+import { createSopWiring } from './sop/sop-wiring';
 
 function factoryOptions(config: WorkerConfig): PlanProviderFactoryOptions {
   switch (config.planAdapter) {
@@ -63,6 +64,21 @@ async function bootstrap(): Promise<void> {
   // 만든다(둘로 만들면 커넥션 풀과 자격증명이 두 벌이 된다).
   const storage = createObjectStorage(process.env);
   runners.push(new ExportJobRunner(db, storage, config));
+
+  // CC-240: UNI SOP 생성. 플랜 잡 폴러에 **얹는다** — 지식문서 파이프라인과
+  // 달리 이것은 `generation_job` 위에서 도는 잡이고, TOC/CONTENT와 같은 클레임
+  // ·리스·취소 규약을 그대로 쓴다. 지식문서 쪽을 따로 뺐던 이유(그쪽은
+  // knowledge_document 자체 스윕이다)가 여기엔 해당하지 않는다.
+  // 조립은 `sop/sop-wiring.ts`가 한다 — 이 파일은 플랜 잡도 함께 조립하므로
+  // AT-T3Q-011 가드의 예외로 둘 수 없다(그 규칙이 가장 필요한 자리다).
+  const sopWiring = createSopWiring(db, config, process.env);
+  if (config.sopEnabled) {
+    runners.push(sopWiring.runner);
+  } else {
+    console.warn(
+      '[une-worker] SOP 생성 러너 DISABLED (UNE_SOP_ENABLED=false) — SOP 잡이 QUEUED로 남는다',
+    );
+  }
 
   const poller = new PlanJobPoller(runners, config);
   poller.start();
@@ -125,6 +141,12 @@ async function bootstrap(): Promise<void> {
       if (r.polled > 0) {
         console.warn(`[une-worker] knowledge poll: ${r.polled}건 관측, ${r.advanced}건 변화`);
       }
+      // 참조요약은 READY 이후에만 생기므로 상태 스윕과 같은 주기로 돌되
+      // 대상 집합은 따로 고른다(US-SIT-010 4단계).
+      const ref = await knowledge.pollReferences();
+      if (ref.polled > 0) {
+        console.warn(`[une-worker] reference poll: ${ref.polled}건 조회, ${ref.stored}건 저장`);
+      }
     } catch (err) {
       console.error(`[une-worker] knowledge poll failed: ${(err as Error).message}`);
     }
@@ -165,6 +187,7 @@ async function bootstrap(): Promise<void> {
   // the governed state (review M3) — a mock instance always prints MOCK
   // RUNTIME, never a bare UNE_ADAPTER_READY.
   console.warn(`[une-worker] capability ${describeRuntimeCapability(adapter, 'toc')}`);
+  console.warn(`[une-worker] capability ${sopWiring.capabilityLine}`);
   console.warn(`[une-worker] capability ${describeRuntimeCapability(adapter, 'content')}`);
   if (adapter.variant === 'target-v2') {
     // CC-135 AC "mock-only status visible": every finer-grained v2 feature

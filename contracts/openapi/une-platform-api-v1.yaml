@@ -5236,7 +5236,18 @@ paths:
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '201':
-          description: Success
+          description: '접수됨. 상태는 QUEUED이며 UNI 호출과 그래프 적재는 워커가 한다.
+
+
+            생성 결과는 이 응답이 아니라 UNE-SOP-002 스트림의 job.completed
+            이벤트로 온다: {sopId, sopVersionId, sopVersionNo, graphHash,
+            nodeCount, edgeCount, graphViolations, rejectedNodeCount,
+            outOfScopeNodeCount}.
+
+
+            선행조건: 상황이 확정 판을 갖고 있고(snapshotId = 현재 판), 그 판
+            위에서 동결된 EvidenceSet이어야 한다. 진행 중인 SOP 생성 Job이
+            있으면 SOP-409-001이다.'
           content:
             application/json:
               schema:
@@ -5251,6 +5262,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/Unprocessable'
         '503':
@@ -5259,10 +5272,19 @@ paths:
       x-permission: SOP_GENERATE
       x-db-tables:
       - generation_job
+      - job_event
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-400-001
+      - SOP-404-001
+      - SOP-409-001
+      - SOP-409-002
+      - SOP-412-001
       - UNI-422-003
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -5294,7 +5316,69 @@ paths:
           type: string
       responses:
         '200':
-          description: SSE stream
+          description: 'text/event-stream. 공개 이벤트 어휘: job.queued, job.started,
+            job.progress, sop.sources, sop.node, job.completed, job.failed,
+            job.cancel_requested, job.cancelled.
+
+
+            각 프레임은 id(= job_event.sequence_no), event, data를 포함하며
+            UNE-PLAN-011과 같은 재개 규약을 따른다(Last-Event-ID, heartbeat 15초,
+            30분 후 서버 종료).
+
+
+            UNI 원문 이벤트를 그대로 흘리지 않는다. 설계 08 §1.11의
+            __status__/__thinking__/__compn__/__sources__/__done__/__error__는
+            provider의 어휘이고 화면에는 위 UNE 어휘로 투영한다. __thinking__은
+            사용자 화면에 표시하지 않으므로(설계 08 §1.11) SSE로도 나가지 않는다.
+
+
+            sop.node payload: {nodeKey, nodeType(START|ACTION|DECISION|NOTE|END),
+            title, taskCount, warnings[]}. warnings는 UNI SOP 매퍼 경고이며 노드를
+            버리지 않고 무엇이 비었는지 알린다(MISSING_TITLE, MISSING_TASK,
+            MISSING_ASSIGNEE, MISSING_DECISION_EXPRESSION, NO_SOURCE_REFS,
+            UNKNOWN_FIELD_DROPPED, NODE_KEY_NORMALIZED, TITLE_TRUNCATED,
+            SOURCE_OUT_OF_SCOPE).
+
+
+            NODE_KEY_NORMALIZED는 UNI의 compnSn이 노드 키 규칙
+            (sop-graph.schema.json의 ^[A-Za-z][A-Za-z0-9_-]{1,79}$)에 맞지 않아
+            UNE가 고쳐 썼다는 뜻이다. 원래 값은 노드의 providerNodeKey로 남는다.
+            TITLE_TRUNCATED는 provider 제목이 sop_node.title(varchar 300)을 넘어
+            잘렸다는 뜻이고, SOURCE_OUT_OF_SCOPE는 그 노드가 요청한 동결 근거
+            **범위 밖 문서**를 출처로 들었다는 뜻이다 — 차단하지 않고 표시한다
+            (LLM 출력은 권위 있는 사실 출처가 아니다).
+
+
+            sop.sources payload: {sources: [{documentId, providerDocumentId,
+            chunkId, inScope}]}. documentId는 **UNE knowledge_document_id**이며
+            범위 밖 출처면 null이다. provider가 쓰는 식별자는
+            providerDocumentId에 따로 싣는다 — 그래야 클라이언트가 UNE 문서와
+            대조할 수 있고, UNI가 id 체계를 바꿔도 저장된 근거 참조가 끊기지
+            않는다. 노드의 sourceRefs도 같은 규칙으로 UNE id를 담는다.
+
+
+            job.completed payload의 graphViolations는 __done__ 이후 전체 검증
+            결과다(NO_START, NO_END, MULTIPLE_START, ORPHAN_NODE, DANGLING_EDGE,
+            CYCLE, DECISION_WITHOUT_BRANCH, EDGE_FROM_END). DUPLICATE_NODE_KEY는
+            저장 전에 해소되므로(같은 키가 둘이면 순번을 붙여 확정한다) 여기에
+            나타나지 않는다 — 해소하지 않으면 유니크 제약이 저장 자체를 막아
+            "위반과 함께 저장한다"는 원칙이 성립하지 않는다.
+            위반이 있어도 Job은 COMPLETED이고 버전은 DRAFT로 저장된다 — 사용자가
+            Canvas에서 고치는 것이 다음 단계이므로, 저장하지 않으면 고칠 대상이
+            없다.
+
+
+            job.failed payload의 partialNodeCount는 실패 시점까지 받은 노드 수다.
+            부분결과 폐기 여부는 사용자 결정이다(설계 08 §1.11).
+
+
+            UNI-503-003은 이 엔드포인트의 HTTP 오류가 아니다. 스트림은 이미
+            200으로 열려 있으므로, UNI 호출 실패는 job.failed 프레임의 payload
+            코드로 도착한다: {code: UNI-503-003, reason, message, retryable,
+            providerCode, partialNodeCount}. providerCode는 어댑터 수준 사유다
+            (UNI_SOP_TIMEOUT, UNI_SOP_UNTERMINATED, UNI_SOP_PROVIDER_REPORTED,
+            UNI_SOP_MALFORMED_STREAM 등). 요청 자체가 쓸 수 없을 때는
+            UNI-422-003이 같은 자리에 온다.'
           content:
             text/event-stream:
               schema:
@@ -5319,7 +5403,83 @@ paths:
       - generation_job
       - job_event
       x-error-codes:
+      - COM-0400
+      - JOB-404-001
       - UNI-503-003
+      security:
+      - BearerAuth: []
+  /sop-generation-jobs/{jobId}/cancel:
+    post:
+      tags:
+      - SOP
+      summary: SOP 생성 Job 취소
+      operationId: une_sop_017
+      description: '권한: SOP_GENERATE
+
+
+        핵심 요청: reason
+
+
+        핵심 응답: GenerationJob
+
+
+        오류: JOB-409-001
+
+
+        **UNE 신설(CC-240).** 설계 10 SOP 표에는 없다. UNE-PLAN-012(생성 Job
+        취소)가 이미 있으나 그쪽은 PLAN_GENERATE를 요구하므로, 그것으로 SOP
+        잡을 끄면 SOP 운용자는 자기 잡을 못 끄고 계획서 작성자는 남의 SOP 잡을
+        끌 수 있다. SOP-409-001이 사용자에게 "진행 중인 Job을 기다리거나
+        취소하십시오"라고 안내하므로 취소 경로가 없으면 그 안내가 막다른 길이
+        된다. 근거 ADR-38 D19.
+
+
+        QUEUED는 즉시 CANCELLED가 되고, RUNNING은 취소 요청만 기록한 뒤 워커
+        체크포인트가 종결한다(UNE-PLAN-012와 같은 상태기계).'
+      parameters:
+      - $ref: '#/components/parameters/CorrelationId'
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: 취소됨(QUEUED) 또는 취소 요청 접수됨(RUNNING).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      x-une-api-id: UNE-SOP-017
+      x-une-added: CC-240
+      x-permission: SOP_GENERATE
+      x-db-tables:
+      - generation_job
+      - job_event
+      - audit_log
+      x-error-codes:
+      - COM-0400
+      - COM-0409
+      - JOB-404-001
+      - JOB-409-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerationJobCancelRequest'
       security:
       - BearerAuth: []
   /sops:
@@ -11097,6 +11257,7 @@ components:
           type: object
     SopGenerationRequest:
       type: object
+      additionalProperties: false
       required:
       - snapshotId
       - evidenceSetId
@@ -11105,11 +11266,16 @@ components:
         snapshotId:
           type: string
           format: uuid
+          description: 확정 SituationSnapshot. 상황의 현재 판이어야 한다(아니면 SOP-409-002).
         evidenceSetId:
           type: string
           format: uuid
+          description: 동결(FROZEN) EvidenceSet. 같은 상황·같은 판의 것이어야 한다.
         schemaVersion:
           type: string
+          description: 'SOP 그래프 스키마 버전. UNI SOP 매퍼 버전(sop_version.schema_version)과
+            다른 값이다 — 이쪽은 클라이언트가 원하는 그래프 모양이고 저쪽은 UNI
+            응답을 어느 규칙으로 옮겼는지다.'
           enum:
           - '1.0'
     SopCreateRequest:

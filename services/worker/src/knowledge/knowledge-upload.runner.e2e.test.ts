@@ -305,6 +305,46 @@ describe.skipIf(!ADMIN_URL)('지식문서 UNI 전송 러너 e2e (CC-220)', () =>
     );
   });
 
+  it('READY가 된 뒤 참조요약을 받아 저장한다 (US-SIT-010 4단계)', async () => {
+    // CC-220·CC-230에서 두 번 미룬 항목이다. 세 번째 이월을 하지 않는다.
+    const f = await seed('kup-ref', 'ref.pdf');
+    const uni = new MockUniKnowledgeAdapter({ scenariosEnabled: true });
+    const runner = new KnowledgeUploadRunner(db, storage, uni, config);
+    await runner.runOnce();
+
+    // READY 이전에는 참조요약을 저장하지 않는다 — 202는 "아직"이지 오류가 아니다.
+    await runner.pollReferences();
+    const early = await withClient(dbUrl, (c) =>
+      c.query(`SELECT reference_json FROM knowledge_document WHERE knowledge_document_id = $1`, [
+        f.documentId,
+      ]),
+    );
+    expect(early.rows[0].reference_json).toBeNull();
+
+    for (let i = 0; i < 5; i += 1) await runner.pollOnce();
+    const ref = await runner.pollReferences();
+    expect(ref.stored).toBeGreaterThan(0);
+
+    const after = await withClient(dbUrl, (c) =>
+      c.query(`SELECT reference_json FROM knowledge_document WHERE knowledge_document_id = $1`, [
+        f.documentId,
+      ]),
+    );
+    expect(after.rows[0].reference_json).toMatchObject({ summary: expect.any(String) });
+
+    // 한 번 받으면 이 문서는 다시 묻지 않는다. 스윕이 다른 문서를 집을 수는
+    // 있으므로 총계가 아니라 **이 문서**가 대상에서 빠졌는지를 본다.
+    await runner.pollReferences();
+    const stable = await withClient(dbUrl, (c) =>
+      c.query(
+        `SELECT count(*)::int n FROM knowledge_document
+          WHERE knowledge_document_id = $1 AND reference_json IS NULL`,
+        [f.documentId],
+      ),
+    );
+    expect(stable.rows[0].n).toBe(0);
+  });
+
   it('DB가 두 축이 어긋난 행을 거부한다 (보내지 않은 문서에 처리상태를 적을 수 없다)', async () => {
     const f = await seed('kup-ck', 'ck.pdf');
     await expect(

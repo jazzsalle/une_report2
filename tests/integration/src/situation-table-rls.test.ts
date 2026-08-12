@@ -368,9 +368,63 @@ describe.skipIf(!ADMIN_URL)('CC-200 / 0023: 상황 계열 테넌트 격리', () 
     // **`provider_result`의 SELECT가 없다는 것이 특히 중요하다**: 원문을 남기는
     // 데 읽기는 필요 없고, 읽기까지 열면 정책 결함 하나가 전 테넌트의 Provider
     // 원문을 노출한다. 그래서 워커에게는 INSERT만 있다.
-    const STILL_DENIED = ALL_SITUATION_TABLES.filter((t) => t !== 'provider_job');
+    //
+    // 0033(CC-240)이 둘을 더 열었다 — `situation`과 `situation_snapshot`.
+    // SOP 생성 러너가 확정 사실을 읽어야 하기 때문이고, **읽기뿐이다**
+    // (쓰기는 `situation.status` 한 열 + `CONTEXT_CONFIRMED → SOP_READY` 한
+    // 전이로 제한한다, ADR-38 D14). 이 목록이 "워커가 상황 계열에서 볼 수 있는
+    // 것의 전부"이며, 늘어날 때마다 그 이유가 마이그레이션에 적혀야 한다.
+    const WORKER_READABLE: readonly string[] = ['provider_job', 'situation', 'situation_snapshot'];
+    const STILL_DENIED = ALL_SITUATION_TABLES.filter((t) => !WORKER_READABLE.includes(t));
 
-    it('une_worker는 상황 계열 테이블에 42501로 막힌다 (provider_job 제외)', async () => {
+    it('워커가 읽을 수 있는 상황 계열은 셋뿐이다 (0028 + 0033)', () => {
+      // 목록 자체를 고정한다. 새 항목이 권한을 열면 이 단언이 먼저 깨져,
+      // "왜 열었는가"를 적지 않고는 통과할 수 없다.
+      expect([...WORKER_READABLE].sort()).toEqual([
+        'provider_job',
+        'situation',
+        'situation_snapshot',
+      ]);
+    });
+
+    it('워커는 상황과 확정 판을 읽되 자기 테넌트 것만 본다 (0033)', async () => {
+      const mine = await asRole(url, 'une_worker', a.tenantId, (c) =>
+        c.query(`SELECT situation_id FROM situation WHERE situation_id = $1`, [a.situationId]),
+      );
+      expect(mine.rows).toHaveLength(1);
+
+      const theirs = await asRole(url, 'une_worker', a.tenantId, (c) =>
+        c.query(`SELECT situation_id FROM situation WHERE situation_id = $1`, [b.situationId]),
+      );
+      expect(theirs.rows).toEqual([]);
+
+      // 확정 판은 부모 경유 정책이므로 같은 결론이 자식에도 적용된다.
+      const snapshots = await asRole(url, 'une_worker', a.tenantId, (c) =>
+        c.query(`SELECT snapshot_id FROM situation_snapshot WHERE snapshot_id = $1`, [
+          b.snapshotId,
+        ]),
+      );
+      expect(snapshots.rows).toEqual([]);
+    });
+
+    it('워커는 상황을 만들거나 지울 수 없다 (0033은 읽기와 상태 한 칸뿐이다)', async () => {
+      await expect(
+        asRole(url, 'une_worker', a.tenantId, (c) =>
+          c.query(`DELETE FROM situation WHERE situation_id = $1`, [a.situationId]),
+        ),
+      ).rejects.toThrow(/permission denied/i);
+      await expect(
+        asRole(url, 'une_worker', a.tenantId, (c) =>
+          c.query(
+            `INSERT INTO situation (tenant_id, mode, title, hazard_type, status, created_by)
+             VALUES ($1,'LIVE','워커가 만든 상황','FLOOD','DRAFT',$2)`,
+            [a.tenantId, a.userId],
+          ),
+        ),
+      ).rejects.toThrow(/permission denied/i);
+    });
+
+    it('une_worker는 나머지 상황 계열 테이블에 42501로 막힌다', async () => {
       for (const table of STILL_DENIED) {
         await expect(
           asRole(url, 'une_worker', a.tenantId, (c) => c.query(`SELECT 1 FROM ${table} LIMIT 1`)),

@@ -454,7 +454,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-230
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - chat-json/SSE mock
   - raw payload retention
@@ -464,7 +464,11 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-38-cc240-uni-sop-generation-and-versioned-mapper.md
+  - docs/evidence/CC-240-uni-sop-generation.md
+  - database/migrations/0032_sop_graph_and_generation.sql
+  - database/migrations/0033_worker_sop_source_reads.sql
 - id: CC-250
   title: Implement SOP canvas model, validation, review, and approval
   gate: G3

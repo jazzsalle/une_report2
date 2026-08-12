@@ -85,6 +85,24 @@ export const UNI_KNOWLEDGE_FEATURE_CAPABILITIES: readonly UniFeatureCapability[]
       '3단계의 filename/score/text/doc_id만 기준선으로 쓴다. mock이 검증하는 것은 ' +
       'UNE 쪽 상태기계뿐이다.',
   },
+  {
+    featureId: 'sopGeneration',
+    endpoint: 'POST /chat/json',
+    state: 'UNE_ADAPTER_READY',
+    adapterImplemented: true,
+    mockAvailable: true,
+    // OB-13(필드명)이 아니라 **OB-04**다 — 여기서 막고 있는 것은 응답
+    // 필드명이 아니라 SSE **프레이밍 자체**이고, 그것이 틀리면 어댑터가
+    // 한 줄도 읽지 못한다.
+    openBinding: 'OB-04',
+    providerEvidence: null,
+    notes:
+      'UNI 구조화 SOP 생성(CC-240). 이벤트 이름은 설계 08 §1.11이 적었지만 ' +
+      '`data:` 한 줄에 JSON 객체 하나, 그 객체의 키가 이벤트 이름이라는 ' +
+      '**프레이밍은 UNE 가정**이다(uni-sop-sse.assumed.ts). 요청 본문 필드명 ' +
+      '(query/doc_ids)도 계약이 없어 설정으로 열려 있다. mock이 검증하는 것은 ' +
+      'UniSopMapper와 UNE 상태기계이지 UNI 지원이 아니다.',
+  },
 ];
 
 export function getUniKnowledgeCapability(featureId: string): UniFeatureCapability | undefined {

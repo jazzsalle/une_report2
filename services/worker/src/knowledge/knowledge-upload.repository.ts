@@ -205,6 +205,55 @@ export async function settleJobFailed(
   );
 }
 
+/**
+ * 참조요약을 아직 받지 못한 문서 (US-SIT-010 4단계 "reference metadata 저장").
+ *
+ * **CC-220·CC-230에서 두 번 미뤘다.** ADR-36 수용 한계 2가 "CC-230에서 근거와
+ * 함께 온다"고 적었고 ADR-37 수용 한계 3이 다시 CC-240으로 넘겼다. 세 번째
+ * 이월은 설계 결함 신호이므로 여기서 닫는다.
+ *
+ * `READY`인데 `reference_json`이 비어 있는 것만 고른다 — 참조요약은 색인이
+ * 끝난 뒤에 생기고(설계 08 §1.9), 한 번 받으면 다시 물을 이유가 없다.
+ */
+export async function selectReferenceTargets(c: PoolClient, limit: number): Promise<PollTarget[]> {
+  const r = await c.query(
+    `SELECT knowledge_document_id, tenant_id, provider_document_id, uni_status
+       FROM knowledge_document
+      WHERE status = 'REGISTERED' AND uni_status = 'READY'
+        AND provider_document_id IS NOT NULL
+        AND reference_json IS NULL
+      ORDER BY uni_observed_at NULLS FIRST
+      LIMIT $1`,
+    [limit],
+  );
+  return r.rows.map((row) => ({
+    knowledgeDocumentId: row.knowledge_document_id as string,
+    tenantId: row.tenant_id as string,
+    providerDocumentId: row.provider_document_id as string,
+    uniStatus: (row.uni_status as string | null) ?? null,
+  }));
+}
+
+/**
+ * 참조요약을 기록한다.
+ *
+ * **아직 준비되지 않은 경우(202)는 쓰지 않는다.** 빈 객체를 넣으면
+ * `reference_json IS NULL` 조건이 거짓이 되어 다시는 묻지 않게 된다 —
+ * "받았다"와 "아직이다"를 구분할 수 없어진다.
+ */
+export async function recordReference(
+  c: PoolClient,
+  tenantId: string,
+  knowledgeDocumentId: string,
+  reference: unknown,
+): Promise<void> {
+  await c.query(
+    `UPDATE knowledge_document SET reference_json = $3::jsonb
+      WHERE knowledge_document_id = $1 AND tenant_id = $2 AND status = 'REGISTERED'`,
+    [knowledgeDocumentId, tenantId, JSON.stringify(reference)],
+  );
+}
+
 export interface PollTarget {
   knowledgeDocumentId: string;
   tenantId: string;

@@ -8,11 +8,12 @@ import { MockLegacyT3qPlanAdapter } from '@une/provider-adapters';
 import {
   ContentJobRunner,
   ExportJobRunner,
+  SopJobRunner,
   TocJobRunner,
   WorkerDatabase,
   loadWorkerConfig,
 } from '@une/worker';
-import { MemoryObjectStorage } from '@une/provider-adapters';
+import { MemoryObjectStorage, MockUniSopAdapter } from '@une/provider-adapters';
 
 /**
  * 슬라이스 E2E 하네스 (CC-170).
@@ -37,6 +38,14 @@ export interface Fixtures {
   adminA: string;
   readerA: string;
   userB: string;
+  /**
+   * SOP 권한만 가진 사용자 (CC-240).
+   *
+   * 잡 엔드포인트는 `generation_job` 하나를 공유하므로, 유형 검사가 없으면
+   * 이 사용자가 계획서 잡의 이벤트를 `PLAN_READ` 없이 읽는다. 그 경계를
+   * 시험하려면 권한이 겹치지 않는 사용자가 하나 있어야 한다.
+   */
+  sopOnlyA: string;
 }
 
 export interface Harness {
@@ -49,6 +58,8 @@ export interface Harness {
   toc: TocJobRunner;
   content: ContentJobRunner;
   exports: ExportJobRunner;
+  /** CC-240: SOP 생성 러너. UNI는 mock이다 — 실 UNI 지원이 아니다. */
+  sop: SopJobRunner;
   storage: MemoryObjectStorage;
   close(): Promise<void>;
 }
@@ -93,13 +104,15 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
   const adminA = await user(tenantA, 'admin-a');
   const readerA = await user(tenantA, 'reader-a');
   const userB = await user(tenantB, 'user-b');
+  const sopOnlyA = await user(tenantA, 'sop-only-a');
 
   await c.query(
     `INSERT INTO role_permission (role_id, permission_id)
      SELECT r.role_id, p.permission_id
      FROM role r JOIN permission p
        ON p.permission_code IN ('PLAN_CREATE','PLAN_READ','PLAN_EDIT','PLAN_GENERATE',
-                                'FILE_UPLOAD','DOC_READ','DOC_EDIT','DOC_EXPORT')
+                                'FILE_UPLOAD','DOC_READ','DOC_EDIT','DOC_EXPORT',
+                                'SOP_GENERATE','SOP_READ')
      WHERE r.tenant_id IS NULL AND r.role_code = 'INSTITUTION_ADMIN'
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
@@ -125,7 +138,22 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
      WHERE r.tenant_id IS NULL AND r.role_code = 'VIEWER' AND u.user_id = $1`,
     [readerA],
   );
-  return { tenantA, tenantB, adminA, readerA, userB };
+  // SOP 권한만 — PLAN_*은 하나도 주지 않는다.
+  await c.query(
+    `INSERT INTO role_permission (role_id, permission_id)
+     SELECT r.role_id, p.permission_id
+     FROM role r JOIN permission p ON p.permission_code IN ('SOP_GENERATE','SOP_READ')
+     WHERE r.tenant_id IS NULL AND r.role_code = 'SOP_EDITOR'
+     ON CONFLICT (role_id, permission_id) DO NOTHING`,
+  );
+  await c.query(
+    `INSERT INTO user_role (user_id, role_id, granted_by)
+     SELECT u.user_id, r.role_id, u.user_id
+     FROM app_user u, role r
+     WHERE r.tenant_id IS NULL AND r.role_code = 'SOP_EDITOR' AND u.user_id = $1`,
+    [sopOnlyA],
+  );
+  return { tenantA, tenantB, adminA, readerA, userB, sopOnlyA };
 }
 
 export async function startHarness(label: string): Promise<Harness> {
@@ -197,6 +225,12 @@ export async function startHarness(label: string): Promise<Harness> {
     toc: new TocJobRunner(workerDb, adapter, workerConfig),
     content: new ContentJobRunner(workerDb, adapter, workerConfig),
     exports: new ExportJobRunner(workerDb, storage, workerConfig),
+    // 시나리오 훅을 켠다 — 잘린 스트림·깨진 노드를 e2e에서 태울 수 있어야 한다.
+    sop: new SopJobRunner(
+      workerDb,
+      new MockUniSopAdapter({ scenariosEnabled: true }),
+      workerConfig,
+    ),
     async close(): Promise<void> {
       await workerDb.close();
       await app.close();

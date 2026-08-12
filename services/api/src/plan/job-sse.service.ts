@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional, type MessageEvent } from '@nestjs/common';
 import { from, timer, type Observable } from 'rxjs';
 import { concatMap, takeUntil, takeWhile } from 'rxjs/operators';
+import type { JobType } from '@une/domain';
 import { ApiError } from '../common/api-error';
 import type { AuthContext } from '../common/request-context';
 import { DatabaseService } from '../db/database.service';
@@ -99,6 +100,7 @@ export class JobSseService {
   async stream(
     auth: AuthContext,
     jobId: string,
+    allowedJobTypes: readonly JobType[],
     lastEventId?: string,
   ): Promise<Observable<MessageEvent>> {
     const start = parseLastEventId(lastEventId);
@@ -106,6 +108,15 @@ export class JobSseService {
       this.jobs.findJob(c, auth.tenantId, jobId),
     );
     if (!job) throw jobErrors.notFound();
+    // **잡 유형이 곧 권한 경계다.** 이 서비스는 `generation_job` 위의 투영이라
+    // 유형을 가리지 않는데, 엔드포인트마다 요구 권한이 다르다(UNE-PLAN-011은
+    // PLAN_READ, UNE-SOP-002는 SOP_READ). 유형을 보지 않으면 SOP_READ만 가진
+    // 사용자가 `/sop-generation-jobs/{planJobId}/events`로 계획서 본문
+    // 이벤트를 받고, 그 반대도 성립한다. 0012의 역할 카탈로그가
+    // SOP_EDITOR와 PLAN_AUTHOR를 나눠 두었으므로 가상의 조합이 아니다.
+    //
+    // 404로 답한다 — 다른 도메인 잡의 **존재 여부**도 흘리지 않는다.
+    if (!allowedJobTypes.includes(job.jobType as JobType)) throw jobErrors.notFound();
 
     let cursor = start;
     let idleTicks = 0;

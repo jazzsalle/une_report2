@@ -6,6 +6,9 @@ import type { GenerationJobRepository } from './generation-job.repository';
 import type { JobEventRepository, JobEventRow } from './job-event.repository';
 import { JobSseService, parseLastEventId } from './job-sse.service';
 
+/** CC-240: 스트림은 잡 유형 범위를 요구한다(도메인 경계). */
+const PLAN_TYPES = ['TOC', 'CONTENT', 'AI_EDIT'] as const;
+
 const TENANT_ID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '11111111-1111-1111-1111-111111111111';
 const JOB_ID = '66666666-6666-6666-6666-666666666666';
@@ -26,7 +29,10 @@ function harness(pages: JobEventRow[][], options: Record<string, number> = {}, j
   const db = {
     withTenant: async <T>(_tenantId: string, fn: (c: unknown) => Promise<T>): Promise<T> => fn({}),
   };
-  const jobs = { findJob: vi.fn(async () => (jobExists ? { jobId: JOB_ID } : null)) };
+  // jobType이 필요하다 — 스트림이 도메인 경계를 검사한다(CC-240 D20).
+  const jobs = {
+    findJob: vi.fn(async () => (jobExists ? { jobId: JOB_ID, jobType: 'TOC' } : null)),
+  };
   let tick = 0;
   const listPublicSince = vi.fn(async (_c: unknown, _t: string, _j: string, after: number) => {
     const page = pages[tick] ?? [];
@@ -46,7 +52,7 @@ function harness(pages: JobEventRow[][], options: Record<string, number> = {}, j
 describe('JobSseService.stream', () => {
   it('rejects an unknown job with 404 JOB-404-001 before the stream opens', async () => {
     const h = harness([], {}, false);
-    await expect(h.service.stream(auth, JOB_ID)).rejects.toMatchObject({
+    await expect(h.service.stream(auth, JOB_ID, PLAN_TYPES)).rejects.toMatchObject({
       status: 404,
       code: 'JOB-404-001',
     });
@@ -58,7 +64,9 @@ describe('JobSseService.stream', () => {
       [event(3, 'job.progress')],
       [event(4, 'job.completed'), event(5, 'toc.section')],
     ]);
-    const messages = await firstValueFrom((await h.service.stream(auth, JOB_ID)).pipe(toArray()));
+    const messages = await firstValueFrom(
+      (await h.service.stream(auth, JOB_ID, PLAN_TYPES)).pipe(toArray()),
+    );
     expect(messages.map((m) => m.type)).toEqual([
       'job.queued',
       'job.started',
@@ -76,14 +84,16 @@ describe('JobSseService.stream', () => {
 
   it.each(['job.failed', 'job.cancelled'])('completes the stream on %s', async (terminal) => {
     const h = harness([[event(1, 'job.started'), event(2, terminal)]]);
-    const messages = await firstValueFrom((await h.service.stream(auth, JOB_ID)).pipe(toArray()));
+    const messages = await firstValueFrom(
+      (await h.service.stream(auth, JOB_ID, PLAN_TYPES)).pipe(toArray()),
+    );
     expect(messages.map((m) => m.type)).toEqual(['job.started', terminal]);
   });
 
   it('resumes after Last-Event-ID without replaying delivered events', async () => {
     const h = harness([[event(1, 'job.queued'), event(2, 'job.completed')]]);
     const messages = await firstValueFrom(
-      (await h.service.stream(auth, JOB_ID, '1')).pipe(toArray()),
+      (await h.service.stream(auth, JOB_ID, PLAN_TYPES, '1')).pipe(toArray()),
     );
     expect(messages.map((m) => m.id)).toEqual(['2']);
     expect(h.listPublicSince.mock.calls[0][3]).toBe(1);
@@ -92,7 +102,9 @@ describe('JobSseService.stream', () => {
   it('sends a heartbeat after an idle interval and keeps the resume point unchanged', async () => {
     // pollMs 10 / heartbeatMs 30 -> a heartbeat every 3 idle ticks.
     const h = harness([[event(1, 'job.started')], [], [], [], [event(2, 'job.completed')]]);
-    const messages = await firstValueFrom((await h.service.stream(auth, JOB_ID)).pipe(toArray()));
+    const messages = await firstValueFrom(
+      (await h.service.stream(auth, JOB_ID, PLAN_TYPES)).pipe(toArray()),
+    );
     expect(messages.map((m) => m.type)).toEqual(['job.started', 'heartbeat', 'job.completed']);
     // The heartbeat repeats the last delivered sequence_no instead of carrying a
     // new one, so a reconnect resumes exactly where the data stream left off
@@ -103,14 +115,16 @@ describe('JobSseService.stream', () => {
 
   it('ends the stream when the maximum lifetime elapses', async () => {
     const h = harness([], { pollMs: 10, heartbeatMs: 10_000, maxLifetimeMs: 35 });
-    const messages = await firstValueFrom((await h.service.stream(auth, JOB_ID)).pipe(toArray()));
+    const messages = await firstValueFrom(
+      (await h.service.stream(auth, JOB_ID, PLAN_TYPES)).pipe(toArray()),
+    );
     expect(messages).toEqual([]);
     expect(h.listPublicSince.mock.calls.length).toBeGreaterThan(0);
   });
 
   it('stops polling once the subscriber unsubscribes', async () => {
     const h = harness([[], [], [], [], [], []], { heartbeatMs: 10_000 });
-    const subscription = (await h.service.stream(auth, JOB_ID)).subscribe();
+    const subscription = (await h.service.stream(auth, JOB_ID, PLAN_TYPES)).subscribe();
     await new Promise((resolve) => setTimeout(resolve, 35));
     subscription.unsubscribe();
     const polls = h.listPublicSince.mock.calls.length;
@@ -140,5 +154,16 @@ describe('contract-pinned SSE defaults (UNE-PLAN-011)', () => {
     const { DEFAULT_HEARTBEAT_MS, DEFAULT_MAX_LIFETIME_MS } = await import('./job-sse.service');
     expect(DEFAULT_HEARTBEAT_MS).toBe(15_000);
     expect(DEFAULT_MAX_LIFETIME_MS).toBe(30 * 60_000);
+  });
+});
+
+describe('JobSseService — 도메인 경계 (CC-240 D20)', () => {
+  it('허용하지 않은 잡 유형이면 404로 답한다 (존재를 흘리지 않는다)', async () => {
+    // 같은 `generation_job`을 두 엔드포인트가 본다. 유형을 검사하지 않으면
+    // SOP_READ만 가진 사용자가 계획서 본문 이벤트를 읽는다.
+    const h = harness([[{ sequenceNo: 1, eventType: 'job.completed', payload: {} }]]);
+    await expect(h.service.stream(auth, JOB_ID, ['SOP'])).rejects.toMatchObject({
+      code: 'JOB-404-001',
+    });
   });
 });

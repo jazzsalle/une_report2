@@ -62,6 +62,10 @@ const RLS_TABLES = [
   // 정책 없는 테이블은 전 테넌트 공개였고, CC-230이 첫 쓰기 경로를 연다.
   'evidence_set',
   'evidence_item',
+  // 0032 (CC-240): 0008이 `sop`에만 정책을 걸어 자식 셋이 열려 있었다.
+  'sop_version',
+  'sop_node',
+  'sop_edge',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -76,11 +80,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 31 baseline migrations', async () => {
+  it('applies all 34 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(31);
+    expect(applied.rows).toHaveLength(34);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -122,6 +126,10 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     // **정책이 한 번도 없던 두 테이블에 RLS를 켠다** — 0023이 상황 계열에서
     // 발견한 것과 같은 상태였다. 테이블은 늘지 않는다.
     expect(applied.rows[30].name).toBe('0031_evidence_set_and_items');
+    // 0032 (CC-240): SOP 네 테이블의 어휘·상관식·FK. `sop_version`·`sop_node`·
+    // `sop_edge`에 **RLS 정책이 한 번도 없었다** — 0008은 `sop`에만 걸었다.
+    // 0023(상황)·0031(근거)에 이어 세 번째로 같은 것을 발견했다.
+    expect(applied.rows[31].name).toBe('0032_sop_graph_and_generation');
   });
 
   // 61 = 57 design tables + role_permission (ADR-22) + api_idempotency (ADR-23)
@@ -220,11 +228,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0031 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0034 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0031
+    await migrate(db.url); // remaining: 0011 ~ 0034
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -239,7 +247,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(31);
+    expect(applied.rows[0].n).toBe(34);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

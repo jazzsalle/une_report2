@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 63
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update
 
 ## api_idempotency
 
@@ -1089,12 +1089,13 @@ Provider 원문 응답 보존 (추적성)
 ## sop
 
 - 격리: RLS enforced (FORCE)
-- fk_sop_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
+- ck_sop_status: CHECK (((status)::text = 'DRAFT'::text))
+- fk_sop_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id)
 - fk_sop_current_version_id: FOREIGN KEY (current_version_id) REFERENCES sop_version(sop_version_id) DEFERRABLE INITIALLY DEFERRED
-- fk_sop_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
-- fk_sop_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
+- fk_sop_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id)
+- fk_sop_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id)
 - sop_pkey: PRIMARY KEY (sop_id)
-- 인덱스: sop_pkey
+- 인덱스: ix_sop_situation, sop_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -1103,19 +1104,24 @@ Provider 원문 응답 보존 (추적성)
 | situation_id | uuid | - |  | 상황 |
 | title | character varying(300) | NN |  | 명칭 |
 | hazard_type | character varying(50) | NN |  | 재난유형 |
-| status | character varying(30) | NN |  | DRAFT~RETIRED |
+| status | character varying(30) | NN |  | CC-240은 DRAFT만 만든다. IN_REVIEW/APPROVED/RETIRED는 CC-250이 연다 |
 | current_version_id | uuid | - |  | 현재 버전 |
 | created_by | uuid | NN |  | 작성자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
 
 ## sop_edge
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_sop_edge_not_self: CHECK ((from_node_id <> to_node_id))
+- ck_sop_edge_priority: CHECK ((priority >= 0))
+- fk_sop_edge_from: FOREIGN KEY (from_node_id) REFERENCES sop_node(node_id) ON DELETE CASCADE
 - fk_sop_edge_from_node_id: FOREIGN KEY (from_node_id) REFERENCES sop_node(node_id) DEFERRABLE INITIALLY DEFERRED
 - fk_sop_edge_sop_version_id: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) DEFERRABLE INITIALLY DEFERRED
+- fk_sop_edge_to: FOREIGN KEY (to_node_id) REFERENCES sop_node(node_id) ON DELETE CASCADE
 - fk_sop_edge_to_node_id: FOREIGN KEY (to_node_id) REFERENCES sop_node(node_id) DEFERRABLE INITIALLY DEFERRED
+- fk_sop_edge_version: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) ON DELETE CASCADE
 - sop_edge_pkey: PRIMARY KEY (edge_id)
-- 인덱스: sop_edge_pkey
+- 인덱스: ix_sop_edge_from, sop_edge_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -1130,10 +1136,12 @@ Provider 원문 응답 보존 (추적성)
 
 ## sop_node
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_sop_node_type: CHECK (((node_type)::text = ANY ((ARRAY['START'::character varying, 'ACTION'::character varying, 'DECISION'::character varying, 'NOTE'::character varying, 'END'::character varying])::text[])))
 - fk_sop_node_sop_version_id: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) DEFERRABLE INITIALLY DEFERRED
+- fk_sop_node_version: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) ON DELETE CASCADE
 - sop_node_pkey: PRIMARY KEY (node_id)
-- 인덱스: sop_node_pkey, uk_sop_node_version_key
+- 인덱스: sop_node_pkey, uk_sop_node_key, uk_sop_node_version_key
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -1146,6 +1154,7 @@ Provider 원문 응답 보존 (추적성)
 | position_x | numeric(10,2) | - |  | Canvas X |
 | position_y | numeric(10,2) | - |  | Canvas Y |
 | sort_order | integer | - |  | 정렬 |
+| mapping_warnings | jsonb | - |  | UniSopMapper 경고 (설계 08 §1.11). 노드를 버리지 않고 무엇이 비었는지 남긴다 |
 
 ## sop_run
 
@@ -1191,9 +1200,18 @@ Provider 원문 응답 보존 (추적성)
 
 ## sop_version
 
-- 격리: RLS 없음
+SOP 버전. 워커는 INSERT만 한다 — 기존 버전 수정 경로가 없으므로 권한도 없다(0034)
+- 격리: RLS enforced (FORCE)
+- ck_sop_version_approval_shape: CHECK ((((approved_by IS NULL) AND (approved_at IS NULL)) OR ((approved_by IS NOT NULL) AND (approved_at IS NOT NULL))))
+- ck_sop_version_generator_shape: CHECK ((((generation_job_id IS NULL) AND (adapter_id IS NULL) AND (generated_by_mock IS NULL)) OR ((generation_job_id IS NOT NULL) AND (adapter_id IS NOT NULL) AND (generated_by_mock IS NOT NULL))))
+- ck_sop_version_hash: CHECK ((graph_hash ~ '^[0-9a-f]{64}$'::text))
+- ck_sop_version_no: CHECK ((version_no >= 1))
+- ck_sop_version_status: CHECK (((status)::text = 'DRAFT'::text))
 - fk_sop_version_approved_by: FOREIGN KEY (approved_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
-- fk_sop_version_sop_id: FOREIGN KEY (sop_id) REFERENCES sop(sop_id) DEFERRABLE INITIALLY DEFERRED
+- fk_sop_version_evidence_set: FOREIGN KEY (source_evidence_set_id) REFERENCES evidence_set(evidence_set_id)
+- fk_sop_version_generation_job: FOREIGN KEY (generation_job_id) REFERENCES generation_job(job_id)
+- fk_sop_version_snapshot: FOREIGN KEY (source_snapshot_id) REFERENCES situation_snapshot(snapshot_id)
+- fk_sop_version_sop_id: FOREIGN KEY (sop_id) REFERENCES sop(sop_id) ON DELETE CASCADE
 - fk_sop_version_source_evidence_set_id: FOREIGN KEY (source_evidence_set_id) REFERENCES evidence_set(evidence_set_id) DEFERRABLE INITIALLY DEFERRED
 - sop_version_pkey: PRIMARY KEY (sop_version_id)
 - 인덱스: sop_version_pkey, uk_sop_version_no
@@ -1203,13 +1221,19 @@ Provider 원문 응답 보존 (추적성)
 | sop_version_id | uuid | NN | gen_random_uuid() | SOP 버전 |
 | sop_id | uuid | NN |  | SOP |
 | version_no | integer | NN | 1 | 버전 |
-| status | character varying(20) | NN |  | DRAFT/LOCKED |
+| status | character varying(20) | NN |  | CC-240은 DRAFT만 만든다. LOCKED는 승인(CC-250)이 만든다 |
 | graph_hash | character(64) | NN |  | 그래프 해시 |
 | source_snapshot_id | uuid | - |  | SituationSnapshot |
 | source_evidence_set_id | uuid | - |  | 근거 |
-| schema_version | character varying(20) | NN |  | Schema |
+| schema_version | character varying(20) | NN |  | UniSopMapper 버전. UNI가 바꾼 것인지 우리가 잘못 옮긴 것인지 구분한다 |
 | approved_by | uuid | - |  | 승인자 |
 | approved_at | timestamp with time zone | - |  | 승인 |
+| graph_violations | jsonb | - |  | __done__ 이후 전체 검증 결과. 위반이 있어도 DRAFT로 저장한다 — 고칠 대상이 있어야 고친다 |
+| generation_job_id | uuid | - |  | 이 그래프를 만든 SOP 생성 잡 (원문 추적) |
+| created_at | timestamp with time zone | NN | now() |  |
+| created_by | uuid | - |  |  |
+| adapter_id | character varying(60) | - |  | 이 그래프를 만든 provider 어댑터 id |
+| generated_by_mock | boolean | - |  | true면 mock 산출물이다 — provider 지원의 증거가 아니다 |
 
 ## style_prototype
 

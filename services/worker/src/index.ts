@@ -12,6 +12,7 @@
 export { ExportJobRunner, type ExportRunSummary } from './document-export/export-job.runner';
 export { TocJobRunner } from './plan-toc/toc-job.runner';
 export { ContentJobRunner } from './plan-content/content-job.runner';
+export { SopJobRunner, type SopRunSummary } from './sop/sop-job.runner';
 export { PlanJobPoller } from './plan-jobs/job.poller';
 export { WorkerDatabase } from './db/worker-database.service';
 export { loadWorkerConfig, type WorkerConfig } from './config/worker-config';

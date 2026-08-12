@@ -7,6 +7,7 @@ import {
   canStartTocJob,
   canTransitionJob,
   jobIdempotencyKey,
+  type JobType,
   nextStatusOnContentJobAbort,
   nextStatusOnContentJobStart,
   nextStatusOnTocJobAbort,
@@ -239,10 +240,15 @@ export class TocJobService {
   }
 
   /** UNE-PLAN-010. */
-  async getJob(auth: AuthContext, jobId: string): Promise<JobResource> {
+  async getJob(
+    auth: AuthContext,
+    jobId: string,
+    allowedJobTypes: readonly JobType[] = ['TOC', 'CONTENT', 'AI_EDIT'],
+  ): Promise<JobResource> {
     return this.db.withTenant(auth.tenantId, async (c) => {
       const job = await this.jobs.findJob(c, auth.tenantId, jobId);
       if (!job) throw jobErrors.notFound();
+      if (!allowedJobTypes.includes(job.jobType as JobType)) throw jobErrors.notFound();
       const result =
         job.status === 'COMPLETED'
           ? projectResult(await this.jobEvents.findCompletedResult(c, auth.tenantId, jobId))
@@ -258,19 +264,28 @@ export class TocJobService {
     jobId: string,
     reason: string | undefined,
     meta: RequestMeta,
+    allowedJobTypes: readonly JobType[] = ['TOC', 'CONTENT', 'AI_EDIT'],
   ): Promise<JobResource> {
     return this.db.withTenant(auth.tenantId, async (c) => {
       // Lock order job -> plan. requestTocJob locks plan and never locks an
       // existing job row, so the two paths cannot form a cycle.
       const job = await this.jobs.findJob(c, auth.tenantId, jobId, { forUpdate: true });
       if (!job) throw jobErrors.notFound();
+      // 도메인 경계(job-sse.service.ts의 같은 가드와 짝이다): PLAN_GENERATE로
+      // 남의 SOP 잡을 끄거나 그 반대가 되지 않게 한다.
+      if (!allowedJobTypes.includes(job.jobType as JobType)) throw jobErrors.notFound();
 
       if (job.status === 'QUEUED' && canTransitionJob(job.status, 'CANCELLED')) {
         const updated = await this.jobs.updateJobStatus(c, auth.tenantId, jobId, {
           status: 'CANCELLED',
           finishedAt: new Date(),
         });
-        await this.restorePlanStatusOnAbort(c, auth, job);
+        // **PLAN 잡일 때만 계획서 상태를 되돌린다.** SOP 잡의 aggregate_id는
+        // situationId라 `findPlan`이 항상 null을 주고, 그 404가 같은
+        // 트랜잭션의 CANCELLED 기록까지 되돌린다 — 실측으로 재현했다
+        // (PLAN-4003 + 잡은 QUEUED 그대로). SOP-409-001이 사용자에게
+        // "취소하십시오"라고 안내하는데 그 취소가 막다른 길이었다.
+        if (job.aggregateType === 'PLAN') await this.restorePlanStatusOnAbort(c, auth, job);
         await this.jobEvents.append(c, jobId, 'job.cancelled', { reason: reason ?? null });
         await this.insertJobAudit(c, auth, meta, `${job.jobType}_JOB_CANCELLED`, jobId, {
           reason: reason ?? null,
@@ -319,6 +334,9 @@ export class TocJobService {
     return this.db.withTenant(auth.tenantId, async (c) => {
       const job = await this.jobs.findJob(c, auth.tenantId, jobId, { forUpdate: true });
       if (!job) throw jobErrors.notFound();
+      // 재시도는 계획서 잡 전용이다(UNE-PLAN-013). SOP 잡을 여기로 넣으면
+      // 플랜 상태기계가 situationId를 계획서로 오인한다.
+      if (job.aggregateType !== 'PLAN') throw jobErrors.notFound();
       if (job.status !== 'FAILED' || !canTransitionJob(job.status, 'QUEUED')) {
         throw jobErrors.retryNotAllowed(job.status);
       }

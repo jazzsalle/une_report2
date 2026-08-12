@@ -2,6 +2,120 @@
 
 ## Unreleased
 
+- CC-240 (2026-08-10): UNI SOP generation and the versioned UniSopMapper
+  (UNE-SOP-001/002, ADR-38, migrations 0032 + 0033).
+  Confirmed SituationSnapshot + frozen EvidenceSet -> UNI `/chat/json` SSE ->
+  UniSopMapper -> DRAFT SopGraph version, streamed back over UNE-SOP-002.
+
+  The mapper carries a version (`uni-sop-1`) recorded in
+  `sop_version.schema_version`. Design says UNI's compns structure is not
+  guaranteed to match the UNE standard, so without that value a wrong graph
+  cannot be attributed: UNI changed, or we mapped it wrong? The contract's
+  `schemaVersion: '1.0'` is a DIFFERENT value (the graph schema the client
+  asked for) and is renamed to `graphSchemaVersion` at the boundary.
+
+  Mapping failures are WARNINGS, not rejections — design 08 §1.11 says so, and
+  the reason is that this is streaming: a `__compn__` arrives at a time and
+  piles onto the canvas, so discarding the whole response over one empty field
+  would erase nodes the user already sees. Only two things are rejected, per
+  node: missing node key, unknown node type. Graph validation violations are
+  not failures either — the job COMPLETEs and the version is stored as DRAFT
+  with `graph_violations`, because CC-250 cannot fix what was never saved.
+
+  Four defects found by measurement, not by reading:
+    * `sop_version`/`sop_node`/`sop_edge` had NO RLS policies (0008 covered only
+      `sop`), so 0011's blanket grant left them open across tenants. THIRD time
+      this shape appeared — 0023 (six situation tables), 0031 (two evidence),
+      now three SOP tables. Each surfaced only when a work item opened the first
+      write path; more unused tables are likely in the same state.
+    * the worker had no read grant on the situation tables — the runner stalled
+      at RUNNING with `permission denied for table situation`. 0032 opened the
+      output and forgot the input. Opposite failure mode to the RLS gap: a
+      missing policy is silent cross-tenant exposure, a missing GRANT is a loud
+      stop. 0033 opens SELECT on situation/snapshot/evidence, and writes exactly
+      one column (`situation.status`) with a RESTRICTIVE policy pinning the
+      single transition CONTEXT_CONFIRMED -> SOP_READY.
+    * `SELECT ... FOR UPDATE` needs TABLE-level UPDATE, which column grants do
+      not provide. Rather than hand the worker full UPDATE on `sop` (it could
+      then rewrite title/hazard type), the lock was dropped; the API's
+      one-active-job guard is the serializer and the worst case is two SOPs,
+      not corruption.
+    * `EDGE_FROM_END` — a new violation the mock stream exposed. A `__compn__`
+      after `END` makes the sequential linking pass THROUGH the end node; the
+      graph is still a DAG and still has an END, so neither CYCLE nor NO_END
+      caught it. A procedure that continues past its end never terminates.
+
+  Node keys are normalized to the graph schema's
+  `^[A-Za-z][A-Za-z0-9_-]{1,79}$` with the original kept as `providerNodeKey`
+  and a `NODE_KEY_NORMALIZED` warning. Storing a Korean or digit-leading
+  `compnSn` verbatim would have made the version un-exportable at CC-250, when
+  fixing it means touching every stored version. `providerNodeKey` is excluded
+  from the graph hash — the same procedure must not look "changed" because UNI
+  renumbered internally.
+
+  SSE framing is a UNE ASSUMPTION (OB-04) and says so in the filename
+  (`uni-sop-sse.assumed.ts`), following the T3Q RPT-002 convention. The mock
+  builds a fake SSE body and runs it through the real parser, so the assumption
+  is actually exercised. `capability sopGeneration = UNE_ADAPTER_READY`; mock
+  success is never reported as UNI support.
+
+  The public SSE vocabulary is UNE's (`sop.node`, `sop.sources`), not UNI's —
+  if the wire vocabulary were the provider's, a provider change would break the
+  client contract. `__thinking__` is not streamed (design 08 §1.11) though it
+  stays in the retained raw frames.
+
+  The contract gate caught one of its own premises being wrong: `UNI-503-003`
+  looked like a declared-but-never-thrown code because the gate only read the
+  API error file. SOP generation is asynchronous, so UNI failures arrive as a
+  `job.failed` payload code — the stream already returned 200. The gate now
+  reads the worker runner too, and the contract description says explicitly
+  that this code is not an HTTP status.
+
+  The dual review found two BLOCKERs neither the tests nor I had caught, both
+  reproduced before fixing:
+    * a QUEUED SOP job could not be cancelled. `/plan-jobs/{id}/cancel` looked
+      up the job's aggregate_id (a situationId) as a plan, threw PLAN-4003, and
+      that 404 rolled back the CANCELLED write in the same transaction —
+      measured: 404 plus the job still QUEUED. SOP-409-001 tells the user to
+      cancel, so the guidance led into a dead end. Fixed by restoring plan
+      status only for PLAN jobs and adding a SOP-scoped cancel (UNE-SOP-017).
+    * job type was not checked anywhere, and `generation_job` is domain-blind.
+      A SOP_READ-only user could stream a plan job's content.block events, and
+      PLAN_GENERATE could cancel someone else's SOP job. All four job endpoints
+      now declare their allowed types and answer 404 outside them.
+  Also fixed: colliding normalized node keys rolled back the whole transaction
+  (23505) and the job then died as MAX_ATTEMPTS_EXCEEDED — a wrong reason for a
+  real defect; unbounded provider titles hit the same path via 22001; 0032 had
+  granted the worker a table-wide `sop_version` UPDATE nothing used (0034 takes
+  it back — it allowed rewriting an existing version's hash and provenance with
+  no audit trail); the UNI DTO and mapper sat in `packages/domain`, inverting
+  the dependency direction, and moved to the adapter package; out-of-scope
+  evidence was detectable all along (the ADR claimed otherwise) and is now
+  flagged, not blocked; provider document ids leaked into the public contract
+  and storage; the design's 30s first-event budget never fired because the
+  deadline check sat after `reader.read()`, so a silent stream ran to the 5-min
+  ceiling; a stream ending without a trailing newline turned a clean finish into
+  UNI_SOP_UNTERMINATED; provider `__error__` text reached the public SSE; and
+  raw frames over 200KB were dropped entirely instead of partially.
+
+  The contract gate had also passed a declared-but-never-thrown code
+  (`SOP-404-002`) because it counted definitions rather than call sites.
+
+  Tests after the fixes: domain 26, provider-adapters (uni/sop) 54, worker e2e
+  14, integration 193 (sop RLS + worker least privilege 18), contract 265+ (SOP
+  gate 19), API slice e2e 17. Migrations 31 -> 34, tables 63 unchanged.
+  Files: database/migrations/0032_sop_graph_and_generation.sql,
+  database/migrations/0033_worker_sop_source_reads.sql,
+  database/migrations/0034_revoke_worker_sop_version_update.sql,
+  packages/domain/src/sop/, packages/provider-adapters/src/uni/sop/,
+  services/api/src/sop/, services/worker/src/sop/,
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-38-cc240-uni-sop-generation-and-versioned-mapper.md,
+  docs/evidence/CC-240-uni-sop-generation.md,
+  tests/contract/src/sop.contract.test.ts,
+  tests/integration/src/sop-graph-rls.test.ts,
+  tests/e2e/src/sop-slice.e2e.test.ts.
+
 - CC-230 (2026-08-10): evidence search and the immutable EvidenceSet
   (UNE-KNOW-004~007, ADR-37, migration 0031).
   **Screen-flow states are not stored.** US-SIT-011 names nine; only DRAFT and
