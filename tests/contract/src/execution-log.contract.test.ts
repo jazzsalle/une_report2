@@ -443,16 +443,12 @@ describe('CC-290 계약: 판이 자기 근거와 어긋남을 밝힌다', () => 
 });
 
 describe('CC-290 계약: 투영 테이블을 만들지 않았다', () => {
-  it('journal_projection_item은 CC-300의 것이다', () => {
+  it('journal_projection_item에 손대지 않았다 — CC-300의 것이다', () => {
     // 주석으로 언급하는 것은 좋다 — 왜 안 썼는지가 남는다. 금지하는 것은
-    // 그 테이블에 손대는 것이다.
+    // 그 테이블에 손대는 것이다. CC-300이 실제로 열었고 RLS 목록에서도
+    // 닫혔으므로, 여기서는 0040이 건드리지 않았다는 것만 본다.
     const touches = /(?:CREATE|ALTER|INSERT INTO|DROP).*journal_projection_item/i;
     expect(MIGRATION).not.toMatch(touches);
-    const guard = readFileSync(
-      repoPath('tests', 'integration', 'src', 'rls-coverage.test.ts'),
-      'utf8',
-    );
-    expect(guard).toContain("'journal_projection_item'");
   });
 
   it('새 테이블을 만들지 않았다', () => {

@@ -133,7 +133,9 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
                                 'SOP_GENERATE','SOP_READ','SOP_EDIT','SOP_APPROVE',
                                 'SOP_RUN','SOP_RUN_CONTROL',
                                 'TASK_DISPATCH','TASK_READ','TASK_SUPERVISE',
-                                'DASHBOARD_READ','EXECUTION_READ','EXECUTION_CORRECT')
+                                'DASHBOARD_READ','EXECUTION_READ','EXECUTION_CORRECT',
+                                'JOURNAL_CREATE','JOURNAL_READ','JOURNAL_EDIT',
+                                'JOURNAL_AI_EDIT','JOURNAL_APPROVE','JOURNAL_EXPORT')
      WHERE r.tenant_id IS NULL AND r.role_code = 'INSTITUTION_ADMIN'
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
@@ -292,7 +294,12 @@ export function apiFor(harness: Harness) {
     method: string,
     path: string,
     token: string | null,
-    options: { body?: unknown; idempotencyKey?: string; correlationId?: string } = {},
+    options: {
+      body?: unknown;
+      idempotencyKey?: string;
+      correlationId?: string;
+      ifMatch?: string;
+    } = {},
   ): Promise<Response> =>
     fetch(`${harness.base}${path}`, {
       method,
@@ -301,6 +308,7 @@ export function apiFor(harness: Harness) {
         'content-type': 'application/json',
         ...(options.correlationId ? { 'x-correlation-id': options.correlationId } : {}),
         ...(options.idempotencyKey ? { 'idempotency-key': options.idempotencyKey } : {}),
+        ...(options.ifMatch ? { 'if-match': options.ifMatch } : {}),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });

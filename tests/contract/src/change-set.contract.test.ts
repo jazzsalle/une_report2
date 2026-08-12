@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
@@ -7,7 +9,7 @@ import {
   SELECTION_KINDS,
   type ChangeOperationType,
 } from '@une/domain';
-import { ajvErrors, contractValidators, loadJson, loadYaml } from './contract-loader';
+import { REPO_ROOT, ajvErrors, contractValidators, loadJson, loadYaml } from './contract-loader';
 
 /**
  * CC-150 — contracts/schemas/change-set.schema.json과 UNE-DOC-005~009 계약.
@@ -311,18 +313,23 @@ describe('어휘 동기(스키마 ↔ @une/domain ↔ OpenAPI)', () => {
     ]);
   });
 
-  it('Revision 출처 어휘는 0019의 CHECK와 같다', () => {
+  it('Revision 출처 어휘는 마이그레이션의 CHECK와 같다', () => {
     // ck_document_revision_origin. ChangeSet 출처와 다른 집합인 것이 정상이다
     // (누가 요청했나 vs 어떤 기제가 만들었나).
-    expect(contract.components.schemas.RevisionOrigin.enum).toEqual([
-      'IMPORT',
-      'MATERIALIZE',
-      'CHANGESET',
-      'AUTOSAVE',
-      'UNDO',
-      'REDO',
-      'RESTORE',
-    ]);
+    //
+    // 목록을 여기에 베껴 적지 않는다 — 0019가 정의하고 0043이 넓혔듯 어휘는
+    // 전방 마이그레이션으로 움직인다. 베낀 목록은 넓힐 때마다 두 곳을 고치게
+    // 하고, 고치는 김에 계약과 DB가 갈라져도 시험은 통과한다. **마지막으로
+    // 그 제약을 정의한 마이그레이션**을 읽어 비교한다.
+    const dir = resolve(REPO_ROOT, 'database/migrations');
+    const pattern = /ADD CONSTRAINT ck_document_revision_origin\s+CHECK \(origin IN \(([^)]*)\)\)/;
+    let vocabulary: string[] | null = null;
+    for (const file of readdirSync(dir).sort()) {
+      const match = pattern.exec(readFileSync(resolve(dir, file), 'utf8'));
+      if (match) vocabulary = [...match[1].matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+    }
+    expect(vocabulary).not.toBeNull();
+    expect(contract.components.schemas.RevisionOrigin.enum).toEqual(vocabulary);
   });
 });
 

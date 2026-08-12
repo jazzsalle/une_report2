@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+- CC-300 (2026-08-12): Situation journal projection, locked facts, editing,
+  and export (UNE-JNL-005-011, ADR-44, migrations 0042-0044).
+
+  The charter says the journal's fact cells are projected from the confirmed
+  SituationSnapshot and the Execution Log, and that AI may only improve
+  wording after comparing against facts. Both are now structural rather than
+  aspirational: no write path other than projection and fact-refresh touches
+  fact_payload_json, the projected fact paragraphs enter the document IR
+  locked so CC-150's changeset validator rejects them too, and the comparison
+  runs outward from the closed key set of the fact payload into the prose
+  instead of trying to parse numbers out of Korean sentences. AI proposals
+  that contradict a fact are not applied; human edits are allowed and carry a
+  visible warning, because a person may know something the screen does not
+  and blocking on a false positive teaches people to route around the tool.
+
+  A journal is a document. No second revision system was built: the design's
+  journal_revision / journal_section / ai_edit_proposal are document_revision,
+  journal_projection_item, and generation_job. The journal starts as an
+  imported copy of an HWPX form (revision 1 = the form, revision 2 = the
+  projection), which is what makes CC-160's preservation export apply at all -
+  the first implementation projected onto an empty IR and every export was
+  rejected for having no original package.
+
+  Drift is shown, never applied silently, and the guard sits at submit-review
+  where a person can still fix it. Blocking export on drift was wrong: an
+  approved journal in a live situation drifts within seconds and cannot be
+  refreshed, so it could never be exported. Export now requires APPROVED and
+  ships the approved revision, not the document head.
+
+  Dual review found four fatal defects and thirteen major ones (ADR-44
+  D14-D21). The worst: edits never reached the document revision, so the HWPX
+  carried the projection-time sentences while the screen showed the new ones;
+  the approved journal's document was not frozen, so the generic document
+  editing path could move it after approval; and the insertion anchor pointed
+  at a section id (later at an empty paragraph), which the preservation
+  serializer rejects - the request returned 202 and the worker failed
+  silently, which reads to the user as "it went out". The e2e now runs the
+  worker and downloads the bytes.
+
+  Files: database/migrations/0042-0044, packages/domain/src/journal/*,
+  packages/provider-adapters/src/journal/*,
+  packages/provider-adapters/src/capability/journal-narrative-capabilities.ts,
+  services/api/src/journal/*, services/api/src/document/*,
+  services/hwpx-engine/src/serialize/xml-delta.ts, apps/web/src/journal/*,
+  apps/web/src/ops/OpsWorkspace.tsx, contracts/openapi/une-platform-api-v1.yaml,
+  tests/{contract,e2e,integration}, docs/adr/ADR-44, docs/evidence/CC-300.
+
 - CC-290 (2026-08-12): Execution Log reads and the dashboard projection
   (UNE-JNL-001-004, ADR-43, migration 0040).
 

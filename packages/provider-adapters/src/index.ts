@@ -336,6 +336,10 @@ export {
   getUniKnowledgeCapability,
   type UniFeatureCapability,
 } from './capability/uni-knowledge-capabilities';
+export {
+  JOURNAL_NARRATIVE_CAPABILITIES,
+  type JournalNarrativeCapability,
+} from './capability/journal-narrative-capabilities';
 
 // ── UNI SOP 생성 포트 (CC-240) ──
 // SSE 프레이밍은 UNE 가정이다(OB-04) — `.assumed` 표기가 그 사실을 드러낸다.
@@ -395,3 +399,5 @@ export {
   type ChannelRegistryEnv,
   type SimulationChannelOptions,
 } from './channel/simulation-channel-adapter';
+export * from './journal/journal-narrative-port';
+export * from './journal/simulation-narrative-adapter';
