@@ -2,6 +2,283 @@
 
 ## Unreleased
 
+- CC-290 (2026-08-12): Execution Log reads and the dashboard projection
+  (UNE-JNL-001-004, ADR-43, migration 0040).
+
+  Five work items had been writing to the fact ledger and nothing could read
+  it. This opens it: timeline, event detail with correction lineage,
+  corrections, and the situation board.
+
+  The board is computed from events, not from task rows. CC-280 deliberately
+  left acknowledged_at/started_at/completed_at off the task table so that
+  "when did this become true" has exactly one source; letting the dashboard
+  count task rows instead would betray that, and the day the two disagree
+  there is no way to say which is right. The reversal cost decides it too:
+  counting rows removes the pressure to keep events complete, and the history
+  of any period spent that way is permanently unrecoverable, whereas the cost
+  of replay (it is O(events)) is recoverable with a cache later. Data loss is
+  one-way; slowness is not. The e2e proves it by editing a task row directly
+  and watching the board stay with what the events said.
+
+  Measuring first showed the event stream could not carry the KPIs. There
+  were no per-task creation or cancellation events (only a run-level count),
+  and - worse - the relay flipped tasks to SENT without writing anything to
+  the ledger at all. That is the same shape CC-280 fixed for notification
+  dispatches: a state change happening outside the fact ledger. It was an
+  audit problem then; the moment replay becomes the source of truth it is a
+  functional defect, because an invisible transition is a transition that
+  never happened. All three gaps are closed before the dashboard reads
+  anything. No missing history was synthesised - in an append-only audit
+  system, "we did not record it" is the honest answer.
+
+  Corrections form a star, not a chain: `corrects_event_id` always points at
+  the original, and correcting a correction is refused by both a trigger and
+  the API. A chain would mean recursing through lineage to answer "what is
+  true now", with no answer at all if one row is missing. The star makes the
+  effective version an O(1) lookup and still handles being wrong twice - you
+  correct the original again. The request is a partial patch; the server
+  merges it with the effective payload and stores the complete result, so
+  readers never replay a chain.
+
+  Only human-reported facts can be corrected. A state transition or a
+  dispatch outcome is a record that the system did that, and it is true by
+  construction; if the system was wrong the remedy is a new action - resend,
+  reject, reassign - not an edited record. `status` in particular can never be
+  changed by a correction, since allowing it would reintroduce through the
+  correction path the exact defect CC-280 just fixed. Corrections carry the
+  original's hash and the server recomputes and compares it before writing:
+  nothing gets stacked on top of a tampered original.
+
+  Originals are never hidden. Aggregates fold to the corrected value, the
+  timeline still shows the original with a "corrected" marker, and the detail
+  endpoint returns original payload, correction list and effective value
+  together.
+
+  Responses state their own provenance - event count, time axis, and the fact
+  that due dates come from the task row rather than from events (deadline
+  changes are not evented, so a past-time query still uses today's deadline).
+  The board prints that sentence on the page. Numbers without provenance get
+  read as complete facts.
+
+  No projection table. `journal_projection_item` belongs to CC-300, and
+  materialising the board would create a second thing that can disagree with
+  the events.
+
+  Dual review found sixteen real defects. The worst three: corrections were
+  folded as fresh observations, so correcting an old progress report on a
+  finished task pushed it back to in-progress on the board; the timeline item
+  schema combined allOf with additionalProperties:false, which in 2020-12
+  makes every instance invalid - the exact trap ADR-24 D4 documents in the
+  same file; and `recentEvents` served corrected payloads under the original's
+  id and hash, defeating the tamper signal D9 relies on.
+
+  Also fixed: TASK_CANCELLED carried no runId, so run-scoped boards dropped
+  cancelled tasks and showed them stuck in their previous state - the scope
+  now derives from the task set in the database rather than a payload field;
+  an oversized body returned 500 instead of 413; concurrent corrections
+  swallowed each other (serialised with an advisory lock, because an
+  append-only table cannot be row-locked by a role with no UPDATE - that
+  inability *is* the guarantee); the worker's table-wide INSERT included
+  corrects_event_id; the relay returned success without writing its event; the
+  index cited as justification was used by no query and two others duplicated
+  0007's; correction values had no length or depth limit, which matters
+  because an append-only ledger can never be masked afterwards; the correction
+  button had no confirmation for an action that cannot be undone; progressPct
+  leaked from the task row so past-time boards showed today's number; and
+  there was no path from a KPI to the events behind it.
+
+  Two documentation faults were mine to own. The ADR claimed an e2e
+  cross-checked replay against task rows; no such test existed. That is now
+  `provenance.divergences` - every query measures D1's premise, the board
+  prints it, and the e2e asserts it is empty on a clean run. And the ADR said
+  there were no query indexes or constraints before this item; 0007 had
+  already added two indexes and the FK.
+
+  Tests: domain 323 (execution-log 25), workspace 40 (board 13), contract 390
+  (CC-290 gate 38), API 434, integration 197, e2e 111 (CC-290 21), full suite
+  green. Migrations 39 -> 41, tables unchanged at 66, dictionary 66/654.
+  Files: database/migrations/0040_execution_log_projection.sql,
+  database/migrations/0041_execution_log_review_fixes.sql,
+  tests/e2e/src/contract-conformance.ts,
+  packages/domain/src/execution/execution-log.ts,
+  services/api/src/execution/, apps/web/src/board/,
+  services/worker/src/dispatch/outbox.repository.ts,
+  services/api/src/sop/sop-run.service.ts,
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-43-cc290-execution-log-and-dashboard-projection.md,
+  docs/evidence/CC-290-execution-log-and-dashboard.md,
+  tests/contract/src/execution-log.contract.test.ts,
+  tests/e2e/src/execution-log.e2e.test.ts.
+
+- CC-280 (2026-08-12): field task execution and two-layer assignee checks
+  (UNE-TASK-001/002/004-012, ADR-42, migration 0038).
+
+  CC-260 created tasks and CC-270 sent them, but nobody could actually do one.
+  This adds receiving, starting, reporting and finishing - and with it the run
+  finally ends by itself (`sop_run.COMPLETED`, which CC-260 left open).
+
+  No signed-link authentication. Design 09 routes the field screen at
+  `/task/:signedToken` and even numbers the errors, but there is currently no
+  way to deliver such a link: every channel except SYSTEM is simulated and
+  recipient addresses are not stored at all. A bearer path with zero users is
+  attack surface and nothing else, and its lifetime/rotation policy would be
+  pure guesswork until a real channel exists. Design 10 - which outranks the
+  screen design - gives these APIs `TASK_ASSIGNEE`/`TASK_SUPERVISE` and no
+  token. The reversal cost is asymmetric too: adding it later is an addition,
+  building it now and finding the real contract wants a different model is a
+  demolition.
+
+  Permission is not assignment. `TASK_ASSIGNEE` is a role many field workers
+  share, so it alone does not make someone the person who does this task. The
+  service checks the assignee, and every transition then runs as a conditional
+  UPDATE (`WHERE status = ... AND assignee_user_id = ...`). The second layer
+  matters because reassignment during a shift change is common: without it the
+  old assignee's in-flight request still lands. The e2e opens that window
+  deliberately.
+
+  Three states from design 09 are absent. DELIVERED needs a delivery receipt
+  nothing produces (OB-06). REJECTED is unobservable - rejecting *is* the move
+  back to IN_PROGRESS. REASSIGNED likewise: reassignment produces the new
+  assignee's SENT, and "previous assignee sees it read-only" is a per-viewer
+  screen state the UI computes from who holds the task. The last two live in
+  task_event and the screen draws its badge from the most recent one.
+
+  No acknowledged_at/started_at/completed_at columns. task_event already holds
+  actor, time and content append-only; a second copy makes "when did this
+  start" have two answers.
+
+  Completion requires a written result even when the SOP author left the
+  criteria blank - that usually means not-yet-written, not no-conditions, and
+  an empty completion report becomes an empty cell in the situation journal.
+  Attachments are *not* required by default: some tasks cannot be
+  photographed (a phone call, a broadcast request), and an unmeetable default
+  just teaches the field to upload any picture.
+
+  A run with an UNABLE_REPORTED task does not complete. Counting it as done
+  would leave a procedure step nobody performed sitting inside a finished run.
+
+  Notifications reuse the CC-270 outbox rather than calling a channel, and
+  they pick their recipient by kind - unable-to-perform goes to the commander,
+  not to the assignee who just filed it.
+
+  The field app's offline guarantee is one line: the idempotency key is made
+  once when queuing and reused on every retry. Design 09's acceptance
+  criterion is "syncs without duplicates after recovery" and that is all of
+  it. The queue drains in order and stops at the first network failure
+  (acknowledge before start, start before progress); server rejections are
+  dropped from the queue and shown, because retrying them forever would block
+  every valid report behind them. And the screen says "queued", never "sent" -
+  showing sent makes people believe the command post knows.
+
+  Added task_assignment (append-only, no released_at - an editable history is
+  not a history) and closed task_attachment in the RLS coverage list; eight
+  tables remain and the execution and dispatch families are now fully covered.
+
+  Dual review found thirteen real defects; all are fixed (ADR-42 D13-D15,
+  migration 0039). The worst: notification dispatches were quietly flipping
+  tasks to SENT, because the relay looked at `dispatch.task_id` without
+  checking the message type - escalating a task that had never been dispatched
+  was enough to make it read as "sent", and that transition went through
+  neither the state machine nor the ledger. A `TASK_NOTICE` type separates
+  them. Second: `advanceRun` took no lock, so approving two tasks at once left
+  every task COMPLETED and the run stuck in RUNNING with no way back. Third,
+  and mine to own: the contract's `SopRun.status` never gained COMPLETED even
+  though the server now serves it - and the assertion that would have caught
+  that is one I deleted in the same change. It is restored.
+
+  Also fixed: RUN_COMPLETED missing from the SSE vocabulary; event history
+  stamping every past event with the *current* status; the field screen not
+  knowing about `requiresEvidence`; the offline queue minting a fresh
+  idempotency key on every press (so re-entry duplicates survived, and
+  progress reports do not change state to absorb them); 401 treated as a
+  rejection, which threw away queued field reports on an expired session;
+  repositories leaning on RLS alone instead of the ADR-21 explicit tenant
+  join; the attachment policy ignoring the file's tenant; `geo` accepted as
+  shapeless JSON; and ADR/evidence text claiming an e2e proved something it
+  did not.
+
+  Tests: domain 298, field app 19, contract 352 (CC-280 gate 33), API 434,
+  integration 197, e2e 90 (CC-280 34), full suite green. Migrations 37 -> 39,
+  tables 65 -> 66, dictionary 66/654.
+  Files: database/migrations/0038_field_task_execution.sql,
+  database/migrations/0039_task_notice_and_settled_runs.sql,
+  packages/domain/src/task/field-task.ts, services/api/src/task/,
+  apps/field-web/src/{api,task,generated}/,
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-42-cc280-field-task-execution.md,
+  docs/evidence/CC-280-field-task-execution.md,
+  tests/contract/src/field-task.contract.test.ts,
+  tests/e2e/src/field-task.e2e.test.ts.
+
+- CC-270 (2026-08-12): Transactional Outbox and simulation channels
+  (UNE-TASK-003/013/014, ADR-41, migration 0037).
+
+  CC-260 created tasks that reached nobody. This sends them — except there is
+  no real SMS, email or push contract yet (OB-06), so three of the four
+  channels are simulations that record a send and deliver nothing.
+
+  Because "state change, execution event and outbox insert are one
+  transaction" is non-negotiable, the channel call cannot sit inside it. The
+  API commits *decided to send* — dispatch, recipients, outbox rows, ledger
+  entry, audit — and the worker relay picks the queue up afterwards. The
+  contract gate enforces it: no `.send(` inside the transaction body.
+
+  Whether a channel is simulated rides along in four places (adapter, attempt
+  record, API response, startup log). Reading a simulated success as "it went
+  out" means believing an order reached people who never got it, and in
+  disaster response that misreading is expensive.
+
+  DELIVERED is deliberately absent from the recipient vocabulary. Knowing
+  something arrived needs a delivery receipt and nothing here produces one;
+  adding the value now would park a state on the screen that can never be
+  reached. Tasks stop at SENT for the same reason.
+
+  Partial failure is not FAILED. If half the recipients got it and the screen
+  says failed, the operator resends everything and that half gets the same
+  order twice. And while any recipient is still in flight the rollup refuses to
+  conclude — calling it PARTIAL now would be a claim that becomes false when
+  the rest succeed.
+
+  Retries back off exponentially with a five-minute ceiling and deterministic
+  jitter: without the ceiling a blocked channel is retried after the incident
+  is over, and without jitter the hundreds that failed together retry together
+  and knock the channel down a second time. A non-retryable failure (bad
+  address) dead-letters on the first attempt rather than burning five.
+
+  channel_delivery was not created. Design 10 names it, but attempt detail
+  already lives in outbox_attempt and per-recipient outcome in
+  dispatch_recipient, and recipients already carry their channel — nothing is
+  left for it to hold. Same conclusion ADR-33 D4 reached for malware_scan.
+
+  The duplicate-suppression index gained a tenant column. 0007 keyed it on
+  (idempotency_key, channel), so two organisations using the same key would
+  have silently swallowed one of the two dispatches.
+
+  Two defects found by running it:
+    * the RESTRICTIVE worker policy used only USING, and USING applies to the
+      new row too — so the relay could not settle anything and messages sat in
+      SENDING. The rule is about not reopening finished rows, which is a
+      statement about the old row; WITH CHECK (true) fixes it.
+    * marking a task SENT hit "permission denied for table sop_run", because
+      the task RLS policy joins it and policy expressions run with the querying
+      role's privileges. Same shape as the gap 0033 closed.
+
+  Closed dispatch, dispatch_recipient and outbox_attempt in the RLS coverage
+  list — nine tables still open.
+
+  Tests: domain 23, contract 318 (dispatch gate 18), API slice e2e 9,
+  integration 197, full suite green. Migrations 36 -> 37, tables 65 unchanged,
+  dictionary 65/646.
+  Files: database/migrations/0037_outbox_relay_and_dispatch.sql,
+  packages/domain/src/dispatch/outbox.ts,
+  packages/provider-adapters/src/channel/,
+  services/worker/src/dispatch/, services/api/src/dispatch/,
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-41-cc270-transactional-outbox-and-simulation-channels.md,
+  docs/evidence/CC-270-outbox-and-dispatch.md,
+  tests/contract/src/dispatch.contract.test.ts,
+  tests/e2e/src/dispatch-outbox.e2e.test.ts.
+
 - CC-260 (2026-08-11): SopRun, Task and the explicit state machine
   (UNE-SOP-010~016, ADR-40, migration 0036).
 

@@ -512,7 +512,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-260
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - atomic write
   - retry/backoff/dead letter
@@ -522,13 +522,16 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-41-cc270-transactional-outbox-and-simulation-channels.md
+  - docs/evidence/CC-270-outbox-and-dispatch.md
+  - database/migrations/0037_outbox_relay_and_dispatch.sql
 - id: CC-280
   title: Implement field task acknowledge/start/progress/complete/reject/reassign
   gate: G3
   dependencies:
   - CC-270
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - responsive field flow
   - required evidence
@@ -538,13 +541,17 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-42-cc280-field-task-execution.md
+  - docs/evidence/CC-280-field-task-execution.md
+  - database/migrations/0038_field_task_execution.sql
+  - database/migrations/0039_task_notice_and_settled_runs.sql
 - id: CC-290
   title: Implement Execution Log and dashboard projections
   gate: G3
   dependencies:
   - CC-280
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - append-only event
   - correction event
@@ -554,7 +561,11 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-43-cc290-execution-log-and-dashboard-projection.md
+  - docs/evidence/CC-290-execution-log-and-dashboard.md
+  - database/migrations/0040_execution_log_projection.sql
+  - database/migrations/0041_execution_log_review_fixes.sql
 - id: CC-300
   title: Implement Journal Projection, locked facts, editing, and export
   gate: G3

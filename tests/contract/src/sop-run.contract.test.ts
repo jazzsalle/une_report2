@@ -67,12 +67,15 @@ const RUN_OPS = [
 ] as const;
 
 describe('CC-260 계약: 어휘가 세 곳에서 같다', () => {
-  it('실행 상태 4종 — COMPLETED/FAILED는 아직 없다', () => {
+  it('실행 상태 5종이 DB·도메인·계약에서 같다 (CC-280이 COMPLETED를 열었다)', () => {
     const fromDb = checkValues('ck_sop_run_status');
     expect(fromDb).toEqual([...SOP_RUN_STATUSES]);
+    // **계약 단언을 지우지 않는다.** CC-280에서 이 줄을 잠깐 지웠다가, 서버가
+    // COMPLETED를 내보내는데 계약은 그것을 모르는 상태를 통과시켰다. 어휘가
+    // 넓어질 때 고쳐야 하는 것은 기대값이지 단언 자체가 아니다.
     expect(schemas.SopRun.properties?.status.enum).toEqual(fromDb);
-    // 완료 보고 경로(CC-280)가 없는데 어휘만 넣지 않는다(0022 §1).
-    expect(fromDb).not.toContain('COMPLETED');
+    expect(fromDb).toContain('COMPLETED');
+    // 그 값을 만드는 경로가 아직 없다.
     expect(fromDb).not.toContain('FAILED');
   });
 
@@ -83,13 +86,21 @@ describe('CC-260 계약: 어휘가 세 곳에서 같다', () => {
     expect(schemas.SopRunCreateRequest.properties?.mode.enum).toEqual(fromDb);
   });
 
-  it('임무 상태 2종 — 전파·수행 상태는 아직 없다', () => {
+  it('SSE 공개 어휘가 실제로 흘리는 이벤트를 전부 담는다', () => {
+    // 계약 게이트가 "선언 ⊇ 어휘" 한 방향만 보면, 새 이벤트를 흘리기 시작해도
+    // 계약이 모르는 채로 통과한다. CC-280의 RUN_COMPLETED가 그랬다.
+    const op = operations.get('UNE-SOP-013');
+    const description = JSON.stringify(op?.responses ?? {});
+    for (const type of RUN_EVENT_TYPES) {
+      expect(description.includes(type), `SSE 어휘에 ${type}이 없다`).toBe(true);
+    }
+  });
+
+  it('임무 상태는 도메인·DB·계약이 같다 (CC-280이 수행 상태를 열었다)', () => {
     const fromDb = checkValues('ck_task_status');
     expect(fromDb).toEqual([...TASK_STATUSES]);
-    expect(schemas.Task.properties?.status.enum).toEqual(fromDb);
-    for (const later of ['SENT', 'DELIVERED', 'ACKNOWLEDGED', 'COMPLETED']) {
-      expect(fromDb, later).not.toContain(later);
-    }
+    // DELIVERED는 여전히 없다 — 수신영수증을 주는 실제 채널이 있어야 온다.
+    expect(fromDb).not.toContain('DELIVERED');
   });
 
   it('SSE 설명이 실제 이벤트 어휘를 적는다', () => {

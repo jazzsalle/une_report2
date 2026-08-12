@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type { PoolClient } from 'pg';
-import { canonicalJson, type RunEventType, type SopRunMode } from '@une/domain';
+import {
+  canonicalJson,
+  type RunEventType,
+  type SopRunMode,
+  type TaskExecutionEventType,
+} from '@une/domain';
 
 /**
  * SOP 실행·임무 저장소 (CC-260).
@@ -30,6 +35,7 @@ export interface TaskRow {
   title: string;
   status: string;
   assigneeUserId: string | null;
+  assigneeOrgId: string | null;
   dueAt: Date | null;
   progressPct: number;
   activatedAt: Date | null;
@@ -230,7 +236,7 @@ export class SopRunRepository {
   async listTasks(c: PoolClient, runId: string): Promise<TaskRow[]> {
     const r = await c.query(
       `SELECT t.task_id, t.run_id, t.node_id, n.node_key, t.title, t.status,
-              t.assignee_user_id, t.due_at, t.progress_pct, t.activated_at,
+              t.assignee_user_id, t.assignee_org_id, t.due_at, t.progress_pct, t.activated_at,
               t.completion_policy_json, t.created_at
          FROM task t JOIN sop_node n ON n.node_id = t.node_id
         WHERE t.run_id = $1
@@ -250,6 +256,7 @@ export class SopRunRepository {
         title: row.title as string,
         status: row.status as string,
         assigneeUserId: (row.assignee_user_id as string | null) ?? null,
+        assigneeOrgId: (row.assignee_org_id as string | null) ?? null,
         dueAt: (row.due_at as Date | null) ?? null,
         progressPct: Number(row.progress_pct),
         activatedAt: (row.activated_at as Date | null) ?? null,
@@ -264,13 +271,21 @@ export class SopRunRepository {
   async cancelOpenTasks(c: PoolClient, runId: string): Promise<string[]> {
     const r = await c.query(
       `UPDATE task SET status = 'CANCELLED', version_no = version_no + 1
-        WHERE run_id = $1 AND status = 'CREATED'
+        WHERE run_id = $1 AND status NOT IN ('COMPLETED', 'CANCELLED')
         RETURNING task_id`,
       [runId],
     );
     return r.rows.map((row) => row.task_id as string);
   }
 
+  /**
+   * 임무 이벤트 한 줄.
+   *
+   * **넣은 것을 그대로 돌려준다.** 목록을 다시 읽어 마지막을 취하면 한 조작이
+   * 이벤트를 둘 넣는 순간 틀린 행을 답한다 — `task_event`에는 순번이 없고
+   * `event_time`은 `now()`(트랜잭션 시작 시각)라 동률의 정렬 보조키가 랜덤
+   * UUID다.
+   */
   async insertTaskEvent(
     c: PoolClient,
     input: {
@@ -280,10 +295,11 @@ export class SopRunRepository {
       payload: Record<string, unknown>;
       correlationId: string;
     },
-  ): Promise<void> {
-    await c.query(
+  ): Promise<{ taskEventId: string; eventTime: Date }> {
+    const r = await c.query(
       `INSERT INTO task_event (task_id, event_type, event_time, actor_id, payload_json, correlation_id)
-       VALUES ($1, $2, now(), $3, $4, $5)`,
+       VALUES ($1, $2, now(), $3, $4, $5)
+       RETURNING task_event_id, event_time`,
       [
         input.taskId,
         input.eventType,
@@ -292,6 +308,10 @@ export class SopRunRepository {
         input.correlationId,
       ],
     );
+    return {
+      taskEventId: r.rows[0].task_event_id as string,
+      eventTime: r.rows[0].event_time as Date,
+    };
   }
 
   /**
@@ -307,7 +327,7 @@ export class SopRunRepository {
       situationId: string;
       aggregateType: string;
       aggregateId: string;
-      eventType: RunEventType;
+      eventType: RunEventType | TaskExecutionEventType;
       actorId: string | null;
       payload: Record<string, unknown>;
       correlationId: string;

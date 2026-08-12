@@ -23,6 +23,8 @@ export interface ApiConfig {
   publicBaseUrl: string;
   /** 업로드 상한. 선언 크기가 넘으면 사전등록 자체를 거부한다(FILE-422-001). */
   uploadMaxBytes: number;
+  /** JSON 요청 본문 상한. 초과는 413 `COM-0413`이다. */
+  jsonMaxBytes: number;
   /** 업로드 티켓 수명. 짧게 둔다 — 티켓은 인증 우회 경로다. */
   uploadTicketTtlSec: number;
   /**
@@ -99,6 +101,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     runtimeRole,
     publicBaseUrl: (env.UNE_PUBLIC_API_BASE_URL ?? `http://127.0.0.1:${port}`).replace(/\/+$/, ''),
     uploadMaxBytes: intEnv(env.UNE_UPLOAD_MAX_BYTES, 50 * 1024 * 1024),
+    jsonMaxBytes: intEnv(env.UNE_JSON_MAX_BYTES, 1024 * 1024),
     uploadTicketTtlSec: intEnv(env.UNE_UPLOAD_TICKET_TTL_SEC, 900),
     corsAllowedOrigins: parseOrigins(env.UNE_CORS_ALLOWED_ORIGINS),
     situationMockScenarios: env.UNE_SITUATION_MOCK_SCENARIOS === 'true',

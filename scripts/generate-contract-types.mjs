@@ -28,6 +28,13 @@ const targets = [
     output: 'apps/web/src/generated/une-platform-api.ts',
   },
   {
+    // CC-280: 현장 앱도 같은 계약에서 타입을 받는다. 임무 응답 모양을 손으로
+    // 다시 적으면 상태 어휘가 넓어질 때(그 일이 CC-260·270·280에서 세 번
+    // 있었다) 화면만 낡은 채 남는다.
+    contract: 'contracts/openapi/une-platform-api-v1.yaml',
+    output: 'apps/field-web/src/generated/une-platform-api.ts',
+  },
+  {
     contract: 'contracts/openapi/t3q-report-adapter-v0.8.5-une1.yaml',
     output: 'packages/provider-adapters/src/generated/t3q-report-adapter.ts',
   },

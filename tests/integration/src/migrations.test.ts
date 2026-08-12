@@ -66,6 +66,20 @@ const RLS_TABLES = [
   'sop_version',
   'sop_node',
   'sop_edge',
+  // 0035 (CC-250): 검토·승인은 도메인 전용 테이블이다(ADR-39).
+  'sop_review_request',
+  'sop_approval',
+  // 0036 (CC-260): 실행 계열. 테넌트는 situation이 들고 있어 1~3단 조인이다.
+  'sop_run',
+  'task',
+  'task_event',
+  // 0037 (CC-270): 전파 계열.
+  'dispatch',
+  'dispatch_recipient',
+  'outbox_attempt',
+  // 0038 (CC-280): 현장 첨부와 담당 이력. 이로써 실행 계열이 전부 닫혔다.
+  'task_attachment',
+  'task_assignment',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -80,11 +94,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 36 baseline migrations', async () => {
+  it('applies all 41 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(36);
+    expect(applied.rows).toHaveLength(41);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -151,7 +165,10 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
   // 수준 물리 설계가 없다 — 도메인 전용으로 실현했다(ADR-39). `generation_job`
   // 공용성이 CC-240에서 실제 권한 사고를 냈고, 전용 테이블은 FK를 걸 수 있고
   // RLS가 부모 조인 하나로 끝난다.
-  it('creates the 65-table baseline (+ sop_review_request, sop_approval)', async () => {
+  // CC-280이 `task_assignment` 하나를 더한다 — 0036 §7이 "재배정 이력이 필요한
+  // 시점에 온다"고 예고한 것이다. `task.assignee_user_id`는 지금의 담당자이고
+  // 이 테이블은 거쳐 간 담당자 전부다(append-only).
+  it('creates the 66-table baseline (+ sop_review_request, sop_approval, task_assignment)', async () => {
     const tables = await withClient(db.url, (c) =>
       c.query(
         `SELECT count(*)::int AS n FROM information_schema.tables
@@ -159,7 +176,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
            AND table_name <> 'pgmigrations'`,
       ),
     );
-    expect(tables.rows[0].n).toBe(65);
+    expect(tables.rows[0].n).toBe(66);
   });
 
   it('enables and forces RLS on all tenant-isolated tables', async () => {
@@ -233,11 +250,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0036 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0041 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0036
+    await migrate(db.url); // remaining: 0011 ~ 0041
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -252,7 +269,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(36);
+    expect(applied.rows[0].n).toBe(41);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

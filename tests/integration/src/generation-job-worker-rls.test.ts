@@ -24,11 +24,25 @@ const EXPECTED_WORKER_GRANTS = [
   'audit_log:SELECT',
   // 0020 (CC-160): Export 러너. 원본 문서/리비전은 읽기만, 산출물과 검증
   // 보고서는 INSERT만 — 둘 다 UPDATE/DELETE 없이 append-only다.
+  // 0037 (CC-270): 릴레이가 전파 상태를 갱신한다. 읽기와 **컬럼 단위** 쓰기뿐.
+  'dispatch:SELECT',
+  'dispatch_recipient:SELECT',
   'document:SELECT',
   'document_revision:SELECT',
   // 0033 (CC-240): SOP 생성의 입력. 읽기뿐이다.
   'evidence_item:SELECT',
   'evidence_set:SELECT',
+  // 0040 (CC-290): 릴레이가 임무를 SENT로 올릴 때 **사실원장에도 남긴다.**
+  // 그전에는 그 전이가 이벤트 없이 일어났고, 대시보드를 이벤트 재생으로
+  // 만들면서 그 구멍이 기능적 결함이 됐다. INSERT/SELECT뿐이다 —
+  // UPDATE/DELETE는 0011·0036이 막은 그대로다(append-only).
+  // 0040 (CC-290): 릴레이가 임무를 SENT로 올릴 때 **사실원장에도 남긴다** —
+  // 그전에는 그 전이가 이벤트 없이 일어났고, 대시보드를 이벤트 재생으로
+  // 만들면서 그 구멍이 기능적 결함이 됐다. UPDATE/DELETE는 0011·0036이 막은
+  // 그대로다. **INSERT는 0041이 컬럼 단위로 좁혔다**(아래 컬럼 목록) —
+  // 테이블 전체를 주면 `corrects_event_id`가 딸려 와 워커에게 정정 권한까지
+  // 준 셈이 된다.
+  'execution_event:SELECT',
   'export_job:SELECT',
   'export_job:UPDATE',
   'file_object:INSERT',
@@ -50,6 +64,10 @@ const EXPECTED_WORKER_GRANTS = [
   //     정책 결함으로 뚫리지 않는다 — 이 목록에 provider_result:SELECT가
   //     **없다는 것**이 그 보장이다.
   'knowledge_document:SELECT',
+  // 0037: 시도 이력은 append-only(INSERT만), 큐는 읽고 컬럼 단위로 종결한다.
+  'outbox_attempt:INSERT',
+  'outbox_attempt:SELECT',
+  'outbox_message:SELECT',
   'plan:SELECT',
   'plan:UPDATE',
   'plan_context_snapshot:SELECT',
@@ -70,8 +88,12 @@ const EXPECTED_WORKER_GRANTS = [
   'sop_edge:SELECT',
   'sop_node:INSERT',
   'sop_node:SELECT',
+  // 0037: `task`/`dispatch_recipient` 정책이 `sop_run`을 조인한다 — 정책식은
+  // 질의하는 롤의 권한으로 돌므로 이 SELECT가 없으면 릴레이가 42501을 만난다.
+  'sop_run:SELECT',
   'sop_version:INSERT',
   'sop_version:SELECT',
+  'task:SELECT',
   // UPDATE는 없다 — 0032가 줬으나 쓰는 코드가 없어 0034가 회수했다. 그
   // 권한으로는 기존 버전의 graph_hash·출처를 감사 없이 갈아치울 수 있었다.
   'template_profile:SELECT',
@@ -214,6 +236,21 @@ describe.skipIf(!ADMIN_URL)('generation_job worker role and dispatch RLS (CC-120
       ),
     );
     expect(cols.rows.map((r) => `${r.table_name}.${r.column_name}:${r.privilege_type}`)).toEqual([
+      // 0037: 전파 상태 롤업 한 칸씩. 본문·수신자 구성은 손대지 못한다.
+      'dispatch.status:UPDATE',
+      'dispatch_recipient.delivery_status:UPDATE',
+      // 0041: 릴레이가 남기는 사실원장 이벤트. **`corrects_event_id`가 없다** —
+      // 그것이 있으면 워커가 정정 이벤트를 넣을 수 있고, 0040의 트리거는
+      // 모양만 보지 누가 쓰는지는 보지 않는다.
+      'execution_event.actor_id:INSERT',
+      'execution_event.aggregate_id:INSERT',
+      'execution_event.aggregate_type:INSERT',
+      'execution_event.correlation_id:INSERT',
+      'execution_event.event_hash:INSERT',
+      'execution_event.event_type:INSERT',
+      'execution_event.payload_json:INSERT',
+      'execution_event.situation_id:INSERT',
+      'execution_event.tenant_id:INSERT',
       // 0030: 지식문서의 관측 결과 칸만. 파일·소유자·보존범위는 없다.
       'knowledge_document.error_json:UPDATE',
       'knowledge_document.provider_document_id:UPDATE',
@@ -221,6 +258,11 @@ describe.skipIf(!ADMIN_URL)('generation_job worker role and dispatch RLS (CC-120
       'knowledge_document.status:UPDATE',
       'knowledge_document.uni_observed_at:UPDATE',
       'knowledge_document.uni_status:UPDATE',
+      // 0037: 큐의 진행 칸만. **payload_json·idempotency_key는 없다** —
+      // 그것이 바뀌면 "무엇을 보내기로 했는가"가 사라진다.
+      'outbox_message.attempt_count:UPDATE',
+      'outbox_message.next_attempt_at:UPDATE',
+      'outbox_message.status:UPDATE',
       // 0030: UNI 잡의 결과 칸만. request_json·redacted_at은 **없다** —
       // 그 둘은 0026이 전용 롤 뒤로 격리한 컬럼이다.
       'provider_job.error_json:UPDATE',
@@ -232,6 +274,9 @@ describe.skipIf(!ADMIN_URL)('generation_job worker role and dispatch RLS (CC-120
       'situation.status:UPDATE',
       // 0033: SOP가 가리키는 현재 버전.
       'sop.current_version_id:UPDATE',
+      // 0037: 전파가 나간 임무를 SENT로 올린다. 제목·담당·기한은 못 바꾼다.
+      'task.status:UPDATE',
+      'task.version_no:UPDATE',
     ]);
   });
 

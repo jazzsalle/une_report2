@@ -72,6 +72,7 @@ function isExempt(fullPath: string): boolean {
  */
 const GENERATED_CONTRACT_TYPES = [
   'apps/web/src/generated/une-platform-api.ts',
+  'apps/field-web/src/generated/une-platform-api.ts',
   'services/api/src/generated/une-platform-api.ts',
 ];
 

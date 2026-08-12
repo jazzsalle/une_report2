@@ -56,6 +56,18 @@ import { uniKnowledgeFactory } from './knowledge/uni-knowledge.provider';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { KnowledgeRepository } from './knowledge/knowledge.repository';
 import { KnowledgeService } from './knowledge/knowledge.service';
+import { DispatchController, TaskDispatchController } from './dispatch/dispatch.controller';
+import { DispatchRepository } from './dispatch/dispatch.repository';
+import { DispatchService } from './dispatch/dispatch.service';
+import { TaskController } from './task/task.controller';
+import { TaskRepository } from './task/task.repository';
+import { TaskService } from './task/task.service';
+import {
+  ExecutionEventController,
+  SituationBoardController,
+} from './execution/execution.controller';
+import { ExecutionRepository } from './execution/execution.repository';
+import { ExecutionService } from './execution/execution.service';
 import { SopController } from './sop/sop.controller';
 import { SopRunController, SopRunStartController } from './sop/sop-run.controller';
 import { SopRunRepository } from './sop/sop-run.repository';
@@ -99,6 +111,11 @@ export class AppModule {
         SopController,
         SopRunStartController,
         SopRunController,
+        TaskDispatchController,
+        DispatchController,
+        TaskController,
+        SituationBoardController,
+        ExecutionEventController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -153,6 +170,14 @@ export class AppModule {
         // CC-260: 실행 수명주기와 임무 생성·활성화(UNE-SOP-010~016).
         SopRunRepository,
         SopRunService,
+        // CC-270: 전파 접수와 Transactional Outbox(UNE-TASK-003/013/014).
+        // 실제 발송은 워커 릴레이가 한다 — 외부 호출이 트랜잭션 안에 없다.
+        DispatchRepository,
+        DispatchService,
+        TaskRepository,
+        TaskService,
+        ExecutionRepository,
+        ExecutionService,
         objectStorageProvider,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;
