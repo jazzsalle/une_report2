@@ -65,10 +65,11 @@ export function isRunSettled(status: string): boolean {
 /**
  * 임무 상태.
  *
- * CC-260이 만드는 것은 둘뿐이다 — 생성과, 실행이 강제종료될 때의 취소.
- * 전파(SENT/DELIVERED)는 CC-270, 수행(ACKNOWLEDGED~COMPLETED)은 CC-280이다.
+ * CC-260은 생성과 취소 둘이었고, CC-270이 예고대로 `SENT`를 열었다 — 전파가
+ * 나간 임무다. `DELIVERED`는 수신영수증을 주는 실제 채널이 붙어야 오고(OB-06),
+ * 수행(ACKNOWLEDGED~COMPLETED)은 CC-280이 연다.
  */
-export const TASK_STATUSES = ['CREATED', 'CANCELLED'] as const;
+export const TASK_STATUSES = ['CREATED', 'SENT', 'CANCELLED'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /**

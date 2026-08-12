@@ -8,12 +8,17 @@ import { MockLegacyT3qPlanAdapter } from '@une/provider-adapters';
 import {
   ContentJobRunner,
   ExportJobRunner,
+  OutboxRelayRunner,
   SopJobRunner,
   TocJobRunner,
   WorkerDatabase,
   loadWorkerConfig,
 } from '@une/worker';
-import { MemoryObjectStorage, MockUniSopAdapter } from '@une/provider-adapters';
+import {
+  MemoryObjectStorage,
+  MockUniSopAdapter,
+  createChannelRegistry,
+} from '@une/provider-adapters';
 
 /**
  * 슬라이스 E2E 하네스 (CC-170).
@@ -60,6 +65,8 @@ export interface Harness {
   exports: ExportJobRunner;
   /** CC-240: SOP 생성 러너. UNI는 mock이다 — 실 UNI 지원이 아니다. */
   sop: SopJobRunner;
+  /** CC-270: Outbox 릴레이. 채널은 SYSTEM만 진짜이고 나머지는 시뮬레이션이다. */
+  outbox: OutboxRelayRunner;
   storage: MemoryObjectStorage;
   close(): Promise<void>;
 }
@@ -113,7 +120,8 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
        ON p.permission_code IN ('PLAN_CREATE','PLAN_READ','PLAN_EDIT','PLAN_GENERATE',
                                 'FILE_UPLOAD','DOC_READ','DOC_EDIT','DOC_EXPORT',
                                 'SOP_GENERATE','SOP_READ','SOP_EDIT','SOP_APPROVE',
-                                'SOP_RUN','SOP_RUN_CONTROL')
+                                'SOP_RUN','SOP_RUN_CONTROL',
+                                'TASK_DISPATCH','TASK_READ')
      WHERE r.tenant_id IS NULL AND r.role_code = 'INSTITUTION_ADMIN'
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
@@ -230,6 +238,13 @@ export async function startHarness(label: string): Promise<Harness> {
     sop: new SopJobRunner(
       workerDb,
       new MockUniSopAdapter({ scenariosEnabled: true }),
+      workerConfig,
+    ),
+    // 시나리오 훅을 켠다 — 재시도·dead letter가 실제로 도는지 보려면 실패가
+    // 필요하다.
+    outbox: new OutboxRelayRunner(
+      workerDb,
+      createChannelRegistry({ UNE_CHANNEL_SCENARIOS: 'true' }),
       workerConfig,
     ),
     async close(): Promise<void> {

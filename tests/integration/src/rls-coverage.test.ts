@@ -43,10 +43,7 @@ const KNOWN_OPEN: readonly string[] = [
   // 실행 계열 — CC-260이 sop_run·task·task_event를 닫았다.
   // task_attachment는 현장 파일 등록(CC-280)이 열 때 닫는다.
   'task_attachment',
-  // 전파 계열 — CC-270(Outbox/Dispatch)이 연다
-  'dispatch',
-  'dispatch_recipient',
-  'outbox_attempt',
+  // 전파 계열은 CC-270이 닫았다(dispatch·dispatch_recipient·outbox_attempt).
   // 일지 계열 — CC-280(Journal)이 연다
   'journal',
   'journal_projection_item',
@@ -117,7 +114,7 @@ describe.skipIf(!ADMIN_URL)('RLS 커버리지 — 정책 없는 테이블이 늘
     expect(stale).toEqual([]);
   });
 
-  it('CC-250·CC-260이 연 테이블은 정책과 FORCE RLS를 갖는다', () => {
+  it('CC-250·CC-260·CC-270이 연 테이블은 정책과 FORCE RLS를 갖는다', () => {
     for (const name of [
       'sop_validation',
       'sop_review_request',
@@ -125,6 +122,9 @@ describe.skipIf(!ADMIN_URL)('RLS 커버리지 — 정책 없는 테이블이 늘
       'sop_run',
       'task',
       'task_event',
+      'dispatch',
+      'dispatch_recipient',
+      'outbox_attempt',
     ]) {
       const row = rows.find((r) => r.relname === name);
       expect(row, name).toBeDefined();

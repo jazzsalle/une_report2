@@ -84,8 +84,9 @@ describe('실행 상태 전이', () => {
 });
 
 describe('임무 상태', () => {
-  it('CC-260이 만드는 것은 둘이다', () => {
-    expect([...TASK_STATUSES]).toEqual(['CREATED', 'CANCELLED']);
+  it('전파까지 열렸고 수행 상태는 아직 없다', () => {
+    // CC-260은 CREATED/CANCELLED 둘이었고 CC-270이 SENT를 예고대로 열었다.
+    expect([...TASK_STATUSES]).toEqual(['CREATED', 'SENT', 'CANCELLED']);
   });
 
   it('ACTION만 임무가 된다', () => {

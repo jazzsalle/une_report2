@@ -83,11 +83,12 @@ describe('CC-260 계약: 어휘가 세 곳에서 같다', () => {
     expect(schemas.SopRunCreateRequest.properties?.mode.enum).toEqual(fromDb);
   });
 
-  it('임무 상태 2종 — 전파·수행 상태는 아직 없다', () => {
+  it('임무 상태는 도메인·DB·계약이 같다 (CC-270이 SENT를 열었다)', () => {
     const fromDb = checkValues('ck_task_status');
     expect(fromDb).toEqual([...TASK_STATUSES]);
     expect(schemas.Task.properties?.status.enum).toEqual(fromDb);
-    for (const later of ['SENT', 'DELIVERED', 'ACKNOWLEDGED', 'COMPLETED']) {
+    // 수행 상태는 여전히 CC-280의 것이다.
+    for (const later of ['DELIVERED', 'ACKNOWLEDGED', 'COMPLETED']) {
       expect(fromDb, later).not.toContain(later);
     }
   });

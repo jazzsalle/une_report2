@@ -65,6 +65,13 @@ export interface WorkerConfig {
    * 화면은 "생성 중"인 채로 멈춘 것처럼 보인다 — 기동 로그가 그 사실을 적는다.
    */
   sopEnabled: boolean;
+  /**
+   * Outbox 릴레이를 폴러에 얹을지 (CC-270).
+   *
+   * 끄면 전파가 PENDING으로 쌓인다 — 접수는 되는데 아무 데도 가지 않는다.
+   * 기동 로그가 그 사실을 적는다.
+   */
+  outboxEnabled: boolean;
 }
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -170,6 +177,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     knowledgePollIntervalMs: intFrom(env.UNE_KNOWLEDGE_POLL_INTERVAL_MS, 15_000),
     knowledgeEnabled: env.UNE_KNOWLEDGE_ENABLED !== 'false',
     sopEnabled: env.UNE_SOP_ENABLED !== 'false',
+    outboxEnabled: env.UNE_OUTBOX_ENABLED !== 'false',
   };
 }
 
