@@ -32,6 +32,17 @@ const EXPECTED_WORKER_GRANTS = [
   // 0033 (CC-240): SOP 생성의 입력. 읽기뿐이다.
   'evidence_item:SELECT',
   'evidence_set:SELECT',
+  // 0040 (CC-290): 릴레이가 임무를 SENT로 올릴 때 **사실원장에도 남긴다.**
+  // 그전에는 그 전이가 이벤트 없이 일어났고, 대시보드를 이벤트 재생으로
+  // 만들면서 그 구멍이 기능적 결함이 됐다. INSERT/SELECT뿐이다 —
+  // UPDATE/DELETE는 0011·0036이 막은 그대로다(append-only).
+  // 0040 (CC-290): 릴레이가 임무를 SENT로 올릴 때 **사실원장에도 남긴다** —
+  // 그전에는 그 전이가 이벤트 없이 일어났고, 대시보드를 이벤트 재생으로
+  // 만들면서 그 구멍이 기능적 결함이 됐다. UPDATE/DELETE는 0011·0036이 막은
+  // 그대로다. **INSERT는 0041이 컬럼 단위로 좁혔다**(아래 컬럼 목록) —
+  // 테이블 전체를 주면 `corrects_event_id`가 딸려 와 워커에게 정정 권한까지
+  // 준 셈이 된다.
+  'execution_event:SELECT',
   'export_job:SELECT',
   'export_job:UPDATE',
   'file_object:INSERT',
@@ -228,6 +239,18 @@ describe.skipIf(!ADMIN_URL)('generation_job worker role and dispatch RLS (CC-120
       // 0037: 전파 상태 롤업 한 칸씩. 본문·수신자 구성은 손대지 못한다.
       'dispatch.status:UPDATE',
       'dispatch_recipient.delivery_status:UPDATE',
+      // 0041: 릴레이가 남기는 사실원장 이벤트. **`corrects_event_id`가 없다** —
+      // 그것이 있으면 워커가 정정 이벤트를 넣을 수 있고, 0040의 트리거는
+      // 모양만 보지 누가 쓰는지는 보지 않는다.
+      'execution_event.actor_id:INSERT',
+      'execution_event.aggregate_id:INSERT',
+      'execution_event.aggregate_type:INSERT',
+      'execution_event.correlation_id:INSERT',
+      'execution_event.event_hash:INSERT',
+      'execution_event.event_type:INSERT',
+      'execution_event.payload_json:INSERT',
+      'execution_event.situation_id:INSERT',
+      'execution_event.tenant_id:INSERT',
       // 0030: 지식문서의 관측 결과 칸만. 파일·소유자·보존범위는 없다.
       'knowledge_document.error_json:UPDATE',
       'knowledge_document.provider_document_id:UPDATE',

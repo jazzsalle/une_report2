@@ -62,6 +62,12 @@ import { DispatchService } from './dispatch/dispatch.service';
 import { TaskController } from './task/task.controller';
 import { TaskRepository } from './task/task.repository';
 import { TaskService } from './task/task.service';
+import {
+  ExecutionEventController,
+  SituationBoardController,
+} from './execution/execution.controller';
+import { ExecutionRepository } from './execution/execution.repository';
+import { ExecutionService } from './execution/execution.service';
 import { SopController } from './sop/sop.controller';
 import { SopRunController, SopRunStartController } from './sop/sop-run.controller';
 import { SopRunRepository } from './sop/sop-run.repository';
@@ -108,6 +114,8 @@ export class AppModule {
         TaskDispatchController,
         DispatchController,
         TaskController,
+        SituationBoardController,
+        ExecutionEventController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -168,6 +176,8 @@ export class AppModule {
         DispatchService,
         TaskRepository,
         TaskService,
+        ExecutionRepository,
+        ExecutionService,
         objectStorageProvider,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;

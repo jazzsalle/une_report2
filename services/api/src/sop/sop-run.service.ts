@@ -305,11 +305,29 @@ export class SopRunService {
       // 수정을 막는다(그것이 의도다).
       const cancelled = await this.runs.cancelOpenTasks(c, runId);
       for (const taskId of cancelled) {
+        const payload = {
+          reason: reason(input.reason),
+          runTerminated: true,
+          status: 'CANCELLED',
+        };
         await this.runs.insertTaskEvent(c, {
           taskId,
           eventType: 'CANCELLED',
           actorId: auth.userId,
-          payload: { reason: reason(input.reason), runTerminated: true },
+          payload,
+          correlationId: meta.correlationId,
+        });
+        // **임무별로도 사실원장에 남긴다.** 실행 단위 요약(`taskCount`)만으로는
+        // 어느 임무가 접혔는지 알 수 없어 시점 재생이 그 임무를 영원히
+        // 직전 상태로 본다(CC-290).
+        await this.runs.insertExecutionEvent(c, {
+          tenantId: auth.tenantId,
+          situationId: run.situationId,
+          aggregateType: 'TASK',
+          aggregateId: taskId,
+          eventType: 'TASK_CANCELLED',
+          actorId: auth.userId,
+          payload,
           correlationId: meta.correlationId,
         });
       }
@@ -383,15 +401,36 @@ export class SopRunService {
         activated: active.has(node.nodeKey),
       });
       taskCount += 1;
+      const payload = {
+        nodeKey: node.nodeKey,
+        activated: active.has(node.nodeKey),
+        title: node.title,
+        status: 'CREATED',
+      };
       await this.runs.insertTaskEvent(c, {
         taskId,
         eventType: 'CREATED',
         actorId: auth.userId,
-        payload: { nodeKey: node.nodeKey, activated: active.has(node.nodeKey) },
+        payload,
+        correlationId: meta.correlationId,
+      });
+      // **임무별로도 사실원장에 남긴다.** 실행 단위 요약(`taskCount`)만으로는
+      // 어느 임무가 언제 생겼는지 알 수 없어 시점 재생이 불가능하다 —
+      // CC-290이 대시보드를 이벤트에서 계산하기 때문에 이것이 있어야 한다.
+      await this.runs.insertExecutionEvent(c, {
+        tenantId: auth.tenantId,
+        situationId: run.situationId,
+        aggregateType: 'TASK',
+        aggregateId: taskId,
+        eventType: 'TASK_CREATED',
+        actorId: auth.userId,
+        payload: { ...payload, runId: run.runId },
         correlationId: meta.correlationId,
       });
     }
 
+    // 실행 단위 요약. 임무별 이벤트는 위에서 하나씩 남겼다 — **요약만으로는
+    // 시점 재생이 불가능하다**(CC-290이 대시보드를 이벤트에서 계산한다).
     await this.recordEvent(c, auth, meta, run, 'TASK_CREATED', {
       taskCount,
       activeNodeKeys: [...active],

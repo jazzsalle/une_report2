@@ -7351,13 +7351,26 @@ paths:
         required: true
         schema:
           type: string
+      - name: at
+        in: query
+        required: false
+        description: 이 시점의 판. 생략하면 지금이다. occurredAt 축으로 해석한다.
+        schema:
+          type: string
+          format: date-time
+      - name: runId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Situation'
+                $ref: '#/components/schemas/DashboardView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7375,11 +7388,15 @@ paths:
       x-une-api-id: UNE-JNL-001
       x-permission: DASHBOARD_READ
       x-db-tables:
-      - situation_snapshot
-      - task
       - execution_event
+      - task
+      - sop_run
+      - situation_snapshot
+      - situation
       x-error-codes:
+      - COM-0400
       - DASH-8001
+      - SIT-404-001
       security:
       - BearerAuth: []
   /situations/{id}/execution-events:
@@ -7405,13 +7422,62 @@ paths:
         required: true
         schema:
           type: string
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: type
+        in: query
+        required: false
+        description: 이벤트 종류 정확 일치.
+        schema:
+          type: string
+          maxLength: 50
+      - name: actor
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: aggregateType
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - TASK
+          - SOP_RUN
+          - DISPATCH
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Situation'
+                $ref: '#/components/schemas/ExecutionEventPage'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7430,8 +7496,11 @@ paths:
       x-permission: EXECUTION_READ
       x-db-tables:
       - execution_event
+      - situation
       x-error-codes:
+      - COM-0400
       - EXEC-8002
+      - SIT-404-001
       security:
       - BearerAuth: []
   /execution-events/{eventId}:
@@ -7463,7 +7532,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/ExecutionEventDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7482,9 +7551,8 @@ paths:
       x-permission: EXECUTION_READ
       x-db-tables:
       - execution_event
-      - task_event
-      - dispatch
       x-error-codes:
+      - COM-0400
       - EXEC-404-001
       security:
       - BearerAuth: []
@@ -7513,12 +7581,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
+                $ref: '#/components/schemas/ExecutionEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7539,13 +7607,18 @@ paths:
       - execution_event
       - audit_log
       x-error-codes:
+      - COM-0400
+      - COM-0413
+      - EXEC-400-001
+      - EXEC-404-001
       - EXEC-409-001
+      - EXEC-409-002
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/ExecutionCorrectionRequest'
       security:
       - BearerAuth: []
   /situations/{id}/journal-projections:
@@ -13717,6 +13790,467 @@ components:
           nullable: true
         correlationId:
           type: string
+    ExecutionEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - eventId
+      - situationId
+      - aggregateType
+      - aggregateId
+      - eventType
+      - occurredAt
+      - recordedAt
+      - payload
+      - eventHash
+      description: |
+        사실원장 한 줄. **append-only다** - 원본은 어떤 경로로도 바뀌지 않고
+        정정은 `correctsEventId`를 가진 새 이벤트다.
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        situationId:
+          type: string
+          format: uuid
+        aggregateType:
+          type: string
+          enum:
+          - TASK
+          - SOP_RUN
+          - DISPATCH
+        aggregateId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+          description: 업무시각. `at` 질의가 해석하는 축이다.
+        recordedAt:
+          type: string
+          format: date-time
+          description: 기록시각. 늦은 보고면 occurredAt과 다르다.
+        actorId:
+          type: string
+          format: uuid
+          nullable: true
+          description: 시스템이 남긴 이벤트는 비어 있다(릴레이의 TASK_SENT 등).
+        payload:
+          type: object
+          additionalProperties: true
+        correctsEventId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            정정 대상 **원본**. 정정 이벤트만 갖고, 정정을 다시 가리킬 수 없다
+            (star 구조 - 사슬이면 "지금 사실"에 답하려고 재귀를 따라가야 한다).
+        correlationId:
+          type: string
+        eventHash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+    ExecutionEventTimelineItem:
+      type: object
+      additionalProperties: false
+      description: |
+        타임라인 한 줄. ExecutionEvent에 표시 하나를 더한 것이다.
+
+        **allOf로 쓰지 않는다.** 2020-12에서 allOf의 각 브랜치는 독립 평가되므로
+        (a) 어느 브랜치에 additionalProperties:false를 두면 형제 브랜치의
+        property를 보지 못하고, (b) 닫힌 기반 스키마를 참조하면 더한 property를
+        그 기반이 거부한다. 둘 다 **모든 인스턴스를 무효로 만든다**(ADR-24 D4).
+        그래서 닫힌 객체 하나로 펼친다.
+      required:
+      - eventId
+      - situationId
+      - aggregateType
+      - aggregateId
+      - eventType
+      - occurredAt
+      - recordedAt
+      - payload
+      - eventHash
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        situationId:
+          type: string
+          format: uuid
+        aggregateType:
+          type: string
+          enum:
+          - TASK
+          - SOP_RUN
+          - DISPATCH
+        aggregateId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+          description: 업무시각. `at` 질의가 해석하는 축이다.
+        recordedAt:
+          type: string
+          format: date-time
+          description: 기록시각. 늦은 보고면 occurredAt과 다르다.
+        actorId:
+          type: string
+          format: uuid
+          nullable: true
+          description: 시스템이 남긴 이벤트는 비어 있다(릴레이의 TASK_SENT 등).
+        payload:
+          type: object
+          additionalProperties: true
+        correctsEventId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            정정 대상 **원본**. 정정 이벤트만 갖고, 정정을 다시 가리킬 수 없다
+            (star 구조 - 사슬이면 "지금 사실"에 답하려고 재귀를 따라가야 한다).
+        correlationId:
+          type: string
+        eventHash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        correctedBy:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          description: |
+            이 원본을 정정한 이벤트. **원본을 감추지 않는다** - 타임라인은
+            원본을 그대로 보이고 표시만 단다(설계 09 REG-05). 한 쪽 안에서
+            찾지 못하면 null이므로 정본은 상세(UNE-JNL-003)다.
+    ExecutionEventPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      - size
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExecutionEventTimelineItem'
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+    ExecutionEventDetail:
+      type: object
+      additionalProperties: false
+      required:
+      - event
+      - corrections
+      - effectivePayload
+      - correctable
+      description: |
+        원본과 정정 lineage를 함께 낸다(설계 09 REG-05). 원본을 숨기는 표현은
+        두지 않는다 - 감사 관점에서 "무엇이 있었고 무엇으로 고쳤는가"가 둘 다
+        보여야 한다.
+      properties:
+        event:
+          $ref: '#/components/schemas/ExecutionEvent'
+        corrections:
+          type: array
+          description: 이 원본을 정정한 것들. **가장 나중 것이 유효본이다.**
+          items:
+            $ref: '#/components/schemas/ExecutionEvent'
+        effectivePayload:
+          type: object
+          additionalProperties: true
+          description: 지금 사실. 정정이 없으면 원본 payload와 같다.
+        correctsEvent:
+          anyOf:
+          - $ref: '#/components/schemas/ExecutionEvent'
+          - type: 'null'
+        correctable:
+          type: boolean
+          description: |
+            화면이 "정정" 버튼을 보일지 판단한다. 편의이지 통제가 아니다 -
+            서버가 다시 검사한다.
+    ExecutionCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - reason
+      - replacementFields
+      description: |
+        UNE-JNL-004. **원본을 고치지 않는다.** `replacementFields`는 부분
+        패치이고, 서버가 유효 payload와 병합해 완성본을 새 이벤트에 저장한다 -
+        읽는 쪽이 매번 체인을 재생하지 않아도 되게.
+
+        **사람이 보고한 사실만 정정할 수 있다.** 상태 전이나 전파 결과 같은
+        시스템 관측 이벤트는 "시스템이 그때 그렇게 했다"는 기록이라 그 자체로
+        참이고, 잘못이면 새 조치(재전파·반려·재배정)로 바로잡는다.
+      properties:
+        reason:
+          type: string
+          maxLength: 2000
+          description: 사유 없는 정정은 감사에서 "누군가 값을 바꿨다"로만 남는다.
+        replacementFields:
+          type: object
+          additionalProperties: true
+          maxProperties: 30
+          description: |
+            바꿀 값만. `status`·`runId`·`taskId` 같은 시스템 참조는 바꿀 수
+            없다 - 특히 `status`를 허용하면 "과거 이력에 현재 상태가 붙던"
+            CC-280의 결함을 정정 경로로 다시 들여오는 셈이다.
+    DashboardKpi:
+      type: object
+      additionalProperties: false
+      required:
+      - total
+      - notDispatched
+      - awaitingAck
+      - inProgress
+      - completed
+      - unable
+      - cancelled
+      - overdue
+      description: |
+        설계 09 SCR-BOARD-001 REG-01(전체/진행/완료/지연/실패/미수신).
+        **임무 행을 세지 않고 이벤트를 접어 만든다** - 그래야 `at` 질문에
+        답할 수 있다.
+      properties:
+        total:
+          type: integer
+        notDispatched:
+          type: integer
+          description: 아직 전파되지 않음.
+        awaitingAck:
+          type: integer
+          description: 전파됐으나 수신확인 없음(설계의 "미수신").
+        inProgress:
+          type: integer
+        completed:
+          type: integer
+        unable:
+          type: integer
+          description: 수행불가로 보고됨(설계의 "실패").
+        cancelled:
+          type: integer
+        overdue:
+          type: integer
+          description: 기한을 넘겼고 아직 끝나지 않음.
+    DashboardTask:
+      type: object
+      additionalProperties: false
+      required:
+      - taskId
+      - runId
+      - nodeKey
+      - title
+      - status
+      - statusEventId
+      - progressPct
+      - overdue
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+        nodeKey:
+          type: string
+        title:
+          type: string
+        assigneeUserId:
+          type: string
+          format: uuid
+          nullable: true
+        assigneeOrgId:
+          type: string
+          format: uuid
+          nullable: true
+        dueAt:
+          type: string
+          format: date-time
+          nullable: true
+        progressPct:
+          anyOf:
+          - type: number
+          - type: 'null'
+          description: |
+            **이벤트에서 복원한** 그 시점의 진행률. 임무 행의 현재 값이 아니다 -
+            그것을 쓰면 과거 판이 오늘의 진행률을 보여 준다. null이면 아직
+            보고되지 않았다.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/TaskStatus'
+          description: '**이벤트에서 복원한** 그 시점의 상태 (임무 행의 현재 값이 아니다).'
+        statusEventId:
+          type: string
+          format: uuid
+          description: |
+            그 상태를 만든 이벤트. **KPI에서 사실원장으로 내려가는 길**이다
+            (설계 06 drill-down) - 이것이 없으면 "미수신 3건"에서 그 셋의 근거로
+            갈 방법이 없다.
+        overdue:
+          type: boolean
+    DashboardView:
+      type: object
+      additionalProperties: false
+      required:
+      - situationId
+      - title
+      - mode
+      - status
+      - at
+      - stale
+      - staleAfterMs
+      - kpi
+      - tasks
+      - runs
+      - recentEvents
+      - provenance
+      description: |
+        전자상황판. `at`을 주면 **그 시점의 판**을 낸다 - 이벤트를 재생해
+        복원하므로 "그때 지휘소가 무엇을 보고 있었는가"에 답할 수 있다.
+      properties:
+        situationId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        mode:
+          type: string
+        status:
+          type: string
+        at:
+          type: string
+          format: date-time
+        lastEventAt:
+          type: string
+          format: date-time
+          nullable: true
+        stale:
+          type: boolean
+          description: |
+            마지막 이벤트가 오래됐다. 조용한 것일 수도, 갱신이 끊긴 것일 수도
+            있다 - 화면이 둘을 구분하지 못하면 끊긴 화면을 믿는다(설계 09 STALE).
+        staleAfterMs:
+          type: integer
+        kpi:
+          $ref: '#/components/schemas/DashboardKpi'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardTask'
+        runs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - runId
+            - mode
+            - status
+            - startedAt
+            properties:
+              runId:
+                type: string
+                format: uuid
+              mode:
+                type: string
+              status:
+                type: string
+              startedAt:
+                type: string
+                format: date-time
+        snapshot:
+          type: object
+          additionalProperties: false
+          nullable: true
+          required:
+          - snapshotId
+          - versionNo
+          - effectiveAt
+          - factCount
+          properties:
+            snapshotId:
+              type: string
+              format: uuid
+            versionNo:
+              type: integer
+            effectiveAt:
+              type: string
+              format: date-time
+            factCount:
+              type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExecutionEventTimelineItem'
+        provenance:
+          type: object
+          additionalProperties: false
+          required:
+          - eventCount
+          - truncated
+          - timeAxis
+          - taskRowFields
+          - tasksWithoutEvents
+          - divergences
+          description: |
+            **이 집계가 무엇을 근거로 했는가.** 숫자만 주면 화면이 그것을 완전한
+            사실로 읽는다. 기한처럼 이벤트가 모르는 값이 섞여 있다는 것, 재생이
+            잘렸다는 것, 이벤트와 임무 행이 어긋난다는 것을 응답이 스스로 밝힌다.
+          properties:
+            eventCount:
+              type: integer
+            truncated:
+              type: boolean
+              description: 재생 상한에 걸려 잘렸다. 이 판은 불완전하다.
+            timeAxis:
+              type: string
+              enum:
+              - occurredAt
+            taskRowFields:
+              type: array
+              description: |
+                이벤트가 아니라 임무 행의 **현재** 값에서 온 항목. 그 변경이
+                이벤트로 남지 않아 과거 시점 조회에도 현재 값이 쓰인다.
+              items:
+                type: string
+            tasksWithoutEvents:
+              type: integer
+              description: 이벤트가 아직 말하지 않은 임무 수. 0이 아니면 이벤트가 빠졌을 수 있다.
+            divergences:
+              type: array
+              description: |
+                재생 결과와 임무 행이 어긋난 임무. **비어 있지 않으면 어딘가에서
+                상태가 사실원장 밖으로 움직였다** - 이 항목이 세 번 찾은 결함의
+                형태다. 과거 시점 조회에서는 재지 않는다(당연히 다르다).
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - taskId
+                - replayed
+                - stored
+                properties:
+                  taskId:
+                    type: string
+                    format: uuid
+                  replayed:
+                    anyOf:
+                    - type: string
+                    - type: 'null'
+                  stored:
+                    type: string
     TaskStatus:
       type: string
       description: |

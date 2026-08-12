@@ -43,6 +43,14 @@ export class ApiErrorFilter implements ExceptionFilter {
       for (const [name, value] of Object.entries(exception.headers ?? {})) {
         res.setHeader(name, value);
       }
+    } else if (isPayloadTooLarge(exception)) {
+      // express의 `entity.too.large`는 HttpException이 아니라 그냥 500으로
+      // 떨어졌다(실측). 본문이 크다는 것은 서버 결함이 아니라 요청의 문제다.
+      status = 413;
+      error.code = 'COM-0413';
+      error.message = '요청 본문이 너무 큽니다.';
+      error.recoverable = true;
+      error.userAction = '내용을 줄여 다시 시도하십시오.';
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       error.code = `COM-${String(status).padStart(4, '0')}`;
@@ -56,4 +64,13 @@ export class ApiErrorFilter implements ExceptionFilter {
 
     res.status(status).json({ success: false, error, meta: { ...metaFor(req), ...extraMeta } });
   }
+}
+
+/** express body-parser가 상한을 넘겼을 때 던지는 것. */
+function isPayloadTooLarge(exception: unknown): boolean {
+  return (
+    typeof exception === 'object' &&
+    exception !== null &&
+    (exception as { type?: unknown }).type === 'entity.too.large'
+  );
 }

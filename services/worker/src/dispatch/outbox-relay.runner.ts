@@ -163,7 +163,18 @@ export class OutboxRelayRunner {
           // 아무도 받지 않은 임무를 "보냄"으로 표시하면 운영자가 기다린다.
           if (rolled === 'SENT' || rolled === 'PARTIAL') {
             const taskId = await findTaskIdOfDispatch(client, dispatchId);
-            if (taskId) await markTaskSent(client, taskId);
+            if (taskId) {
+              // 상태만 바꾸지 않는다 — 사실원장에도 남긴다(0040 §3).
+              await markTaskSent(client, taskId, {
+                tenantId: message.tenantId,
+                // 큐에 실린 상관관계 ID를 이어 쓴다 — 접수한 요청과 이 이벤트가
+                // 같은 추적선에 있어야 한다.
+                correlationId:
+                  typeof message.payload.correlationId === 'string'
+                    ? message.payload.correlationId
+                    : `outbox-${message.outboxId}`,
+              });
+            }
           }
         }
       }
