@@ -5,8 +5,8 @@
 적용된 마이그레이션에서 자동 생성된 데이터 사전이다 (G-DB 게이트 증거).
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
-- 테이블 수: 63
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update
+- 테이블 수: 65
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state
 
 ## api_idempotency
 
@@ -1089,7 +1089,7 @@ Provider 원문 응답 보존 (추적성)
 ## sop
 
 - 격리: RLS enforced (FORCE)
-- ck_sop_status: CHECK (((status)::text = 'DRAFT'::text))
+- ck_sop_status: CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'IN_REVIEW'::character varying, 'APPROVED'::character varying])::text[])))
 - fk_sop_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id)
 - fk_sop_current_version_id: FOREIGN KEY (current_version_id) REFERENCES sop_version(sop_version_id) DEFERRABLE INITIALLY DEFERRED
 - fk_sop_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id)
@@ -1104,10 +1104,34 @@ Provider 원문 응답 보존 (추적성)
 | situation_id | uuid | - |  | 상황 |
 | title | character varying(300) | NN |  | 명칭 |
 | hazard_type | character varying(50) | NN |  | 재난유형 |
-| status | character varying(30) | NN |  | CC-240은 DRAFT만 만든다. IN_REVIEW/APPROVED/RETIRED는 CC-250이 연다 |
+| status | character varying(30) | NN |  | DRAFT/IN_REVIEW/APPROVED. RETIRED는 폐기 경로가 생길 때 연다 |
 | current_version_id | uuid | - |  | 현재 버전 |
 | created_by | uuid | NN |  | 작성자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+
+## sop_approval
+
+SOP 승인 감사 기록 (UNE-SOP-009). append-only — 정정은 새 버전이다
+- 격리: RLS enforced (FORCE)
+- ck_sop_approval_graph_hash: CHECK ((graph_hash ~ '^[0-9a-f]{64}$'::text))
+- fk_sop_approval_approved_by: FOREIGN KEY (approved_by) REFERENCES app_user(user_id)
+- fk_sop_approval_review_request: FOREIGN KEY (review_request_id) REFERENCES sop_review_request(review_request_id)
+- fk_sop_approval_sop: FOREIGN KEY (sop_id) REFERENCES sop(sop_id) ON DELETE CASCADE
+- fk_sop_approval_version: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) ON DELETE CASCADE
+- sop_approval_pkey: PRIMARY KEY (approval_id)
+- uk_sop_approval_version: UNIQUE (sop_version_id)
+- 인덱스: sop_approval_pkey, uk_sop_approval_version
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| approval_id | uuid | NN | gen_random_uuid() |  |
+| sop_id | uuid | NN |  |  |
+| sop_version_id | uuid | NN |  |  |
+| review_request_id | uuid | - |  |  |
+| approved_by | uuid | NN |  |  |
+| comment | text | - |  |  |
+| graph_hash | character(64) | NN |  | 승인 시점 그래프 해시를 감사 행에 동결한다 — "무엇을 승인했는가"를 나중에 소급 보강할 방법이 없다 |
+| created_at | timestamp with time zone | NN | now() |  |
 
 ## sop_edge
 
@@ -1156,15 +1180,46 @@ Provider 원문 응답 보존 (추적성)
 | sort_order | integer | - |  | 정렬 |
 | mapping_warnings | jsonb | - |  | UniSopMapper 경고 (설계 08 §1.11). 노드를 버리지 않고 무엇이 비었는지 남긴다 |
 
+## sop_review_request
+
+SOP 검토 요청 (UNE-SOP-008). 설계 10의 review_request를 도메인 전용으로 실현한다 — ADR-39
+- 격리: RLS enforced (FORCE)
+- ck_sop_review_request_resolved_shape: CHECK ((((status)::text = 'REQUESTED'::text) = (resolved_at IS NULL)))
+- ck_sop_review_request_reviewers: CHECK ((cardinality(reviewer_ids) >= 1))
+- ck_sop_review_request_status: CHECK (((status)::text = ANY ((ARRAY['REQUESTED'::character varying, 'APPROVED'::character varying])::text[])))
+- fk_sop_review_request_requested_by: FOREIGN KEY (requested_by) REFERENCES app_user(user_id)
+- fk_sop_review_request_sop: FOREIGN KEY (sop_id) REFERENCES sop(sop_id) ON DELETE CASCADE
+- fk_sop_review_request_version: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) ON DELETE CASCADE
+- sop_review_request_pkey: PRIMARY KEY (review_request_id)
+- 인덱스: ix_sop_review_request_sop, sop_review_request_pkey, uk_sop_review_request_open
+
+| 컬럼 | 타입 | NULL | 기본값 | 설명 |
+|---|---|---|---|---|
+| review_request_id | uuid | NN | gen_random_uuid() |  |
+| sop_id | uuid | NN |  |  |
+| sop_version_id | uuid | NN |  |  |
+| status | character varying(20) | NN |  | REQUESTED/APPROVED. 반려·철회는 그 엔드포인트가 생길 때 연다 |
+| reviewer_ids | uuid[] | NN |  | 알림 대상. 승인 게이트는 SOP_APPROVE 권한이지 이 목록이 아니다 |
+| message | text | - |  |  |
+| requested_by | uuid | NN |  |  |
+| requested_at | timestamp with time zone | NN | now() |  |
+| resolved_at | timestamp with time zone | - |  |  |
+
 ## sop_run
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_sop_run_ended_shape: CHECK ((((status)::text = 'TERMINATED'::text) = (ended_at IS NOT NULL)))
+- ck_sop_run_mode: CHECK (((mode)::text = ANY ((ARRAY['LIVE'::character varying, 'EXERCISE'::character varying, 'DRY_RUN'::character varying])::text[])))
+- ck_sop_run_status: CHECK (((status)::text = ANY ((ARRAY['READY'::character varying, 'RUNNING'::character varying, 'PAUSED'::character varying, 'TERMINATED'::character varying])::text[])))
+- fk_sop_run_situation: FOREIGN KEY (situation_id) REFERENCES situation(situation_id)
 - fk_sop_run_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
+- fk_sop_run_snapshot: FOREIGN KEY (snapshot_id) REFERENCES situation_snapshot(snapshot_id)
 - fk_sop_run_snapshot_id: FOREIGN KEY (snapshot_id) REFERENCES situation_snapshot(snapshot_id) DEFERRABLE INITIALLY DEFERRED
 - fk_sop_run_sop_version_id: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) DEFERRABLE INITIALLY DEFERRED
-- fk_sop_run_started_by: FOREIGN KEY (started_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
+- fk_sop_run_started_by: FOREIGN KEY (started_by) REFERENCES app_user(user_id)
+- fk_sop_run_version: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id)
 - sop_run_pkey: PRIMARY KEY (run_id)
-- 인덱스: sop_run_pkey
+- 인덱스: ix_sop_run_situation, sop_run_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -1173,7 +1228,7 @@ Provider 원문 응답 보존 (추적성)
 | situation_id | uuid | NN |  | 상황 |
 | snapshot_id | uuid | NN |  | 시작 Snapshot |
 | mode | character varying(20) | NN |  | LIVE/DRY_RUN/EXERCISE |
-| status | character varying(20) | NN |  | READY~TERMINATED |
+| status | character varying(20) | NN |  | READY/RUNNING/PAUSED/TERMINATED. COMPLETED·FAILED는 완료 보고(CC-280)가 연다 |
 | started_by | uuid | NN |  | 시작자 |
 | started_at | timestamp with time zone | NN | now() | 시작 |
 | ended_at | timestamp with time zone | - |  | 종료 |
@@ -1181,11 +1236,14 @@ Provider 원문 응답 보존 (추적성)
 
 ## sop_validation
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_sop_validation_outcome_shape: CHECK (((((status)::text = 'PASS'::text) AND (jsonb_array_length(errors_json) = 0)) OR (((status)::text = 'FAIL'::text) AND (jsonb_array_length(errors_json) > 0))))
+- ck_sop_validation_status: CHECK (((status)::text = ANY ((ARRAY['PASS'::character varying, 'FAIL'::character varying])::text[])))
 - fk_sop_validation_sop_version_id: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) DEFERRABLE INITIALLY DEFERRED
-- fk_sop_validation_validated_by: FOREIGN KEY (validated_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
+- fk_sop_validation_validated_by: FOREIGN KEY (validated_by) REFERENCES app_user(user_id)
+- fk_sop_validation_version: FOREIGN KEY (sop_version_id) REFERENCES sop_version(sop_version_id) ON DELETE CASCADE
 - sop_validation_pkey: PRIMARY KEY (validation_id)
-- 인덱스: sop_validation_pkey
+- 인덱스: ix_sop_validation_version, sop_validation_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -1206,7 +1264,7 @@ SOP 버전. 워커는 INSERT만 한다 — 기존 버전 수정 경로가 없으
 - ck_sop_version_generator_shape: CHECK ((((generation_job_id IS NULL) AND (adapter_id IS NULL) AND (generated_by_mock IS NULL)) OR ((generation_job_id IS NOT NULL) AND (adapter_id IS NOT NULL) AND (generated_by_mock IS NOT NULL))))
 - ck_sop_version_hash: CHECK ((graph_hash ~ '^[0-9a-f]{64}$'::text))
 - ck_sop_version_no: CHECK ((version_no >= 1))
-- ck_sop_version_status: CHECK (((status)::text = 'DRAFT'::text))
+- ck_sop_version_status: CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'LOCKED'::character varying])::text[])))
 - fk_sop_version_approved_by: FOREIGN KEY (approved_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_sop_version_evidence_set: FOREIGN KEY (source_evidence_set_id) REFERENCES evidence_set(evidence_set_id)
 - fk_sop_version_generation_job: FOREIGN KEY (generation_job_id) REFERENCES generation_job(job_id)
@@ -1221,7 +1279,7 @@ SOP 버전. 워커는 INSERT만 한다 — 기존 버전 수정 경로가 없으
 | sop_version_id | uuid | NN | gen_random_uuid() | SOP 버전 |
 | sop_id | uuid | NN |  | SOP |
 | version_no | integer | NN | 1 | 버전 |
-| status | character varying(20) | NN |  | CC-240은 DRAFT만 만든다. LOCKED는 승인(CC-250)이 만든다 |
+| status | character varying(20) | NN |  | DRAFT/LOCKED. 승인이 LOCKED로 고정하며 그 뒤로는 불변이다(§3) |
 | graph_hash | character(64) | NN |  | 그래프 해시 |
 | source_snapshot_id | uuid | - |  | SituationSnapshot |
 | source_evidence_set_id | uuid | - |  | 근거 |
@@ -1255,13 +1313,19 @@ SOP 버전. 워커는 INSERT만 한다 — 기존 버전 수정 경로가 없으
 
 ## task
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_task_progress: CHECK (((progress_pct >= (0)::numeric) AND (progress_pct <= (100)::numeric)))
+- ck_task_status: CHECK (((status)::text = ANY ((ARRAY['CREATED'::character varying, 'CANCELLED'::character varying])::text[])))
+- ck_task_version_no: CHECK ((version_no >= 1))
 - fk_task_assignee_org_id: FOREIGN KEY (assignee_org_id) REFERENCES organization(organization_id) DEFERRABLE INITIALLY DEFERRED
+- fk_task_assignee_user: FOREIGN KEY (assignee_user_id) REFERENCES app_user(user_id)
 - fk_task_assignee_user_id: FOREIGN KEY (assignee_user_id) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
+- fk_task_node: FOREIGN KEY (node_id) REFERENCES sop_node(node_id)
 - fk_task_node_id: FOREIGN KEY (node_id) REFERENCES sop_node(node_id) DEFERRABLE INITIALLY DEFERRED
+- fk_task_run: FOREIGN KEY (run_id) REFERENCES sop_run(run_id) ON DELETE CASCADE
 - fk_task_run_id: FOREIGN KEY (run_id) REFERENCES sop_run(run_id) DEFERRABLE INITIALLY DEFERRED
 - task_pkey: PRIMARY KEY (task_id)
-- 인덱스: ix_task_assignee_status_due, task_pkey
+- 인덱스: ix_task_assignee, ix_task_assignee_status_due, ix_task_run_status, task_pkey, uk_task_run_node
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -1269,7 +1333,7 @@ SOP 버전. 워커는 INSERT만 한다 — 기존 버전 수정 경로가 없으
 | run_id | uuid | NN |  | SOP 실행 |
 | node_id | uuid | NN |  | 원본 노드 |
 | title | character varying(300) | NN |  | 임무명 |
-| status | character varying(30) | NN |  | CREATED~CANCELLED |
+| status | character varying(30) | NN |  | CREATED/CANCELLED. SENT/DELIVERED는 전파(CC-270), ACKNOWLEDGED~COMPLETED는 수행(CC-280)이 연다 |
 | assignee_user_id | uuid | - |  | 담당자 |
 | assignee_org_id | uuid | - |  | 담당조직 |
 | due_at | timestamp with time zone | - |  | 기한 |
@@ -1277,6 +1341,7 @@ SOP 버전. 워커는 INSERT만 한다 — 기존 버전 수정 경로가 없으
 | progress_pct | numeric(5,2) | NN |  | 진행률 |
 | version_no | integer | NN | 1 | 낙관잠금 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+| activated_at | timestamp with time zone | - |  | 수행 차례가 된 시각. NULL이면 선행 임무가 남아 있다 |
 
 ## task_attachment
 
@@ -1300,11 +1365,13 @@ SOP 버전. 워커는 INSERT만 한다 — 기존 버전 수정 경로가 없으
 
 ## task_event
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- fk_task_event_actor: FOREIGN KEY (actor_id) REFERENCES app_user(user_id)
 - fk_task_event_actor_id: FOREIGN KEY (actor_id) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
+- fk_task_event_task: FOREIGN KEY (task_id) REFERENCES task(task_id) ON DELETE CASCADE
 - fk_task_event_task_id: FOREIGN KEY (task_id) REFERENCES task(task_id) DEFERRABLE INITIALLY DEFERRED
 - task_event_pkey: PRIMARY KEY (task_event_id)
-- 인덱스: task_event_pkey
+- 인덱스: ix_task_event_task, task_event_pkey
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|

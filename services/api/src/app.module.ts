@@ -56,8 +56,14 @@ import { uniKnowledgeFactory } from './knowledge/uni-knowledge.provider';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { KnowledgeRepository } from './knowledge/knowledge.repository';
 import { KnowledgeService } from './knowledge/knowledge.service';
+import { SopController } from './sop/sop.controller';
+import { SopRunController, SopRunStartController } from './sop/sop-run.controller';
+import { SopRunRepository } from './sop/sop-run.repository';
+import { SopRunService } from './sop/sop-run.service';
 import { SopJobController } from './sop/sop-job.controller';
 import { SopJobService } from './sop/sop-job.service';
+import { SopRepository } from './sop/sop.repository';
+import { SopService } from './sop/sop.service';
 import { ProviderJobController, SituationController } from './situation/situation.controller';
 import { SituationRepository } from './situation/situation.repository';
 import { SituationService } from './situation/situation.service';
@@ -90,6 +96,9 @@ export class AppModule {
         EvidenceController,
         ProviderJobController,
         SopJobController,
+        SopController,
+        SopRunStartController,
+        SopRunController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -138,6 +147,12 @@ export class AppModule {
         SnapshotService,
         // CC-240: SOP 생성 접수와 SSE(UNE-SOP-001/002). UNI 호출은 워커가 한다.
         SopJobService,
+        // CC-250: 캔버스 편집·검증·검토·승인(UNE-SOP-003~009). provider 호출이 없다.
+        SopRepository,
+        SopService,
+        // CC-260: 실행 수명주기와 임무 생성·활성화(UNE-SOP-010~016).
+        SopRunRepository,
+        SopRunService,
         objectStorageProvider,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;

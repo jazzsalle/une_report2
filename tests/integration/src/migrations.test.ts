@@ -80,11 +80,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 34 baseline migrations', async () => {
+  it('applies all 36 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(34);
+    expect(applied.rows).toHaveLength(36);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -146,7 +146,12 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
   // 63 = 62 + fact_duplicate_group (0025/CC-210). 계약 UNE-SIT-009의
   // x-db-tables가 이 이름을 가리키는데 존재한 적이 없었다 — provider_result와
   // 같은 유형이고 같은 결론이다(ADR-34 D1).
-  it('creates the 63-table baseline (+ generated_block, document_autosave, provider_result, fact_duplicate_group)', async () => {
+  // 65 = 63 + sop_review_request + sop_approval (0035/CC-250). 설계 10은
+  // `review_request`·`approval`을 세 도메인이 공유하는 이름으로 쓰지만 컬럼
+  // 수준 물리 설계가 없다 — 도메인 전용으로 실현했다(ADR-39). `generation_job`
+  // 공용성이 CC-240에서 실제 권한 사고를 냈고, 전용 테이블은 FK를 걸 수 있고
+  // RLS가 부모 조인 하나로 끝난다.
+  it('creates the 65-table baseline (+ sop_review_request, sop_approval)', async () => {
     const tables = await withClient(db.url, (c) =>
       c.query(
         `SELECT count(*)::int AS n FROM information_schema.tables
@@ -154,7 +159,7 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
            AND table_name <> 'pgmigrations'`,
       ),
     );
-    expect(tables.rows[0].n).toBe(63);
+    expect(tables.rows[0].n).toBe(65);
   });
 
   it('enables and forces RLS on all tenant-isolated tables', async () => {
@@ -228,11 +233,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0034 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0036 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0034
+    await migrate(db.url); // remaining: 0011 ~ 0036
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -247,7 +252,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(34);
+    expect(applied.rows[0].n).toBe(36);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });

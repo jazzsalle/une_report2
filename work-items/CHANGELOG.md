@@ -2,6 +2,118 @@
 
 ## Unreleased
 
+- CC-260 (2026-08-11): SopRun, Task and the explicit state machine
+  (UNE-SOP-010~016, ADR-40, migration 0036).
+
+  An approved SOP version becomes a run: tasks are materialised, the ones whose
+  turn it is get activated, and pause/resume/terminate land in the fact ledger.
+
+  Reachable states only, again. Design 09 lists six run states; four are
+  buildable here. COMPLETED needs every task finished and that reporting path
+  is CC-280, so it is not in the CHECK — same discipline 0032 used and 0035
+  honoured when it widened.
+
+  DRY_RUN does not touch the situation and does not count as a live run. A
+  simulation that flips the dashboard to "responding" misleads whoever reads
+  that screen, and a simulation you cannot run alongside real work is not much
+  of a rehearsal. It also stays READY: "prepared", not "started". It gets its
+  own endpoint too — accepting `mode: DRY_RUN` on the start endpoint would file
+  rehearsals and real launches under the same audit record.
+
+  "Materialised" and "actionable" are different things, and they are not the
+  same field. Design 09's task vocabulary has no "active", and folding it into
+  the dispatch states would collapse "sent to someone" and "someone's turn" into
+  one value. So activation is a timestamp, and the frontier itself is computed
+  rather than stored — a cursor column can disagree with the graph and the task
+  rows, and then nothing says which one is right.
+
+  Terminate asks for the run id's first 8 characters. Not authentication (the
+  permission does that) but mis-click protection: you have to read it off the
+  screen, so confirming *is* confirming what you're about to kill.
+
+  Found by measurement: `UPDATE execution_event` went straight through. 0011 had
+  revoked the privilege from `une_app` and that was the whole defence. CC-260 is
+  the ledger's first writer, so it now carries the same append-only trigger as
+  `task_event` and `sop_approval`. Terminated runs also refuse task writes at
+  the database, not just in the state machine.
+
+  Closed `sop_run`, `task` and `task_event` in the RLS coverage list — twelve
+  tables still open, each waiting for the item that first writes to it.
+
+  Tests: domain 62, contract gate 15, API slice e2e 8, full suite green.
+  Migrations 35 -> 36, tables 65 unchanged, dictionary 65/645.
+  Files: database/migrations/0036_sop_run_and_task_state.sql,
+  packages/domain/src/sop/sop-run.ts, services/api/src/sop/{sop-run.repository.ts,
+  sop-run.service.ts, sop-run.controller.ts, sop-run-errors.ts},
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-40-cc260-sop-run-and-task-state-machine.md,
+  docs/evidence/CC-260-sop-run-and-task.md,
+  tests/contract/src/sop-run.contract.test.ts, tests/e2e/src/sop-run.e2e.test.ts.
+
+- CC-250 (2026-08-10): SOP canvas, validation, review and approval
+  (UNE-SOP-003~009, ADR-39, migration 0035; tables 63 -> 65).
+
+  CC-240 produced a DRAFT graph from UNI. This is where a person edits it,
+  validates it, sends it for review, and approves it — freezing the version.
+
+  Design 10 names `review_request` and `approval` across three domains but
+  never gives them columns, and neither table existed. They are built as
+  SOP-scoped tables. The reason is a measured incident, not taste:
+  `generation_job` is polymorphic, and in CC-240 that cost us a permission
+  boundary — SOP_READ could stream plan content, PLAN_GENERATE could cancel
+  someone else's SOP job. Polymorphism moves type discrimination out of DB
+  constraints and into every query path; miss one and the boundary is gone.
+  Domain tables get real FKs and a single-join RLS policy. The reversal cost
+  is also asymmetric: a UNION view can merge them later, while splitting an
+  append-only audit trail after three domains have interleaved rows collides
+  head-on with "never overwrite audit history". (Decided with fable.)
+
+  Approval freezes the graph hash into the audit row, because an approval row
+  can never be rewritten to say what it approved. That only holds if the graph
+  itself is frozen too — so the LOCKED trigger covers `sop_version`,
+  `sop_node` and `sop_edge`. Guarding the version row alone would let the
+  content change while the hash stayed put, and then the approved thing and
+  the stored thing are different things.
+
+  Editing is DRAFT-only. If the graph shifts under a reviewer, there is no
+  answer to "what did they review" — the same reason EvidenceSet freezes.
+  Saving never overwrites: it creates a new version, and `baseVersionId`
+  decides concurrency (409, never a silent overwrite).
+
+  Validation splits errors from warnings on one question: can this procedure
+  run? Every structural violation is an error, orphan nodes included — a node
+  that never executes still tells whoever read it that something would happen.
+  Mapping warnings do not block, except MISSING_TASK: an ACTION node with no
+  task says to do something without saying what.
+
+  The 400-vs-report line is drawn at what the database physically cannot
+  store: duplicate node keys (23505), edges to absent nodes, self-edges,
+  over-long titles (22001). A graph with no END is saved and reported — you
+  cannot fix what was refused.
+
+  **The RLS gap is now blocked procedurally.** `sop_validation` had no policy
+  either — the fourth occurrence. Instead of waiting for the fifth, a sweep
+  found 18 tables that have never had one, and that list is pinned in
+  `tests/integration/src/rls-coverage.test.ts`. A new table without a policy
+  turns it red; the list may only shrink.
+
+  All seven operations answered with a `SopRun` placeholder — an execution
+  resource standing in for canvas, review and approval responses (same shape
+  as the `GenericResponse` placeholders CC-220 replaced). They now have real
+  schemas.
+
+  Tests: domain 44, api unit 17, contract gate 16, API slice e2e 9,
+  integration 197 incl. the RLS coverage guard. Full suite green.
+  Files: database/migrations/0035_sop_review_approval_and_locked_versions.sql,
+  packages/domain/src/sop/sop-lifecycle.ts, services/api/src/sop/{sop.repository.ts,
+  sop.service.ts, sop.controller.ts, sop-canvas-errors.ts},
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-39-cc250-sop-canvas-review-and-approval.md,
+  docs/evidence/CC-250-sop-canvas-review-approval.md,
+  tests/contract/src/sop-canvas.contract.test.ts,
+  tests/integration/src/rls-coverage.test.ts,
+  tests/e2e/src/sop-canvas.e2e.test.ts.
+
 - CC-240 (2026-08-10): UNI SOP generation and the versioned UniSopMapper
   (UNE-SOP-001/002, ADR-38, migrations 0032 + 0033).
   Confirmed SituationSnapshot + frozen EvidenceSet -> UNI `/chat/json` SSE ->

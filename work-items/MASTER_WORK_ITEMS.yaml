@@ -474,7 +474,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-240
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - node/edge editing
   - DAG rules
@@ -484,13 +484,16 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-39-cc250-sop-canvas-review-and-approval.md
+  - docs/evidence/CC-250-sop-canvas-review-approval.md
+  - database/migrations/0035_sop_review_approval_and_locked_versions.sql
 - id: CC-260
   title: Implement SopRun, Task, and explicit state machine
   gate: G3
   dependencies:
   - CC-250
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - dry-run/exercise/live modes
   - task activation
@@ -500,7 +503,10 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-40-cc260-sop-run-and-task-state-machine.md
+  - docs/evidence/CC-260-sop-run-and-task.md
+  - database/migrations/0036_sop_run_and_task_state.sql
 - id: CC-270
   title: Implement Transactional Outbox and simulation channels
   gate: G3

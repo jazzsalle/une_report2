@@ -112,7 +112,8 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
      FROM role r JOIN permission p
        ON p.permission_code IN ('PLAN_CREATE','PLAN_READ','PLAN_EDIT','PLAN_GENERATE',
                                 'FILE_UPLOAD','DOC_READ','DOC_EDIT','DOC_EXPORT',
-                                'SOP_GENERATE','SOP_READ')
+                                'SOP_GENERATE','SOP_READ','SOP_EDIT','SOP_APPROVE',
+                                'SOP_RUN','SOP_RUN_CONTROL')
      WHERE r.tenant_id IS NULL AND r.role_code = 'INSTITUTION_ADMIN'
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
