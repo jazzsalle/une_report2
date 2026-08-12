@@ -56,8 +56,11 @@ import { uniKnowledgeFactory } from './knowledge/uni-knowledge.provider';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { KnowledgeRepository } from './knowledge/knowledge.repository';
 import { KnowledgeService } from './knowledge/knowledge.service';
+import { SopController } from './sop/sop.controller';
 import { SopJobController } from './sop/sop-job.controller';
 import { SopJobService } from './sop/sop-job.service';
+import { SopRepository } from './sop/sop.repository';
+import { SopService } from './sop/sop.service';
 import { ProviderJobController, SituationController } from './situation/situation.controller';
 import { SituationRepository } from './situation/situation.repository';
 import { SituationService } from './situation/situation.service';
@@ -90,6 +93,7 @@ export class AppModule {
         EvidenceController,
         ProviderJobController,
         SopJobController,
+        SopController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -138,6 +142,9 @@ export class AppModule {
         SnapshotService,
         // CC-240: SOP 생성 접수와 SSE(UNE-SOP-001/002). UNI 호출은 워커가 한다.
         SopJobService,
+        // CC-250: 캔버스 편집·검증·검토·승인(UNE-SOP-003~009). provider 호출이 없다.
+        SopRepository,
+        SopService,
         objectStorageProvider,
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;

@@ -182,6 +182,10 @@ describe.skipIf(!ADMIN_URL)('0032: SOP 그래프 격리 (CC-240)', () => {
   });
 
   it('남의 버전에 노드를 붙일 수 없다', async () => {
+    // 0035가 LOCKED 불변 트리거를 붙이면서 **거절 주체가 바뀌었다.** BEFORE
+    // INSERT 트리거가 RLS 정책보다 먼저 돌고, 트리거 안의 `sop_version` 조회도
+    // 같은 정책을 받으므로 남의 버전은 "없는 것"으로 보인다. 결과적으로 삽입은
+    // 여전히 막히고, 오히려 남의 테넌트에 그 버전이 있는지조차 흘리지 않는다.
     await expect(
       asApp(url, a.tenantId, (c) =>
         c.query(
@@ -190,17 +194,19 @@ describe.skipIf(!ADMIN_URL)('0032: SOP 그래프 격리 (CC-240)', () => {
           [b.versionId],
         ),
       ),
-    ).rejects.toThrow(/row-level security/i);
+    ).rejects.toThrow(/존재하지 않는 SOP 버전|row-level security/i);
   });
 
   describe('어휘와 상관식', () => {
-    it('CC-240은 DRAFT만 만든다 (도달 가능한 상태만)', async () => {
-      // 0022 §1의 원칙. LOCKED/APPROVED를 지금 넣으면 그 값을 쓰는 코드가
-      // 없는 채로 어휘만 남는다 — CC-250이 넓힌다.
+    it('어휘는 CC-250이 예고대로 넓혔다 — 그래도 모르는 값은 막는다', async () => {
+      // CC-240 시점에는 `('DRAFT')` 하나였고 이 테스트가 LOCKED/APPROVED를
+      // 거부하는 것을 확인했다. 0035가 승인 경로와 **함께** 넓혔다 — 0022 §1의
+      // "도달 가능한 상태만"은 값을 영원히 막으라는 뜻이 아니라 그 값을 만드는
+      // 코드와 같이 오라는 뜻이다(0023 §4 → CC-220과 같은 형태).
       expect(
         await errCode(() =>
           withClient(url, (c) =>
-            c.query(`UPDATE sop_version SET status = 'LOCKED' WHERE sop_version_id = $1`, [
+            c.query(`UPDATE sop_version SET status = 'RETIRED' WHERE sop_version_id = $1`, [
               a.versionId,
             ]),
           ),
@@ -209,7 +215,7 @@ describe.skipIf(!ADMIN_URL)('0032: SOP 그래프 격리 (CC-240)', () => {
       expect(
         await errCode(() =>
           withClient(url, (c) =>
-            c.query(`UPDATE sop SET status = 'APPROVED' WHERE sop_id = $1`, [a.sopId]),
+            c.query(`UPDATE sop SET status = 'RETIRED' WHERE sop_id = $1`, [a.sopId]),
           ),
         ),
       ).toBe('23514');

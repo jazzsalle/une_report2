@@ -161,7 +161,7 @@ describe('JobSseService — 도메인 경계 (CC-240 D20)', () => {
   it('허용하지 않은 잡 유형이면 404로 답한다 (존재를 흘리지 않는다)', async () => {
     // 같은 `generation_job`을 두 엔드포인트가 본다. 유형을 검사하지 않으면
     // SOP_READ만 가진 사용자가 계획서 본문 이벤트를 읽는다.
-    const h = harness([[{ sequenceNo: 1, eventType: 'job.completed', payload: {} }]]);
+    const h = harness([[event(1, 'job.completed')]]);
     await expect(h.service.stream(auth, JOB_ID, ['SOP'])).rejects.toMatchObject({
       code: 'JOB-404-001',
     });

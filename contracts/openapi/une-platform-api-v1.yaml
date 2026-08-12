@@ -5507,7 +5507,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SopRun'
+                $ref: '#/components/schemas/Sop'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5526,10 +5526,14 @@ paths:
       x-permission: SOP_EDIT
       x-db-tables:
       - sop
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - COM-0409
       - SOP-6001
+      - SOP-404-003
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -5559,7 +5563,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SopRun'
+                $ref: '#/components/schemas/SopPage'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5579,6 +5583,7 @@ paths:
       x-db-tables:
       - sop
       x-error-codes:
+      - COM-0400
       - SOP-6002
       security:
       - BearerAuth: []
@@ -5611,7 +5616,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SopRun'
+                $ref: '#/components/schemas/SopGraphResource'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5634,7 +5639,9 @@ paths:
       - sop_node
       - sop_edge
       x-error-codes:
+      - COM-0400
       - SOP-404-001
+      - SOP-404-002
       security:
       - BearerAuth: []
   /sops/{sopId}/versions:
@@ -5662,12 +5669,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SopRun'
+                $ref: '#/components/schemas/SopVersion'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5685,17 +5692,24 @@ paths:
       x-une-api-id: UNE-SOP-006
       x-permission: SOP_EDIT
       x-db-tables:
+      - sop
       - sop_version
       - sop_node
       - sop_edge
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-400-002
+      - SOP-404-001
       - SOP-409-001
+      - SOP-412-003
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SopGraph'
+              $ref: '#/components/schemas/SopVersionSaveRequest'
       security:
       - BearerAuth: []
   /sops/{sopId}/validate:
@@ -5728,7 +5742,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SopRun'
+                $ref: '#/components/schemas/SopValidationReport'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5747,14 +5761,17 @@ paths:
       x-permission: SOP_EDIT
       x-db-tables:
       - sop_validation
+      - sop_version
       x-error-codes:
-      - SOP-422-007
+      - COM-0400
+      - SOP-404-001
+      - SOP-404-002
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/SopValidateRequest'
       security:
       - BearerAuth: []
   /sops/{sopId}/submit-review:
@@ -5782,12 +5799,12 @@ paths:
           type: string
       - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200':
+        '201':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SopRun'
+                $ref: '#/components/schemas/ReviewRequest'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5805,15 +5822,22 @@ paths:
       x-une-api-id: UNE-SOP-008
       x-permission: SOP_EDIT
       x-db-tables:
-      - review_request
+      - sop
+      - sop_review_request
+      - audit_log
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-404-001
+      - SOP-404-002
+      - SOP-409-003
       - SOP-412-001
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/SopSubmitReviewRequest'
       security:
       - BearerAuth: []
   /sops/{sopId}/approve:
@@ -5846,7 +5870,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SopRun'
+                $ref: '#/components/schemas/SopVersion'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5864,17 +5888,23 @@ paths:
       x-une-api-id: UNE-SOP-009
       x-permission: SOP_APPROVE
       x-db-tables:
+      - sop
       - sop_version
-      - approval
+      - sop_approval
+      - sop_review_request
       - audit_log
       x-error-codes:
+      - COM-0400
+      - COM-0409
+      - SOP-404-001
+      - SOP-404-002
       - SOP-412-002
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenericRequest'
+              $ref: '#/components/schemas/SopApproveRequest'
       security:
       - BearerAuth: []
   /sops/{sopId}/simulations:
@@ -11278,8 +11308,408 @@ components:
             응답을 어느 규칙으로 옮겼는지다.'
           enum:
           - '1.0'
+    SopPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      - size
+      - totalElements
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sop'
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          minimum: 0
+    Sop:
+      type: object
+      additionalProperties: false
+      required:
+      - sopId
+      - title
+      - hazardType
+      - status
+      - createdAt
+      properties:
+        sopId:
+          type: string
+          format: uuid
+        situationId:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+          maxLength: 300
+        hazardType:
+          type: string
+        status:
+          type: string
+          description: RETIRED는 폐기 경로가 생길 때 연다(0035 §1, 도달 가능한 상태만).
+          enum:
+          - DRAFT
+          - IN_REVIEW
+          - APPROVED
+        currentVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        currentVersionNo:
+          type: integer
+          nullable: true
+        createdBy:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    SopVersion:
+      type: object
+      additionalProperties: false
+      required:
+      - sopVersionId
+      - sopId
+      - versionNo
+      - status
+      - graphHash
+      - schemaVersion
+      - createdAt
+      properties:
+        sopVersionId:
+          type: string
+          format: uuid
+        sopId:
+          type: string
+          format: uuid
+        versionNo:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          description: LOCKED는 승인이 만든다. 그 뒤로 그래프까지 불변이다(0035 §3).
+          enum:
+          - DRAFT
+          - LOCKED
+        graphHash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        schemaVersion:
+          type: string
+          description: 매퍼 버전. 사람이 만든 버전은 편집기 버전이다.
+        sourceSnapshotId:
+          type: string
+          format: uuid
+          nullable: true
+        sourceEvidenceSetId:
+          type: string
+          format: uuid
+          nullable: true
+        graphViolations:
+          type: array
+          nullable: true
+          items:
+            type: string
+        adapterId:
+          type: string
+          nullable: true
+        generatedByMock:
+          type: boolean
+          nullable: true
+          description: true면 mock 산출물이다 — provider 지원의 증거가 아니다.
+        approvedBy:
+          type: string
+          format: uuid
+          nullable: true
+        approvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    SopGraphNode:
+      type: object
+      additionalProperties: false
+      required:
+      - nodeKey
+      - nodeType
+      - title
+      properties:
+        nodeKey:
+          type: string
+          pattern: ^[A-Za-z][A-Za-z0-9_-]{1,79}$
+        nodeType:
+          type: string
+          enum:
+          - START
+          - ACTION
+          - DECISION
+          - NOTE
+          - END
+        title:
+          type: string
+          maxLength: 300
+        tasks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              instruction:
+                type: string
+              assigneeHint:
+                type: string
+                nullable: true
+        decisionExpression:
+          type: string
+          nullable: true
+        sourceRefs:
+          type: array
+          description: UNE knowledge_document_id 목록이다(provider id가 아니다).
+          items:
+            type: string
+            format: uuid
+        providerNodeKey:
+          type: string
+          nullable: true
+          description: provider가 준 원래 키. 정규화하지 않았으면 nodeKey와 같다.
+        mappingWarnings:
+          type: array
+          nullable: true
+          items:
+            type: string
+        position:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required:
+          - x
+          - y
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+    SopGraphEdge:
+      type: object
+      additionalProperties: false
+      required:
+      - fromNodeKey
+      - toNodeKey
+      properties:
+        fromNodeKey:
+          type: string
+        toNodeKey:
+          type: string
+        conditionExpr:
+          type: string
+          nullable: true
+        label:
+          type: string
+          nullable: true
+        priority:
+          type: integer
+          minimum: 0
+    SopGraphResource:
+      type: object
+      additionalProperties: false
+      required:
+      - sop
+      - version
+      - nodes
+      - edges
+      properties:
+        sop:
+          $ref: '#/components/schemas/Sop'
+        version:
+          $ref: '#/components/schemas/SopVersion'
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SopGraphNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/SopGraphEdge'
+    SopVersionSaveRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - baseVersionId
+      - nodes
+      - edges
+      properties:
+        baseVersionId:
+          type: string
+          format: uuid
+          description: |
+            무엇을 고쳐서 만든 버전인가. SOP의 현재 버전과 다르면 409
+            (SOP-409-001) — 그 사이 누군가 저장했다는 뜻이므로 덮어쓰지 않는다.
+        nodes:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/SopGraphNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/SopGraphEdge'
+    SopValidationIssue:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+        nodeKey:
+          type: string
+          nullable: true
+          description: 그래프 전체 문제면 null이다.
+        message:
+          type: string
+    SopValidationReport:
+      type: object
+      additionalProperties: false
+      required:
+      - sopVersionId
+      - status
+      - errors
+      - warnings
+      - validatorVersion
+      - validatedAt
+      properties:
+        sopVersionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - PASS
+          - FAIL
+        errors:
+          type: array
+          description: |
+            절차를 실행할 수 없게 만드는 것. 구조 위반 전부와 MISSING_TASK가
+            여기 온다 — 임무 없는 실행 노드는 무엇을 할지가 없다.
+          items:
+            $ref: '#/components/schemas/SopValidationIssue'
+        warnings:
+          type: array
+          description: |
+            승인을 막지 않지만 화면에 보여야 하는 것(담당 미지정, 근거 없음,
+            범위 밖 근거 등).
+          items:
+            $ref: '#/components/schemas/SopValidationIssue'
+        validatorVersion:
+          type: string
+        validatedAt:
+          type: string
+          format: date-time
+    SopValidateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        versionId:
+          type: string
+          format: uuid
+          nullable: true
+          description: 생략하면 SOP의 현재 버전을 검증한다.
+    SopSubmitReviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - versionId
+      - reviewers
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        reviewers:
+          type: array
+          minItems: 1
+          description: |
+            알림 대상이다. 승인 게이트는 SOP_APPROVE 권한이지 이 목록이 아니다
+            (검토자별 개별 응답은 그 흐름이 생길 때 연다 — ADR-39).
+          items:
+            type: string
+            format: uuid
+        message:
+          type: string
+          nullable: true
+          maxLength: 2000
+    SopApproveRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - versionId
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        comment:
+          type: string
+          nullable: true
+          maxLength: 2000
+    ReviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - reviewRequestId
+      - sopId
+      - sopVersionId
+      - status
+      - reviewers
+      - requestedAt
+      properties:
+        reviewRequestId:
+          type: string
+          format: uuid
+        sopId:
+          type: string
+          format: uuid
+        sopVersionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          description: 반려·철회는 그 엔드포인트가 생길 때 연다(0035 §6).
+          enum:
+          - REQUESTED
+          - APPROVED
+        reviewers:
+          type: array
+          items:
+            type: string
+            format: uuid
+        message:
+          type: string
+          nullable: true
+        requestedBy:
+          type: string
+          format: uuid
+          nullable: true
+        requestedAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
     SopCreateRequest:
       type: object
+      additionalProperties: false
       required:
       - title
       - hazardType
