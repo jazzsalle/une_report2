@@ -5592,6 +5592,20 @@ export type components = {
             };
         };
         /**
+         * @description **SIT-412-011** — 종료된 훈련에 새 사실을 기록하려 했다.
+         *
+         *     0045 §5의 가드가 `execution_event` INSERT를 거부하면 필터가 이 코드로 옮긴다
+         *     (`api-error.filter.ts`). 트리거의 42501을 그대로 두면 `COM-0001 / 500 / 서버 오류`가
+         *     되어 사용자는 왜 막혔는지 모르고, 그것이 정상 동작이라는 사실도 모른다.
+         *
+         *     임무 전이(UNE-TASK-*)·실행 제어(UNE-SOP-*)·전파(UNE-TASK-003) 등 사실원장에 쓰는
+         *     모든 연산에서 날 수 있다. 잘못된 기록은 정정(UNE-JNL-004)으로만 바로잡는다.
+         */
+        ClosedSituationNote: {
+            /** @enum {string} */
+            code?: "SIT-412-011";
+        };
+        /**
          * @description 무엇이 종료를 막는가. 값을 만드는 코드가 있는 다섯만 있다(0045 §1의 원칙).
          * @enum {string}
          */
