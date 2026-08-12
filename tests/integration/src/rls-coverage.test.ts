@@ -40,11 +40,10 @@ const TENANT_FREE: readonly string[] = [
  * 반드시 함께 닫아야 한다.
  */
 const KNOWN_OPEN: readonly string[] = [
-  // 실행 계열 — CC-260이 sop_run·task·task_event를 닫았다.
-  // task_attachment는 현장 파일 등록(CC-280)이 열 때 닫는다.
-  'task_attachment',
+  // 실행 계열은 전부 닫혔다 — CC-260이 sop_run·task·task_event를, CC-280이
+  // task_attachment·task_assignment를 자기 쓰기 경로와 함께 닫았다.
   // 전파 계열은 CC-270이 닫았다(dispatch·dispatch_recipient·outbox_attempt).
-  // 일지 계열 — CC-280(Journal)이 연다
+  // 일지 계열 — CC-290대가 연다
   'journal',
   'journal_projection_item',
   // 평가·개선 — CC-300대가 연다

@@ -100,14 +100,13 @@ describe('CC-270 계약: 어휘가 세 곳에서 같다', () => {
     expect(fromDb).not.toContain('DELIVERED');
   });
 
-  it('임무 상태가 SENT까지 넓어졌다 (CC-260이 예고한 확장)', () => {
+  it('임무 상태에 SENT가 있다 (CC-260이 예고하고 CC-270이 연 확장)', () => {
     const fromDb = checkValues('ck_task_status');
     expect(fromDb).toEqual([...TASK_STATUSES]);
     expect(fromDb).toContain('SENT');
-    // 수행 상태는 여전히 없다 — CC-280의 것이다.
-    for (const later of ['ACKNOWLEDGED', 'IN_PROGRESS', 'COMPLETED']) {
-      expect(fromDb, later).not.toContain(later);
-    }
+    // 수행 상태는 CC-280이 넓혔다. DELIVERED는 여전히 없다 — 그 값을 만들려면
+    // 수신영수증을 주는 실제 채널이 있어야 한다(OB-06).
+    expect(fromDb).not.toContain('DELIVERED');
   });
 });
 

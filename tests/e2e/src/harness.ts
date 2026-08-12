@@ -51,6 +51,15 @@ export interface Fixtures {
    * 시험하려면 권한이 겹치지 않는 사용자가 하나 있어야 한다.
    */
   sopOnlyA: string;
+  /**
+   * 현장 담당자 둘 (CC-280).
+   *
+   * `TASK_ASSIGNEE` 권한은 **둘 다** 갖는다 — 그것만으로 남의 임무를 만질 수
+   * 없다는 것이 이 항목의 핵심 방어이고, 그것을 시험하려면 권한은 같고
+   * 배정만 다른 사용자가 둘 있어야 한다.
+   */
+  fieldA: string;
+  fieldA2: string;
 }
 
 export interface Harness {
@@ -112,6 +121,8 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
   const readerA = await user(tenantA, 'reader-a');
   const userB = await user(tenantB, 'user-b');
   const sopOnlyA = await user(tenantA, 'sop-only-a');
+  const fieldA = await user(tenantA, 'field-a');
+  const fieldA2 = await user(tenantA, 'field-a2');
 
   await c.query(
     `INSERT INTO role_permission (role_id, permission_id)
@@ -121,7 +132,7 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
                                 'FILE_UPLOAD','DOC_READ','DOC_EDIT','DOC_EXPORT',
                                 'SOP_GENERATE','SOP_READ','SOP_EDIT','SOP_APPROVE',
                                 'SOP_RUN','SOP_RUN_CONTROL',
-                                'TASK_DISPATCH','TASK_READ')
+                                'TASK_DISPATCH','TASK_READ','TASK_SUPERVISE')
      WHERE r.tenant_id IS NULL AND r.role_code = 'INSTITUTION_ADMIN'
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
@@ -162,7 +173,23 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
      WHERE r.tenant_id IS NULL AND r.role_code = 'SOP_EDITOR' AND u.user_id = $1`,
     [sopOnlyA],
   );
-  return { tenantA, tenantB, adminA, readerA, userB, sopOnlyA };
+  // 현장 담당자 — 임무 조회와 수행만. 감독 권한은 없다.
+  await c.query(
+    `INSERT INTO role_permission (role_id, permission_id)
+     SELECT r.role_id, p.permission_id
+     FROM role r JOIN permission p ON p.permission_code IN ('TASK_READ','TASK_ASSIGNEE')
+     WHERE r.tenant_id IS NULL AND r.role_code = 'TASK_ASSIGNEE'
+     ON CONFLICT (role_id, permission_id) DO NOTHING`,
+  );
+  await c.query(
+    `INSERT INTO user_role (user_id, role_id, granted_by)
+     SELECT u.user_id, r.role_id, u.user_id
+     FROM app_user u, role r
+     WHERE r.tenant_id IS NULL AND r.role_code = 'TASK_ASSIGNEE'
+       AND u.user_id = ANY($1::uuid[])`,
+    [[fieldA, fieldA2]],
+  );
+  return { tenantA, tenantB, adminA, readerA, userB, sopOnlyA, fieldA, fieldA2 };
 }
 
 export async function startHarness(label: string): Promise<Harness> {

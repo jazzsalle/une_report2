@@ -1,3 +1,4 @@
+import { FIELD_TASK_STATUSES, type FieldTaskStatus } from '../task/field-task';
 import type { SopEdgeDraft, SopNodeDraft } from './sop-graph';
 
 /**
@@ -40,16 +41,19 @@ export function dispatchesForReal(mode: SopRunMode): boolean {
  * `FAILED`는 완료 보고(CC-280)에서 온다 — 그 값을 만드는 코드와 함께 어휘가
  * 넓어진다(0022 §1).
  */
-export const SOP_RUN_STATUSES = ['READY', 'RUNNING', 'PAUSED', 'TERMINATED'] as const;
+export const SOP_RUN_STATUSES = ['READY', 'RUNNING', 'PAUSED', 'COMPLETED', 'TERMINATED'] as const;
 export type SopRunStatus = (typeof SOP_RUN_STATUSES)[number];
 
 const RUN_TRANSITIONS: Record<SopRunStatus, readonly SopRunStatus[]> = {
   // READY는 DRY_RUN 준비 상태다. 시작하거나 접고 나갈 수 있다.
   READY: ['RUNNING', 'TERMINATED'],
-  RUNNING: ['PAUSED', 'TERMINATED'],
+  // COMPLETED는 사람이 누르는 것이 아니다 — 마지막 임무가 승인되면 실행이
+  // 스스로 끝난다(CC-280 `canCompleteRun`).
+  RUNNING: ['PAUSED', 'COMPLETED', 'TERMINATED'],
   PAUSED: ['RUNNING', 'TERMINATED'],
-  // 강제종료는 끝이다. 되돌리려면 새 실행을 시작한다 — 실행 이력을 덮어쓰지
+  // 끝난 실행은 끝이다. 되돌리려면 새 실행을 시작한다 — 실행 이력을 덮어쓰지
   // 않는다는 규칙이 여기에도 적용된다.
+  COMPLETED: [],
   TERMINATED: [],
 };
 
@@ -57,20 +61,21 @@ export function canTransitionRun(from: string, to: string): boolean {
   return (RUN_TRANSITIONS[from as SopRunStatus] ?? []).includes(to as SopRunStatus);
 }
 
-/** 종료된 실행은 더 움직이지 않는다. */
+/** 끝난 실행은 더 움직이지 않는다 — 완주했든 강제종료했든. */
 export function isRunSettled(status: string): boolean {
-  return status === 'TERMINATED';
+  return status === 'COMPLETED' || status === 'TERMINATED';
 }
 
 /**
  * 임무 상태.
  *
- * CC-260은 생성과 취소 둘이었고, CC-270이 예고대로 `SENT`를 열었다 — 전파가
- * 나간 임무다. `DELIVERED`는 수신영수증을 주는 실제 채널이 붙어야 오고(OB-06),
- * 수행(ACKNOWLEDGED~COMPLETED)은 CC-280이 연다.
+ * CC-260은 생성과 취소 둘이었고, CC-270이 `SENT`를, CC-280이 수행 상태들을
+ * 예고대로 열었다. 정본은 `task/field-task.ts`이고 여기서는 실행 쪽 호출부가
+ * 쓰던 이름을 유지한다 — `DELIVERED`는 수신영수증을 주는 실제 채널이 붙어야
+ * 온다(OB-06).
  */
-export const TASK_STATUSES = ['CREATED', 'SENT', 'CANCELLED'] as const;
-export type TaskStatus = (typeof TASK_STATUSES)[number];
+export const TASK_STATUSES = FIELD_TASK_STATUSES;
+export type TaskStatus = FieldTaskStatus;
 
 /**
  * 실행이 만드는 임무.
@@ -96,7 +101,10 @@ export function isTaskNode(node: SopNodeDraft): boolean {
  * `completedNodeKeys`가 비면 시작 직후의 첫 임무들이 나온다.
  */
 export function computeActiveTaskNodes(
-  graph: { nodes: readonly SopNodeDraft[]; edges: readonly SopEdgeDraft[] },
+  graph: {
+    nodes: readonly Pick<SopNodeDraft, 'nodeKey' | 'type'>[];
+    edges: readonly Pick<SopEdgeDraft, 'fromNodeKey' | 'toNodeKey'>[];
+  },
   completedNodeKeys: ReadonlySet<string> = new Set(),
 ): string[] {
   const byKey = new Map(graph.nodes.map((n) => [n.nodeKey, n]));
@@ -139,6 +147,9 @@ export const RUN_EVENT_TYPES = [
   'TASK_CREATED',
   'TASK_ACTIVATED',
   'TASK_CANCELLED',
+  // CC-280이 연다 — 마지막 임무가 승인되면 실행이 스스로 끝난다. 실행
+  // 애그리거트의 이벤트이므로 여기 있어야 UNE-SOP-013 SSE가 그것을 흘린다.
+  'RUN_COMPLETED',
 ] as const;
 export type RunEventType = (typeof RUN_EVENT_TYPES)[number];
 

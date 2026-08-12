@@ -531,7 +531,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-270
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - responsive field flow
   - required evidence
@@ -541,7 +541,11 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-42-cc280-field-task-execution.md
+  - docs/evidence/CC-280-field-task-execution.md
+  - database/migrations/0038_field_task_execution.sql
+  - database/migrations/0039_task_notice_and_settled_runs.sql
 - id: CC-290
   title: Implement Execution Log and dashboard projections
   gate: G3

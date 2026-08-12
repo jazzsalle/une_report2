@@ -149,10 +149,28 @@ export function outboxIdempotencyKey(input: {
   return sha256Hex(`${input.dispatchId}|${input.recipientId}|${input.channel}`);
 }
 
-/** 전파 종류 (설계 10). */
-export const DISPATCH_MESSAGE_TYPES = ['SITUATION', 'TASK', 'ESCALATION'] as const;
+/**
+ * 전파 종류 (설계 10).
+ *
+ * `TASK`와 `TASK_NOTICE`를 나눈 이유가 있다. 릴레이는 전파가 성공하면 그
+ * 전파가 가리키는 임무를 `SENT`로 올리는데(`markTaskSent`), 그것은 **임무
+ * 지시가 나갔다**는 뜻일 때만 참이다. 수행 알림(수행불가·반려·재배정)이 같은
+ * 종류를 쓰면 지시가 한 번도 나가지 않은 임무가 "전파됨"으로 보인다 — 게다가
+ * 그 전이는 상태기계를 거치지 않아 이벤트도 남기지 않는다(0039 §1).
+ */
+export const DISPATCH_MESSAGE_TYPES = ['SITUATION', 'TASK', 'TASK_NOTICE', 'ESCALATION'] as const;
 export type DispatchMessageType = (typeof DISPATCH_MESSAGE_TYPES)[number];
 
 export function isDispatchMessageType(v: unknown): v is DispatchMessageType {
   return (DISPATCH_MESSAGE_TYPES as readonly unknown[]).includes(v);
+}
+
+/**
+ * 이 전파가 나가면 임무가 "전파됨"이 되는가.
+ *
+ * 임무 지시(UNE-TASK-003)뿐이다. 알림과 Escalation은 같은 임무를 가리키지만
+ * 임무 상태를 움직이지 않는다.
+ */
+export function advancesTaskToSent(messageType: string): boolean {
+  return messageType === 'TASK';
 }

@@ -53,8 +53,24 @@ describe('실행 방식', () => {
 });
 
 describe('실행 상태 전이', () => {
-  it('CC-260이 만드는 것은 넷이다 (COMPLETED/FAILED는 CC-280)', () => {
-    expect([...SOP_RUN_STATUSES]).toEqual(['READY', 'RUNNING', 'PAUSED', 'TERMINATED']);
+  it('CC-280이 COMPLETED를 열었다 (FAILED는 여전히 없다)', () => {
+    expect([...SOP_RUN_STATUSES]).toEqual([
+      'READY',
+      'RUNNING',
+      'PAUSED',
+      'COMPLETED',
+      'TERMINATED',
+    ]);
+    // FAILED를 만드는 경로가 아직 없다.
+    expect([...SOP_RUN_STATUSES]).not.toContain('FAILED');
+  });
+
+  it('실행은 스스로 끝난다 — 사람이 누르는 것이 아니다', () => {
+    expect(canTransitionRun('RUNNING', 'COMPLETED')).toBe(true);
+    // 멈춰 있는 실행이 완주할 수는 없다.
+    expect(canTransitionRun('PAUSED', 'COMPLETED')).toBe(false);
+    expect(canTransitionRun('READY', 'COMPLETED')).toBe(false);
+    expect(isRunSettled('COMPLETED')).toBe(true);
   });
 
   it('READY → RUNNING → PAUSED → RUNNING', () => {
@@ -72,6 +88,7 @@ describe('실행 상태 전이', () => {
   it('종료는 끝이다 — 되돌리려면 새 실행이다', () => {
     for (const to of SOP_RUN_STATUSES) {
       expect(canTransitionRun('TERMINATED', to), to).toBe(false);
+      expect(canTransitionRun('COMPLETED', to), to).toBe(false);
     }
     expect(isRunSettled('TERMINATED')).toBe(true);
     expect(isRunSettled('PAUSED')).toBe(false);
@@ -84,9 +101,20 @@ describe('실행 상태 전이', () => {
 });
 
 describe('임무 상태', () => {
-  it('전파까지 열렸고 수행 상태는 아직 없다', () => {
-    // CC-260은 CREATED/CANCELLED 둘이었고 CC-270이 SENT를 예고대로 열었다.
-    expect([...TASK_STATUSES]).toEqual(['CREATED', 'SENT', 'CANCELLED']);
+  it('CC-280이 수행 상태까지 열었다 (정본은 task/field-task.ts)', () => {
+    // CC-260은 CREATED/CANCELLED 둘, CC-270이 SENT, CC-280이 수행 상태들이다.
+    // DELIVERED는 수신영수증을 주는 채널이 붙어야 온다(OB-06).
+    expect([...TASK_STATUSES]).toEqual([
+      'CREATED',
+      'SENT',
+      'ACKNOWLEDGED',
+      'IN_PROGRESS',
+      'COMPLETION_SUBMITTED',
+      'COMPLETED',
+      'UNABLE_REPORTED',
+      'CANCELLED',
+    ]);
+    expect([...TASK_STATUSES]).not.toContain('DELIVERED');
   });
 
   it('ACTION만 임무가 된다', () => {
