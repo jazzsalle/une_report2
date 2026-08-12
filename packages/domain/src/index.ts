@@ -29,4 +29,6 @@ export * from './sop/sop-run';
 export * from './dispatch/outbox';
 export * from './task/field-task';
 export * from './execution/execution-log';
+export * from './evaluation/closure';
+export * from './evaluation/evaluation';
 export * from './journal/journal-projection';

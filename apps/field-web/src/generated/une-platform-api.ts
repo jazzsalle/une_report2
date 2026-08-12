@@ -2828,13 +2828,46 @@ export type paths = {
          * 상황·훈련 종료
          * @description 권한: SITUATION_CLOSE
          *
-         *     핵심 요청: resultSummary,openTaskPolicy
+         *     미결(진행 중 실행·끝나지 않은 임무·미확정 사실·미해소 충돌·미승인 일지)이 남아 있으면
+         *     **목록과 함께** 412로 막는다. 빈 412는 사용자가 왜 막혔는지 모르고 화면이 처분 UI를
+         *     그릴 근거도 없다.
          *
-         *     핵심 응답: Situation
+         *     각 미결에 처분과 **사유**가 붙어야 닫힌다(US-SIT-035 인수기준 "종료시 미결항목·사유
+         *     누락 0"). 처분 어휘는 WAIVED 하나다 - 완료·취소·이관은 각자의 엔드포인트가 한다.
+         *
+         *     닫으면 SITUATION_CLOSED 사실원장 이벤트에 기준선 해시와 처분·사유가 남고, 그 뒤로
+         *     **이 상황에는 새 사실을 쓸 수 없다**. 정정(EXECUTION_EVENT_CORRECTED)만 열려 있다
+         *     (0045 §5) - US-SIT-036 E-02가 평가 중 원 이벤트 정정을 요구하기 때문이다.
          *
          *     오류: SIT-412-010
          */
         post: operations["une_jnl_012"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/situations/{id}/close-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 종료 미결 미리보기
+         * @description 권한: SITUATION_CLOSE
+         *
+         *     US-SIT-035 1단계 "시스템이 미완료 Task·UNKNOWN 전달·OPEN conflict·미승인 일지를
+         *     요약한다". 설계 10의 API 표에는 없다 - 닫아 보기 전에 목록을 읽을 경로가 없으면
+         *     사용자가 412를 눌러 배우게 되고, SCR-EVAL-001의 처분 화면이 그릴 것이 없다.
+         *
+         *     오류: SIT-404-001
+         */
+        get: operations["une_jnl_012_preview"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2854,9 +2887,14 @@ export type paths = {
          * 훈련 평가 생성
          * @description 권한: EVALUATION_EDIT
          *
-         *     핵심 요청: criteria,scores,comments,evidenceEventIds
+         *     선행조건은 **종료된 훈련**이다(US-SIT-036) - 기준선이 움직이는 채로 평가하면 그
+         *     평가서가 무엇을 근거로 삼았는지 나중에 말할 수 없다(EVAL-412-001).
          *
-         *     핵심 응답: Evaluation
+         *     지표는 CC-290의 computeKpi로 산출해 **그 시점에 고정**하고, 무엇을 보고 냈는지
+         *     (이벤트 수·마지막 이벤트·스트림 해시)를 함께 적는다. 근거로 단 이벤트가 이 훈련의
+         *     사실원장에 없으면 422다 - 허공을 가리키는 근거는 근거가 없는 것보다 나쁘다.
+         *
+         *     한 훈련에 평가는 하나다.
          *
          *     오류: EVAL-422-001
          */
@@ -2867,7 +2905,60 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/evaluations/{id}/improvements": {
+    "/evaluations/{evaluationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 평가 상세
+         * @description 권한: EVALUATION_READ
+         *
+         *     설계 10의 API 표에는 없다. 생성 응답만으로는 개선조치를 더한 뒤나 확정한 뒤의
+         *     상태를 읽을 길이 없고, 화면(SCR-EVAL-002~004)이 그릴 것이 사라진다.
+         *
+         *     오류: EVAL-404-001
+         */
+        get: operations["une_jnl_013_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evaluations/{evaluationId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 평가 확정
+         * @description 권한: EVALUATION_EDIT
+         *
+         *     설계 10의 API 넷에 승인 연산이 없는 것은 설계 내부의 공백이다 - US-SIT-036의
+         *     완료조건이 "승인자 확정"인데 그것을 만드는 경로가 없다. 확정 없는 평가서는
+         *     "누가 무엇에 서명했는가"에 답할 수 없으므로 최소한의 전이 하나를 둔다(ADR-45 D7).
+         *
+         *     확정하면 점수·개선조치가 **DB 층에서** 얼어붙는다(0045 §4). 정정은 새 평가다.
+         *
+         *     오류: EVAL-404-001, EVAL-409-001
+         */
+        post: operations["une_jnl_013_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evaluations/{evaluationId}/improvements": {
         parameters: {
             query?: never;
             header?: never;
@@ -2880,9 +2971,11 @@ export type paths = {
          * 개선조치 등록
          * @description 권한: EVALUATION_EDIT
          *
-         *     핵심 요청: actions,owners,dueDates
+         *     개선조치는 SOP·계획서를 **가리키기만 한다**(US-SIT-036 6단계 "자동변경 금지").
+         *     대상 테이블에는 어떤 쓰기도 하지 않고 컬럼도 만들지 않는다 - 승인된 SOP 판은
+         *     불변이고, 대상에 흔적을 넣으면 양방향 결합이 된다.
          *
-         *     핵심 응답: ImprovementPlan
+         *     다만 가리키는 대상이 실재하는지는 확인한다(422). 확정된 평가에는 더할 수 없다(409).
          *
          *     오류: EVAL-422-002
          */
@@ -2893,7 +2986,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/evaluations/{id}/report": {
+    "/evaluations/{evaluationId}/report": {
         parameters: {
             query?: never;
             header?: never;
@@ -2904,9 +2997,13 @@ export type paths = {
          * 만족도·잠재가치·평가보고서
          * @description 권한: EVALUATION_READ
          *
-         *     핵심 요청: format
+         *     **만족도는 수집 경로가 없다.** 설계 §3.9의 API 넷 어디에도 설문 제출 연산이 없고
+         *     survey_response는 §6에 테이블 정의조차 없다. 그래서 x-db-tables에서 뺐고, 보고서는
+         *     부재를 1급 값(NOT_COLLECTED + 사유)으로 적는다 - 빈 배열로 두면 "설문을 했는데 응답이
+         *     0건"과 구분되지 않는다(ADR-45 D6).
          *
-         *     핵심 응답: EvaluationReport
+         *     형식은 JSON뿐이다. HWPX·PDF 평가보고서 양식은 이 항목에 없다 - 없는 것을 어휘에만
+         *     두면 "언젠가 된다"는 거짓 약속이 된다(EVAL-422-003).
          *
          *     오류: EVAL-404-001
          */
@@ -4799,10 +4896,6 @@ export type components = {
             size: number;
             total: number;
         };
-        EvaluationRequest: {
-            criteria: Record<string, never>[];
-            comments?: string | null;
-        };
         Plan: {
             [key: string]: unknown;
         };
@@ -5497,6 +5590,204 @@ export type components = {
                     stored: string;
                 }[];
             };
+        };
+        /**
+         * @description 무엇이 종료를 막는가. 값을 만드는 코드가 있는 다섯만 있다(0045 §1의 원칙).
+         * @enum {string}
+         */
+        CloseBlockerKind: "ACTIVE_RUN" | "OPEN_TASK" | "PENDING_DISPATCH" | "CANDIDATE_FACT" | "OPEN_CONFLICT" | "UNAPPROVED_JOURNAL";
+        CloseBlocker: {
+            kind: components["schemas"]["CloseBlockerKind"];
+            /**
+             * Format: uuid
+             * @description 막고 있는 것(임무·실행·사실·충돌·일지)의 식별자. 처분은 이 값으로 붙인다.
+             */
+            refId: string;
+            label: string;
+            /** @description 사람이 "왜 막혔는지"를 읽을 문장. 빈 412는 사용자가 이유를 모른다. */
+            detail: string;
+            /**
+             * @description 사유를 적고 그대로 둘 수 있는가. **큐에 남은 전파(PENDING_DISPATCH)는 그럴 수
+             *     없다** - 닫으면 릴레이가 그것을 보내려 할 때 사실원장이 거부하고(0045 §5) 그
+             *     지시는 dead letter로 죽는다. 사유를 적는다고 살아나지 않으므로 먼저 정리해야
+             *     한다(ADR-45 D3).
+             */
+            waivable: boolean;
+        };
+        /**
+         * @description US-SIT-035 1단계 "시스템이 미결항목을 요약한다". 닫아 보기 전에 읽을 수 있어야
+         *     사용자가 실패를 눌러 배우지 않는다.
+         */
+        ClosurePreview: {
+            /** Format: uuid */
+            situationId: string;
+            status: string;
+            blockers: components["schemas"]["CloseBlocker"][];
+            closable: boolean;
+        };
+        /**
+         * @description 미결 처분. **WAIVED 하나다.** 설계는 완료/취소/이관/예외를 적지만 앞의 셋을
+         *     만드는 연산은 각 도메인의 엔드포인트에 있다. 여기서 같은 일을 하면 상태가
+         *     자기 상태기계 밖에서 바뀌고 그 전이는 사실원장에 제대로 남지 않는다(ADR-45 D3).
+         * @enum {string}
+         */
+        CloseDisposition: "WAIVED";
+        /**
+         * @description UNE-JNL-012. 미결이 남아 있으면 **각 항목에 처분과 사유**가 있어야 닫힌다
+         *     (US-SIT-035 인수기준 "종료시 미결항목·사유 누락 0").
+         */
+        SituationCloseRequest: {
+            resultSummary?: string | null;
+            dispositions: {
+                /** Format: uuid */
+                refId: string;
+                disposition: components["schemas"]["CloseDisposition"];
+                /** @description 사유 없는 처분은 처분이 아니다. 종료 사건에 그대로 실린다. */
+                reason: string;
+            }[];
+        };
+        SituationClosed: {
+            /** Format: uuid */
+            situationId: string;
+            status: string;
+            /** Format: date-time */
+            closedAt: string;
+            /**
+             * Format: uuid
+             * @description SITUATION_CLOSED 사실원장 이벤트. 처분·사유가 그 payload에 있다.
+             */
+            closureEventId: string;
+            /**
+             * @description 무엇을 최종으로 삼고 닫았는가. 확정 판·이벤트 수·마지막 이벤트·일지 해시·
+             *     실행 상태를 한 값으로 굳힌 것이다. 뒤에 정정이 붙어도 이 값은 그대로다.
+             */
+            baselineHash: string;
+            waivedCount: number;
+        };
+        EvaluationScore: {
+            /** Format: uuid */
+            scoreId: string;
+            criterionCode: string;
+            scoreValue: number;
+            weightValue: number;
+            comment?: string | null;
+            /**
+             * @description 이 결론의 근거. **이 훈련의 사실원장에 있는 이벤트여야 한다** - 없는 것이나
+             *     남의 훈련 것을 실으면 422다. 비어 있어도 막지 않지만 보고서가 센다
+             *     (정성평가는 이벤트로 뒷받침되지 않을 수 있다, US-SIT-036 A-01).
+             */
+            evidenceEventIds: string[];
+        };
+        ImprovementAction: {
+            /** Format: uuid */
+            actionId: string;
+            actionText: string;
+            ownerUserId?: string | null;
+            dueAt?: string | null;
+            /**
+             * @description OPEN만. 종결 경로(담당자 완료보고·승인)가 이 항목에 없다(0045 §1).
+             * @enum {string}
+             */
+            status: "OPEN";
+            /**
+             * @description 환류 대상. **포인터일 뿐이다** - 개선조치는 대상 SOP·계획서를 바꾸지 않는다
+             *     (US-SIT-036 6단계 "자동변경 금지"). PLAN/SOP는 실재하는 대상을 가리켜야 하고
+             *     SYSTEM은 가리킬 행이 없다.
+             */
+            targetType?: ("PLAN" | "SOP" | "SYSTEM") | null;
+            targetId?: string | null;
+        };
+        /**
+         * @description OPEN(작성 중)/CONFIRMED(확정·동결). 설계 06의 다섯 상태 중 전이를 만드는 연산이
+         *     있는 둘만 있다 - NOT_STARTED는 행이 없는 것이고, COLLECTING/REVIEW를 가르는
+         *     연산이 없으며, ACTION_TRACKING은 개선조치 상태의 집계다(0045 §1).
+         * @enum {string}
+         */
+        EvaluationStatus: "OPEN" | "CONFIRMED";
+        Evaluation: {
+            /** Format: uuid */
+            evaluationId: string;
+            /** Format: uuid */
+            situationId: string;
+            status: components["schemas"]["EvaluationStatus"];
+            /**
+             * @description 사용성 평가(USABILITY)를 만드는 경로가 이 항목에 없다(0045 §1).
+             * @enum {string}
+             */
+            evaluationType: "EXERCISE";
+            /** @description 가중 평균. 가중치 합이 0이면 null이다 - 0점과 "평가하지 않았다"는 다르다. */
+            overallScore?: number | null;
+            summary?: string | null;
+            /**
+             * @description 산출 시점에 **고정한** KPI. 산출기는 CC-290의 computeKpi 하나다(ADR-43 D1) -
+             *     평가가 자기 계산기를 가지면 대시보드와 숫자가 갈라진다. 분모가 0인 비율은
+             *     0%가 아니라 null이다(US-SIT-036 E-01 "KPI 분모 0 → N/A").
+             */
+            metrics: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description 고정한 값이 지금 사실원장과 어긋나는가(정정이 붙었는가). **자동으로 다시
+             *     계산하지 않는다** - 조회할 때마다 숫자가 조용히 달라지면 무엇을 확정한
+             *     것인지 말할 수 없다(ADR-44 D6과 같은 판단).
+             */
+            metricsStale: boolean;
+            confirmedBy?: string | null;
+            confirmedAt?: string | null;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            scores: components["schemas"]["EvaluationScore"][];
+            improvements: components["schemas"]["ImprovementAction"][];
+        };
+        /**
+         * @description UNE-JNL-013. 선행조건은 **종료된 훈련**이다(US-SIT-036) - 기준선이 움직이는 채로
+         *     평가하면 그 평가서가 무엇을 근거로 삼았는지 나중에 말할 수 없다.
+         */
+        EvaluationRequest: {
+            summary?: string | null;
+            scores: {
+                criterionCode: string;
+                scoreValue: number;
+                weightValue: number;
+                comment?: string | null;
+                evidenceEventIds?: string[];
+            }[];
+        };
+        /** @description UNE-JNL-014. 개선조치는 대상을 가리키기만 하고 바꾸지 않는다. */
+        ImprovementRequest: {
+            actions: {
+                actionText: string;
+                ownerUserId?: string | null;
+                dueAt?: string | null;
+                targetType?: ("PLAN" | "SOP" | "SYSTEM") | null;
+                targetId?: string | null;
+            }[];
+        };
+        /**
+         * @description 만족도. **수집 경로가 없다** - 설계 §3.9의 API 넷 어디에도 설문을 제출하는 연산이
+         *     없고 survey_response는 §6에 테이블 정의조차 없다. 그래서 부재를 **1급 값으로**
+         *     적는다: 빈 배열이나 null로 두면 "설문을 했는데 응답이 0건"과 구분되지 않아
+         *     보고서를 읽는 사람이 만족도가 낮다고 읽는다(ADR-45 D6).
+         */
+        SatisfactionSection: {
+            /** @enum {string} */
+            status: "NOT_COLLECTED";
+            reason: string;
+            responseCount: number;
+        };
+        EvaluationReport: {
+            evaluation: components["schemas"]["Evaluation"];
+            satisfaction: components["schemas"]["SatisfactionSection"];
+            /** @description 근거 없이 매긴 지표. 막지 않되 보고서가 말한다. */
+            criteriaWithoutEvidence: string[];
+            improvementsByTarget: {
+                targetType: string;
+                count: number;
+            }[];
+            /** Format: date-time */
+            generatedAt: string;
         };
         /**
          * @description 설계 09 Journal 상태표는 여섯을 적지만 CONFIGURING·PROJECTING은 도달하지
@@ -10022,9 +10313,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["SituationCloseRequest"];
             };
         };
         responses: {
@@ -10034,7 +10325,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["SituationClosed"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -10042,83 +10333,11 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
-            503: components["responses"]["ProviderError"];
         };
     };
-    une_jnl_013: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["EvaluationRequest"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Situation"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["Unprocessable"];
-            503: components["responses"]["ProviderError"];
-        };
-    };
-    une_jnl_014: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["GenericRequest"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GenericResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["Unprocessable"];
-            503: components["responses"]["ProviderError"];
-        };
-    };
-    une_jnl_015: {
+    une_jnl_012_preview: {
         parameters: {
             query?: never;
             header?: {
@@ -10137,7 +10356,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["ClosurePreview"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -10145,8 +10364,170 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["Unprocessable"];
-            503: components["responses"]["ProviderError"];
+        };
+    };
+    une_jnl_013: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Evaluation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    une_jnl_013_detail: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+            };
+            path: {
+                evaluationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Evaluation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    une_jnl_013_confirm: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                evaluationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Evaluation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    une_jnl_014: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                evaluationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImprovementRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Evaluation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    une_jnl_015: {
+        parameters: {
+            query?: {
+                format?: "JSON";
+            };
+            header?: {
+                "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
+            };
+            path: {
+                evaluationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     une_admin_001: {

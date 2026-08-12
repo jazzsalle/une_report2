@@ -135,7 +135,8 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
                                 'TASK_DISPATCH','TASK_READ','TASK_SUPERVISE',
                                 'DASHBOARD_READ','EXECUTION_READ','EXECUTION_CORRECT',
                                 'JOURNAL_CREATE','JOURNAL_READ','JOURNAL_EDIT',
-                                'JOURNAL_AI_EDIT','JOURNAL_APPROVE','JOURNAL_EXPORT')
+                                'JOURNAL_AI_EDIT','JOURNAL_APPROVE','JOURNAL_EXPORT',
+                                'SITUATION_CLOSE','EVALUATION_EDIT','EVALUATION_READ')
      WHERE r.tenant_id IS NULL AND r.role_code = 'INSTITUTION_ADMIN'
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );

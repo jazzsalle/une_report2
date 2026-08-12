@@ -42,6 +42,26 @@ export function isSituationClosed(status: string): boolean {
   return CLOSED_STATUSES.has(status);
 }
 
+/**
+ * 종료할 수 있는 상태 (CC-310, UNE-JNL-012).
+ *
+ * 설계 06 §7.1과 0023 §1 주석의 흐름은 `RUNNING/PAUSED → CLOSING → CLOSED`다.
+ * 아직 시작하지도 않은 훈련(DRAFT·REGISTERED·CONTEXT_CONFIRMED·SOP_READY)을
+ * 닫을 수 있게 두면 사실 하나 없는 빈 훈련이 영구 동결된다 — 종료는 되돌릴 수
+ * 없으므로(ADR-45 수용 한계 11) 그 실수는 회복되지 않는다.
+ *
+ * `CLOSING`을 포함하는 이유는 어휘에 있기 때문이 아니라, 만약 누군가 그 상태를
+ * 만들면 닫을 길이 있어야 하기 때문이다. **지금 그 값을 쓰는 코드는 없다** —
+ * 종료가 동기 한 트랜잭션이라 중간 상태가 지속될 자리가 없다(ADR-45 D2).
+ */
+const CLOSABLE_STATUSES: ReadonlySet<string> = new Set(['RUNNING', 'PAUSED', 'CLOSING']);
+
+export function canCloseSituation(status: string): boolean {
+  return CLOSABLE_STATUSES.has(status);
+}
+
+export const SITUATION_CLOSABLE_STATUSES = ['RUNNING', 'PAUSED', 'CLOSING'] as const;
+
 /** Fact 수집·등록이 가능한 상태.
  *
  * DRAFT를 포함한다. 설계 06 US-SIT-004의 선행조건은 "기본정보 저장"이고

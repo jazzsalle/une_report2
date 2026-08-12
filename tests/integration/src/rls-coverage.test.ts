@@ -44,10 +44,7 @@ const KNOWN_OPEN: readonly string[] = [
   // task_attachment·task_assignment를 자기 쓰기 경로와 함께 닫았다.
   // 전파 계열은 CC-270이 닫았다(dispatch·dispatch_recipient·outbox_attempt).
   // 일지 계열은 CC-300이 닫았다(journal·journal_projection_item).
-  // 평가·개선 — CC-300대가 연다
-  'evaluation',
-  'evaluation_score',
-  'improvement_action',
+  // 평가·개선은 CC-310이 닫았다(0045 §3).
   // 계획 초안 — CC-1xx 잔여
   'plan_context_draft',
   // IAM 세션·역할배정 — 인증 경로가 자체 스코프를 건다(CC-100). 정책 도입은

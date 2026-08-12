@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 68
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state, 0037_outbox_relay_and_dispatch, 0038_field_task_execution, 0039_task_notice_and_settled_runs, 0040_execution_log_projection, 0041_execution_log_review_fixes, 0042_journal_projection_and_review, 0043_revision_origin_projection, 0044_journal_event_types
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state, 0037_outbox_relay_and_dispatch, 0038_field_task_execution, 0039_task_notice_and_settled_runs, 0040_execution_log_projection, 0041_execution_log_review_fixes, 0042_journal_projection_and_review, 0043_revision_origin_projection, 0044_journal_event_types, 0045_exercise_close_and_evaluation, 0046_close_guard_fail_closed
 
 ## api_idempotency
 
@@ -290,29 +290,38 @@
 
 ## evaluation
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_evaluation_confirmed: CHECK (((((status)::text = 'CONFIRMED'::text) AND (confirmed_by IS NOT NULL) AND (confirmed_at IS NOT NULL)) OR (((status)::text <> 'CONFIRMED'::text) AND (confirmed_by IS NULL) AND (confirmed_at IS NULL))))
+- ck_evaluation_status: CHECK (((status)::text = ANY ((ARRAY['OPEN'::character varying, 'CONFIRMED'::character varying])::text[])))
+- ck_evaluation_type: CHECK (((evaluation_type)::text = 'EXERCISE'::text))
 - evaluation_pkey: PRIMARY KEY (evaluation_id)
+- fk_evaluation_confirmed_by: FOREIGN KEY (confirmed_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_evaluation_created_by: FOREIGN KEY (created_by) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_evaluation_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: evaluation_pkey
+- 인덱스: evaluation_pkey, uk_evaluation_situation
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
 | evaluation_id | uuid | NN | gen_random_uuid() | 평가 |
 | situation_id | uuid | NN |  | 훈련 |
-| status | character varying(20) | NN |  | OPEN~CLOSED |
-| evaluation_type | character varying(30) | NN |  | EXERCISE/USABILITY |
+| status | character varying(20) | NN |  | OPEN(작성 중)/CONFIRMED(확정·동결). 설계 06의 다섯 상태 중 전이를 만드는 연산이 있는 둘만 넣었다(0045 §1) |
+| evaluation_type | character varying(30) | NN |  | EXERCISE만. 설계의 USABILITY(사용성 평가)를 만드는 경로가 이 항목에 없다(0045 §1) |
 | overall_score | numeric(6,2) | - |  | 종합점수 |
 | summary | text | - |  | 종합의견 |
 | created_by | uuid | NN |  | 평가자 |
 | created_at | timestamp with time zone | NN | now() | 생성 |
+| metric_json | jsonb | NN | '{}'::jsonb | 산출 시점에 고정한 KPI(CC-290 computeKpi 결과). 조회 때 다시 계산하지 않는다 |
+| metric_basis_json | jsonb | NN | '{}'::jsonb | 그 값을 무엇을 보고 냈는가 — 이벤트 수·마지막 이벤트 id·기준 시각. 지금 사실과 비교해 드리프트를 드러낸다(0045 §2) |
+| confirmed_by | uuid | - |  | 확정자. 확정 뒤에는 점수·의견이 얼어붙는다 |
+| confirmed_at | timestamp with time zone | - |  |  |
 
 ## evaluation_score
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_evaluation_score_weight: CHECK ((weight_value >= (0)::numeric))
 - evaluation_score_pkey: PRIMARY KEY (score_id)
 - fk_evaluation_score_evaluation_id: FOREIGN KEY (evaluation_id) REFERENCES evaluation(evaluation_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: evaluation_score_pkey
+- 인덱스: evaluation_score_pkey, uk_evaluation_score_criterion
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -613,11 +622,13 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 
 ## improvement_action
 
-- 격리: RLS 없음
+- 격리: RLS enforced (FORCE)
+- ck_improvement_action_status: CHECK (((status)::text = 'OPEN'::text))
+- ck_improvement_action_target: CHECK ((((target_type IS NULL) AND (target_id IS NULL)) OR (((target_type)::text = 'SYSTEM'::text) AND (target_id IS NULL)) OR (((target_type)::text = ANY ((ARRAY['PLAN'::character varying, 'SOP'::character varying])::text[])) AND (target_id IS NOT NULL))))
 - fk_improvement_action_evaluation_id: FOREIGN KEY (evaluation_id) REFERENCES evaluation(evaluation_id) DEFERRABLE INITIALLY DEFERRED
 - fk_improvement_action_owner_user_id: FOREIGN KEY (owner_user_id) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - improvement_action_pkey: PRIMARY KEY (action_id)
-- 인덱스: improvement_action_pkey
+- 인덱스: improvement_action_pkey, ix_improvement_action_target
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -626,8 +637,8 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 | action_text | text | NN |  | 조치 |
 | owner_user_id | uuid | - |  | 담당 |
 | due_at | timestamp with time zone | - |  | 기한 |
-| status | character varying(20) | NN |  | OPEN~CLOSED |
-| target_type | character varying(30) | - |  | PLAN/SOP/SYSTEM |
+| status | character varying(20) | NN |  | OPEN만. 종결 경로(담당자 완료보고·승인)는 이 항목에 없다(0045 §1) |
+| target_type | character varying(30) | - |  | PLAN/SOP는 대상 id가 있어야 하고 SYSTEM은 없다. **포인터일 뿐이다** — 개선조치는 대상 SOP·계획서를 바꾸지 않는다(US-SIT-036 6단계 "자동변경 금지") |
 | target_id | uuid | - |  | 환류대상 |
 
 ## job_event
