@@ -26,6 +26,7 @@ export function e2eApiConfig(
     runtimeRole: 'une_app',
     publicBaseUrl: 'http://127.0.0.1:0',
     uploadMaxBytes: 50 * 1024 * 1024,
+    jsonMaxBytes: 1024 * 1024,
     uploadTicketTtlSec: 900,
     corsAllowedOrigins: [],
     // CC-220: 지식문서 정책. AV 엔진이 없으므로(OB-15) e2e는 scan_status가

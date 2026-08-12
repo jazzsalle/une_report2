@@ -132,7 +132,8 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
                                 'FILE_UPLOAD','DOC_READ','DOC_EDIT','DOC_EXPORT',
                                 'SOP_GENERATE','SOP_READ','SOP_EDIT','SOP_APPROVE',
                                 'SOP_RUN','SOP_RUN_CONTROL',
-                                'TASK_DISPATCH','TASK_READ','TASK_SUPERVISE')
+                                'TASK_DISPATCH','TASK_READ','TASK_SUPERVISE',
+                                'DASHBOARD_READ','EXECUTION_READ','EXECUTION_CORRECT')
      WHERE r.tenant_id IS NULL AND r.role_code = 'INSTITUTION_ADMIN'
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
@@ -222,6 +223,7 @@ export async function startHarness(label: string): Promise<Harness> {
     runtimeRole: 'une_app',
     publicBaseUrl: 'http://127.0.0.1:0',
     uploadMaxBytes: 50 * 1024 * 1024,
+    jsonMaxBytes: 1024 * 1024,
     uploadTicketTtlSec: 900,
     // CC-220 지식문서 정책. 운영 기본값과 같게 둔다 — 특히 검사 미완료 완화는
     // 꺼진 상태여야 도메인이 막으려는 경로가 테스트에서 살아 있다(ADR-36 D6).

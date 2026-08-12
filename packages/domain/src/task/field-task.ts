@@ -100,6 +100,10 @@ export type TaskEventType = (typeof TASK_EVENT_TYPES)[number];
 
 /** `execution_event.event_type` 어휘 중 임무가 만드는 것. */
 export const TASK_EXECUTION_EVENT_TYPES = [
+  // 릴레이가 전파를 끝내고 임무를 SENT로 올릴 때 남긴다. **CC-290 전에는 그
+  // 전이가 사실원장 밖에서 일어났다** — 대시보드를 이벤트 재생으로 만들면서
+  // 그 구멍이 기능적 결함이 됐다(ADR-43 D3).
+  'TASK_SENT',
   'TASK_ACKNOWLEDGED',
   'TASK_STARTED',
   'TASK_PROGRESS_REPORTED',

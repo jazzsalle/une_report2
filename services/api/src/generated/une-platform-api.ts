@@ -5222,6 +5222,265 @@ export type components = {
             correlationId?: string;
         };
         /**
+         * @description 사실원장 한 줄. **append-only다** - 원본은 어떤 경로로도 바뀌지 않고
+         *     정정은 `correctsEventId`를 가진 새 이벤트다.
+         */
+        ExecutionEvent: {
+            /** Format: uuid */
+            eventId: string;
+            /** Format: uuid */
+            situationId: string;
+            /** @enum {string} */
+            aggregateType: "TASK" | "SOP_RUN" | "DISPATCH";
+            /** Format: uuid */
+            aggregateId: string;
+            eventType: string;
+            /**
+             * Format: date-time
+             * @description 업무시각. `at` 질의가 해석하는 축이다.
+             */
+            occurredAt: string;
+            /**
+             * Format: date-time
+             * @description 기록시각. 늦은 보고면 occurredAt과 다르다.
+             */
+            recordedAt: string;
+            /**
+             * Format: uuid
+             * @description 시스템이 남긴 이벤트는 비어 있다(릴레이의 TASK_SENT 등).
+             */
+            actorId?: string | null;
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: uuid
+             * @description 정정 대상 **원본**. 정정 이벤트만 갖고, 정정을 다시 가리킬 수 없다
+             *     (star 구조 - 사슬이면 "지금 사실"에 답하려고 재귀를 따라가야 한다).
+             */
+            correctsEventId?: string | null;
+            correlationId?: string;
+            eventHash: string;
+        };
+        /**
+         * @description 타임라인 한 줄. ExecutionEvent에 표시 하나를 더한 것이다.
+         *
+         *     **allOf로 쓰지 않는다.** 2020-12에서 allOf의 각 브랜치는 독립 평가되므로
+         *     (a) 어느 브랜치에 additionalProperties:false를 두면 형제 브랜치의
+         *     property를 보지 못하고, (b) 닫힌 기반 스키마를 참조하면 더한 property를
+         *     그 기반이 거부한다. 둘 다 **모든 인스턴스를 무효로 만든다**(ADR-24 D4).
+         *     그래서 닫힌 객체 하나로 펼친다.
+         */
+        ExecutionEventTimelineItem: {
+            /** Format: uuid */
+            eventId: string;
+            /** Format: uuid */
+            situationId: string;
+            /** @enum {string} */
+            aggregateType: "TASK" | "SOP_RUN" | "DISPATCH";
+            /** Format: uuid */
+            aggregateId: string;
+            eventType: string;
+            /**
+             * Format: date-time
+             * @description 업무시각. `at` 질의가 해석하는 축이다.
+             */
+            occurredAt: string;
+            /**
+             * Format: date-time
+             * @description 기록시각. 늦은 보고면 occurredAt과 다르다.
+             */
+            recordedAt: string;
+            /**
+             * Format: uuid
+             * @description 시스템이 남긴 이벤트는 비어 있다(릴레이의 TASK_SENT 등).
+             */
+            actorId?: string | null;
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: uuid
+             * @description 정정 대상 **원본**. 정정 이벤트만 갖고, 정정을 다시 가리킬 수 없다
+             *     (star 구조 - 사슬이면 "지금 사실"에 답하려고 재귀를 따라가야 한다).
+             */
+            correctsEventId?: string | null;
+            correlationId?: string;
+            eventHash: string;
+            /**
+             * @description 이 원본을 정정한 이벤트. **원본을 감추지 않는다** - 타임라인은
+             *     원본을 그대로 보이고 표시만 단다(설계 09 REG-05). 한 쪽 안에서
+             *     찾지 못하면 null이므로 정본은 상세(UNE-JNL-003)다.
+             */
+            correctedBy?: string | null;
+        };
+        ExecutionEventPage: {
+            items: components["schemas"]["ExecutionEventTimelineItem"][];
+            page: number;
+            size: number;
+            total: number;
+        };
+        /**
+         * @description 원본과 정정 lineage를 함께 낸다(설계 09 REG-05). 원본을 숨기는 표현은
+         *     두지 않는다 - 감사 관점에서 "무엇이 있었고 무엇으로 고쳤는가"가 둘 다
+         *     보여야 한다.
+         */
+        ExecutionEventDetail: {
+            event: components["schemas"]["ExecutionEvent"];
+            /** @description 이 원본을 정정한 것들. **가장 나중 것이 유효본이다.** */
+            corrections: components["schemas"]["ExecutionEvent"][];
+            /** @description 지금 사실. 정정이 없으면 원본 payload와 같다. */
+            effectivePayload: {
+                [key: string]: unknown;
+            };
+            correctsEvent?: components["schemas"]["ExecutionEvent"] | null;
+            /**
+             * @description 화면이 "정정" 버튼을 보일지 판단한다. 편의이지 통제가 아니다 -
+             *     서버가 다시 검사한다.
+             */
+            correctable: boolean;
+        };
+        /**
+         * @description UNE-JNL-004. **원본을 고치지 않는다.** `replacementFields`는 부분
+         *     패치이고, 서버가 유효 payload와 병합해 완성본을 새 이벤트에 저장한다 -
+         *     읽는 쪽이 매번 체인을 재생하지 않아도 되게.
+         *
+         *     **사람이 보고한 사실만 정정할 수 있다.** 상태 전이나 전파 결과 같은
+         *     시스템 관측 이벤트는 "시스템이 그때 그렇게 했다"는 기록이라 그 자체로
+         *     참이고, 잘못이면 새 조치(재전파·반려·재배정)로 바로잡는다.
+         */
+        ExecutionCorrectionRequest: {
+            /** @description 사유 없는 정정은 감사에서 "누군가 값을 바꿨다"로만 남는다. */
+            reason: string;
+            /**
+             * @description 바꿀 값만. `status`·`runId`·`taskId` 같은 시스템 참조는 바꿀 수
+             *     없다 - 특히 `status`를 허용하면 "과거 이력에 현재 상태가 붙던"
+             *     CC-280의 결함을 정정 경로로 다시 들여오는 셈이다.
+             */
+            replacementFields: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * @description 설계 09 SCR-BOARD-001 REG-01(전체/진행/완료/지연/실패/미수신).
+         *     **임무 행을 세지 않고 이벤트를 접어 만든다** - 그래야 `at` 질문에
+         *     답할 수 있다.
+         */
+        DashboardKpi: {
+            total: number;
+            /** @description 아직 전파되지 않음. */
+            notDispatched: number;
+            /** @description 전파됐으나 수신확인 없음(설계의 "미수신"). */
+            awaitingAck: number;
+            inProgress: number;
+            completed: number;
+            /** @description 수행불가로 보고됨(설계의 "실패"). */
+            unable: number;
+            cancelled: number;
+            /** @description 기한을 넘겼고 아직 끝나지 않음. */
+            overdue: number;
+        };
+        DashboardTask: {
+            /** Format: uuid */
+            taskId: string;
+            /** Format: uuid */
+            runId: string;
+            nodeKey: string;
+            title: string;
+            /** Format: uuid */
+            assigneeUserId?: string | null;
+            /** Format: uuid */
+            assigneeOrgId?: string | null;
+            /** Format: date-time */
+            dueAt?: string | null;
+            /**
+             * @description **이벤트에서 복원한** 그 시점의 진행률. 임무 행의 현재 값이 아니다 -
+             *     그것을 쓰면 과거 판이 오늘의 진행률을 보여 준다. null이면 아직
+             *     보고되지 않았다.
+             */
+            progressPct: number | null;
+            /** @description **이벤트에서 복원한** 그 시점의 상태 (임무 행의 현재 값이 아니다). */
+            status: components["schemas"]["TaskStatus"];
+            /**
+             * Format: uuid
+             * @description 그 상태를 만든 이벤트. **KPI에서 사실원장으로 내려가는 길**이다
+             *     (설계 06 drill-down) - 이것이 없으면 "미수신 3건"에서 그 셋의 근거로
+             *     갈 방법이 없다.
+             */
+            statusEventId: string;
+            overdue: boolean;
+        };
+        /**
+         * @description 전자상황판. `at`을 주면 **그 시점의 판**을 낸다 - 이벤트를 재생해
+         *     복원하므로 "그때 지휘소가 무엇을 보고 있었는가"에 답할 수 있다.
+         */
+        DashboardView: {
+            /** Format: uuid */
+            situationId: string;
+            title: string;
+            mode: string;
+            status: string;
+            /** Format: date-time */
+            at: string;
+            /** Format: date-time */
+            lastEventAt?: string | null;
+            /**
+             * @description 마지막 이벤트가 오래됐다. 조용한 것일 수도, 갱신이 끊긴 것일 수도
+             *     있다 - 화면이 둘을 구분하지 못하면 끊긴 화면을 믿는다(설계 09 STALE).
+             */
+            stale: boolean;
+            staleAfterMs: number;
+            kpi: components["schemas"]["DashboardKpi"];
+            tasks: components["schemas"]["DashboardTask"][];
+            runs: {
+                /** Format: uuid */
+                runId: string;
+                mode: string;
+                status: string;
+                /** Format: date-time */
+                startedAt: string;
+            }[];
+            snapshot?: {
+                /** Format: uuid */
+                snapshotId: string;
+                versionNo: number;
+                /** Format: date-time */
+                effectiveAt: string;
+                factCount: number;
+            } | null;
+            recentEvents: components["schemas"]["ExecutionEventTimelineItem"][];
+            /**
+             * @description **이 집계가 무엇을 근거로 했는가.** 숫자만 주면 화면이 그것을 완전한
+             *     사실로 읽는다. 기한처럼 이벤트가 모르는 값이 섞여 있다는 것, 재생이
+             *     잘렸다는 것, 이벤트와 임무 행이 어긋난다는 것을 응답이 스스로 밝힌다.
+             */
+            provenance: {
+                eventCount: number;
+                /** @description 재생 상한에 걸려 잘렸다. 이 판은 불완전하다. */
+                truncated: boolean;
+                /** @enum {string} */
+                timeAxis: "occurredAt";
+                /**
+                 * @description 이벤트가 아니라 임무 행의 **현재** 값에서 온 항목. 그 변경이
+                 *     이벤트로 남지 않아 과거 시점 조회에도 현재 값이 쓰인다.
+                 */
+                taskRowFields: string[];
+                /** @description 이벤트가 아직 말하지 않은 임무 수. 0이 아니면 이벤트가 빠졌을 수 있다. */
+                tasksWithoutEvents: number;
+                /**
+                 * @description 재생 결과와 임무 행이 어긋난 임무. **비어 있지 않으면 어딘가에서
+                 *     상태가 사실원장 밖으로 움직였다** - 이 항목이 세 번 찾은 결함의
+                 *     형태다. 과거 시점 조회에서는 재지 않는다(당연히 다르다).
+                 */
+                divergences: {
+                    /** Format: uuid */
+                    taskId: string;
+                    replayed: string | null;
+                    stored: string;
+                }[];
+            };
+        };
+        /**
          * @description CC-280이 수행 상태를 열었다. 설계 09의 Task 상태표는 열하나를 적지만
          *     셋은 **관측되지 않아** 넣지 않는다: DELIVERED(수신영수증을 주는 실제
          *     채널이 없다 - OB-06), REJECTED(반려하는 순간 IN_PROGRESS가 된다),
@@ -9091,7 +9350,11 @@ export interface operations {
     };
     une_jnl_001: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 이 시점의 판. 생략하면 지금이다. occurredAt 축으로 해석한다. */
+                at?: string;
+                runId?: string;
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -9108,7 +9371,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["DashboardView"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9122,7 +9385,16 @@ export interface operations {
     };
     une_jnl_002: {
         parameters: {
-            query?: never;
+            query?: {
+                from?: string;
+                to?: string;
+                /** @description 이벤트 종류 정확 일치. */
+                type?: string;
+                actor?: string;
+                aggregateType?: "TASK" | "SOP_RUN" | "DISPATCH";
+                page?: number;
+                size?: number;
+            };
             header?: {
                 "X-Correlation-Id"?: components["parameters"]["CorrelationId"];
             };
@@ -9139,7 +9411,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Situation"];
+                    "application/json": components["schemas"]["ExecutionEventPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9170,7 +9442,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["ExecutionEventDetail"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9194,19 +9466,19 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericRequest"];
+                "application/json": components["schemas"]["ExecutionCorrectionRequest"];
             };
         };
         responses: {
             /** @description Success */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GenericResponse"];
+                    "application/json": components["schemas"]["ExecutionEvent"];
                 };
             };
             400: components["responses"]["BadRequest"];

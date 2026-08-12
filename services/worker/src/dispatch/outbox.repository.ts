@@ -1,4 +1,5 @@
 import type { PoolClient } from 'pg';
+import { executionEventHash } from '@une/domain';
 import type { DispatchChannel, RecipientStatus } from '@une/domain';
 
 /**
@@ -165,12 +166,72 @@ export async function setDispatchStatus(
  * 전파가 나간 임무만 해당한다. `CREATED`에서만 올리므로 취소된 임무를 되살리지
  * 않는다(0036의 트리거가 종료된 실행의 임무를 막는 것과 같은 축).
  */
-export async function markTaskSent(client: PoolClient, taskId: string): Promise<void> {
-  await client.query(
+/**
+ * 임무를 "전파됨"으로 올린다.
+ *
+ * **사실원장에도 남긴다.** CC-290 전에는 이 전이가 이벤트 없이 일어났고,
+ * 대시보드를 이벤트 재생으로 만들면서 그 구멍이 기능적 결함이 됐다 — 시점
+ * 재생이 그 임무를 영원히 `CREATED`로 본다. CC-280이 알림 전파에서 고친 것과
+ * 같은 계열이다: **상태 변경은 사실원장 밖에서 일어나면 안 된다.**
+ *
+ * 실제로 바뀐 경우에만 이벤트를 남긴다(0행이면 이미 SENT를 지났다).
+ */
+export async function markTaskSent(
+  client: PoolClient,
+  taskId: string,
+  context: { tenantId: string; correlationId: string },
+): Promise<boolean> {
+  const updated = await client.query(
     `UPDATE task SET status = 'SENT', version_no = version_no + 1
-      WHERE task_id = $1 AND status = 'CREATED'`,
+      WHERE task_id = $1 AND status = 'CREATED'
+      RETURNING run_id`,
     [taskId],
   );
+  if ((updated.rowCount ?? 0) === 0) return false;
+
+  const situation = await client.query(
+    `SELECT r.situation_id, r.run_id, n.node_key
+       FROM task t
+       JOIN sop_run r ON r.run_id = t.run_id
+       JOIN sop_node n ON n.node_id = t.node_id
+      WHERE t.task_id = $1`,
+    [taskId],
+  );
+  const row = situation.rows[0];
+  if (!row) {
+    // 상태는 이미 바뀐 뒤다. 여기서 조용히 성공을 돌려주면 **이벤트 없는 SENT
+    // 전이**가 커밋되고, 그것이 이 항목이 방금 고친 결함의 형태다. 던져서
+    // 트랜잭션을 되돌린다 — 릴레이가 재시도하고, 계속 실패하면 dead letter로
+    // 사람에게 보인다.
+    throw new Error(`임무 ${taskId}의 상황을 찾지 못해 TASK_SENT를 남길 수 없다`);
+  }
+
+  const payload = {
+    runId: row.run_id as string,
+    nodeKey: row.node_key as string,
+    status: 'SENT',
+  };
+  await client.query(
+    `INSERT INTO execution_event
+       (tenant_id, situation_id, aggregate_type, aggregate_id, event_type,
+        actor_id, payload_json, correlation_id, event_hash)
+     VALUES ($1, $2, 'TASK', $3, 'TASK_SENT', NULL, $4, $5, $6)`,
+    [
+      context.tenantId,
+      row.situation_id as string,
+      taskId,
+      JSON.stringify(payload),
+      context.correlationId,
+      executionEventHash({
+        situationId: row.situation_id as string,
+        aggregateType: 'TASK',
+        aggregateId: taskId,
+        eventType: 'TASK_SENT',
+        payload,
+      }),
+    ],
+  );
+  return true;
 }
 
 export async function findTaskIdOfDispatch(

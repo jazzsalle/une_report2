@@ -2,6 +2,114 @@
 
 ## Unreleased
 
+- CC-290 (2026-08-12): Execution Log reads and the dashboard projection
+  (UNE-JNL-001-004, ADR-43, migration 0040).
+
+  Five work items had been writing to the fact ledger and nothing could read
+  it. This opens it: timeline, event detail with correction lineage,
+  corrections, and the situation board.
+
+  The board is computed from events, not from task rows. CC-280 deliberately
+  left acknowledged_at/started_at/completed_at off the task table so that
+  "when did this become true" has exactly one source; letting the dashboard
+  count task rows instead would betray that, and the day the two disagree
+  there is no way to say which is right. The reversal cost decides it too:
+  counting rows removes the pressure to keep events complete, and the history
+  of any period spent that way is permanently unrecoverable, whereas the cost
+  of replay (it is O(events)) is recoverable with a cache later. Data loss is
+  one-way; slowness is not. The e2e proves it by editing a task row directly
+  and watching the board stay with what the events said.
+
+  Measuring first showed the event stream could not carry the KPIs. There
+  were no per-task creation or cancellation events (only a run-level count),
+  and - worse - the relay flipped tasks to SENT without writing anything to
+  the ledger at all. That is the same shape CC-280 fixed for notification
+  dispatches: a state change happening outside the fact ledger. It was an
+  audit problem then; the moment replay becomes the source of truth it is a
+  functional defect, because an invisible transition is a transition that
+  never happened. All three gaps are closed before the dashboard reads
+  anything. No missing history was synthesised - in an append-only audit
+  system, "we did not record it" is the honest answer.
+
+  Corrections form a star, not a chain: `corrects_event_id` always points at
+  the original, and correcting a correction is refused by both a trigger and
+  the API. A chain would mean recursing through lineage to answer "what is
+  true now", with no answer at all if one row is missing. The star makes the
+  effective version an O(1) lookup and still handles being wrong twice - you
+  correct the original again. The request is a partial patch; the server
+  merges it with the effective payload and stores the complete result, so
+  readers never replay a chain.
+
+  Only human-reported facts can be corrected. A state transition or a
+  dispatch outcome is a record that the system did that, and it is true by
+  construction; if the system was wrong the remedy is a new action - resend,
+  reject, reassign - not an edited record. `status` in particular can never be
+  changed by a correction, since allowing it would reintroduce through the
+  correction path the exact defect CC-280 just fixed. Corrections carry the
+  original's hash and the server recomputes and compares it before writing:
+  nothing gets stacked on top of a tampered original.
+
+  Originals are never hidden. Aggregates fold to the corrected value, the
+  timeline still shows the original with a "corrected" marker, and the detail
+  endpoint returns original payload, correction list and effective value
+  together.
+
+  Responses state their own provenance - event count, time axis, and the fact
+  that due dates come from the task row rather than from events (deadline
+  changes are not evented, so a past-time query still uses today's deadline).
+  The board prints that sentence on the page. Numbers without provenance get
+  read as complete facts.
+
+  No projection table. `journal_projection_item` belongs to CC-300, and
+  materialising the board would create a second thing that can disagree with
+  the events.
+
+  Dual review found sixteen real defects. The worst three: corrections were
+  folded as fresh observations, so correcting an old progress report on a
+  finished task pushed it back to in-progress on the board; the timeline item
+  schema combined allOf with additionalProperties:false, which in 2020-12
+  makes every instance invalid - the exact trap ADR-24 D4 documents in the
+  same file; and `recentEvents` served corrected payloads under the original's
+  id and hash, defeating the tamper signal D9 relies on.
+
+  Also fixed: TASK_CANCELLED carried no runId, so run-scoped boards dropped
+  cancelled tasks and showed them stuck in their previous state - the scope
+  now derives from the task set in the database rather than a payload field;
+  an oversized body returned 500 instead of 413; concurrent corrections
+  swallowed each other (serialised with an advisory lock, because an
+  append-only table cannot be row-locked by a role with no UPDATE - that
+  inability *is* the guarantee); the worker's table-wide INSERT included
+  corrects_event_id; the relay returned success without writing its event; the
+  index cited as justification was used by no query and two others duplicated
+  0007's; correction values had no length or depth limit, which matters
+  because an append-only ledger can never be masked afterwards; the correction
+  button had no confirmation for an action that cannot be undone; progressPct
+  leaked from the task row so past-time boards showed today's number; and
+  there was no path from a KPI to the events behind it.
+
+  Two documentation faults were mine to own. The ADR claimed an e2e
+  cross-checked replay against task rows; no such test existed. That is now
+  `provenance.divergences` - every query measures D1's premise, the board
+  prints it, and the e2e asserts it is empty on a clean run. And the ADR said
+  there were no query indexes or constraints before this item; 0007 had
+  already added two indexes and the FK.
+
+  Tests: domain 323 (execution-log 25), workspace 40 (board 13), contract 390
+  (CC-290 gate 38), API 434, integration 197, e2e 111 (CC-290 21), full suite
+  green. Migrations 39 -> 41, tables unchanged at 66, dictionary 66/654.
+  Files: database/migrations/0040_execution_log_projection.sql,
+  database/migrations/0041_execution_log_review_fixes.sql,
+  tests/e2e/src/contract-conformance.ts,
+  packages/domain/src/execution/execution-log.ts,
+  services/api/src/execution/, apps/web/src/board/,
+  services/worker/src/dispatch/outbox.repository.ts,
+  services/api/src/sop/sop-run.service.ts,
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-43-cc290-execution-log-and-dashboard-projection.md,
+  docs/evidence/CC-290-execution-log-and-dashboard.md,
+  tests/contract/src/execution-log.contract.test.ts,
+  tests/e2e/src/execution-log.e2e.test.ts.
+
 - CC-280 (2026-08-12): field task execution and two-layer assignee checks
   (UNE-TASK-001/002/004-012, ADR-42, migration 0038).
 

@@ -551,7 +551,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-280
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - append-only event
   - correction event
@@ -561,7 +561,11 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-43-cc290-execution-log-and-dashboard-projection.md
+  - docs/evidence/CC-290-execution-log-and-dashboard.md
+  - database/migrations/0040_execution_log_projection.sql
+  - database/migrations/0041_execution_log_review_fixes.sql
 - id: CC-300
   title: Implement Journal Projection, locked facts, editing, and export
   gate: G3

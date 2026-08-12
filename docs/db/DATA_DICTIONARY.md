@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 66
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state, 0037_outbox_relay_and_dispatch, 0038_field_task_execution, 0039_task_notice_and_settled_runs
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state, 0037_outbox_relay_and_dispatch, 0038_field_task_execution, 0039_task_notice_and_settled_runs, 0040_execution_log_projection, 0041_execution_log_review_fixes
 
 ## api_idempotency
 
@@ -385,12 +385,14 @@
 ## execution_event
 
 - 격리: RLS enforced (FORCE)
+- ck_execution_event_correction_shape: CHECK (((corrects_event_id IS NULL) = ((event_type)::text <> 'EXECUTION_EVENT_CORRECTED'::text)))
+- ck_execution_event_hash: CHECK ((event_hash ~ '^[0-9a-f]{64}$'::text))
 - execution_event_pkey: PRIMARY KEY (execution_event_id)
 - fk_execution_event_actor_id: FOREIGN KEY (actor_id) REFERENCES app_user(user_id) DEFERRABLE INITIALLY DEFERRED
 - fk_execution_event_corrects_event_id: FOREIGN KEY (corrects_event_id) REFERENCES execution_event(execution_event_id) DEFERRABLE INITIALLY DEFERRED
 - fk_execution_event_situation_id: FOREIGN KEY (situation_id) REFERENCES situation(situation_id) DEFERRABLE INITIALLY DEFERRED
 - fk_execution_event_tenant_id: FOREIGN KEY (tenant_id) REFERENCES tenant(tenant_id) DEFERRABLE INITIALLY DEFERRED
-- 인덱스: execution_event_pkey, ix_execution_payload_json, ix_execution_situation_time_type
+- 인덱스: execution_event_pkey, ix_execution_event_actor, ix_execution_event_aggregate, ix_execution_event_corrects, ix_execution_payload_json, ix_execution_situation_time_type
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |---|---|---|---|---|
@@ -404,7 +406,7 @@
 | recorded_at | timestamp with time zone | NN | now() | 기록시각 |
 | actor_id | uuid | - |  | 행위자 |
 | payload_json | jsonb | NN |  | 내용 |
-| corrects_event_id | uuid | - |  | 정정대상 |
+| corrects_event_id | uuid | - |  | 정정 대상 **원본**. 정정 이벤트만 갖고, 정정을 다시 가리킬 수 없다(0040 §1). 병합은 원본 행을 FOR UPDATE로 잡고 한다 — 동시 정정이 서로를 삼키지 않게(0041 §3) |
 | correlation_id | character varying(80) | NN |  | 추적 |
 | event_hash | character(64) | NN |  | 위변조검증 |
 
