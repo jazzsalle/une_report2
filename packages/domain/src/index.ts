@@ -25,3 +25,4 @@ export * from './knowledge/evidence-set';
 export * from './sop/sop-graph';
 export * from './sop/sop-job';
 export * from './sop/sop-lifecycle';
+export * from './sop/sop-run';

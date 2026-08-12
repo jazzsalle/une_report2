@@ -40,10 +40,8 @@ const TENANT_FREE: readonly string[] = [
  * 반드시 함께 닫아야 한다.
  */
 const KNOWN_OPEN: readonly string[] = [
-  // 실행 계열 — CC-260(SopRun/Task)이 연다
-  'sop_run',
-  'task',
-  'task_event',
+  // 실행 계열 — CC-260이 sop_run·task·task_event를 닫았다.
+  // task_attachment는 현장 파일 등록(CC-280)이 열 때 닫는다.
   'task_attachment',
   // 전파 계열 — CC-270(Outbox/Dispatch)이 연다
   'dispatch',
@@ -119,8 +117,15 @@ describe.skipIf(!ADMIN_URL)('RLS 커버리지 — 정책 없는 테이블이 늘
     expect(stale).toEqual([]);
   });
 
-  it('CC-250이 연 세 테이블은 정책과 FORCE RLS를 갖는다', () => {
-    for (const name of ['sop_validation', 'sop_review_request', 'sop_approval']) {
+  it('CC-250·CC-260이 연 테이블은 정책과 FORCE RLS를 갖는다', () => {
+    for (const name of [
+      'sop_validation',
+      'sop_review_request',
+      'sop_approval',
+      'sop_run',
+      'task',
+      'task_event',
+    ]) {
       const row = rows.find((r) => r.relname === name);
       expect(row, name).toBeDefined();
       expect(`${name}:policies=${row?.policies ?? 0}`).toBe(`${name}:policies=1`);

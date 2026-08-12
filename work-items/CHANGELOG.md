@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+- CC-260 (2026-08-11): SopRun, Task and the explicit state machine
+  (UNE-SOP-010~016, ADR-40, migration 0036).
+
+  An approved SOP version becomes a run: tasks are materialised, the ones whose
+  turn it is get activated, and pause/resume/terminate land in the fact ledger.
+
+  Reachable states only, again. Design 09 lists six run states; four are
+  buildable here. COMPLETED needs every task finished and that reporting path
+  is CC-280, so it is not in the CHECK — same discipline 0032 used and 0035
+  honoured when it widened.
+
+  DRY_RUN does not touch the situation and does not count as a live run. A
+  simulation that flips the dashboard to "responding" misleads whoever reads
+  that screen, and a simulation you cannot run alongside real work is not much
+  of a rehearsal. It also stays READY: "prepared", not "started". It gets its
+  own endpoint too — accepting `mode: DRY_RUN` on the start endpoint would file
+  rehearsals and real launches under the same audit record.
+
+  "Materialised" and "actionable" are different things, and they are not the
+  same field. Design 09's task vocabulary has no "active", and folding it into
+  the dispatch states would collapse "sent to someone" and "someone's turn" into
+  one value. So activation is a timestamp, and the frontier itself is computed
+  rather than stored — a cursor column can disagree with the graph and the task
+  rows, and then nothing says which one is right.
+
+  Terminate asks for the run id's first 8 characters. Not authentication (the
+  permission does that) but mis-click protection: you have to read it off the
+  screen, so confirming *is* confirming what you're about to kill.
+
+  Found by measurement: `UPDATE execution_event` went straight through. 0011 had
+  revoked the privilege from `une_app` and that was the whole defence. CC-260 is
+  the ledger's first writer, so it now carries the same append-only trigger as
+  `task_event` and `sop_approval`. Terminated runs also refuse task writes at
+  the database, not just in the state machine.
+
+  Closed `sop_run`, `task` and `task_event` in the RLS coverage list — twelve
+  tables still open, each waiting for the item that first writes to it.
+
+  Tests: domain 62, contract gate 15, API slice e2e 8, full suite green.
+  Migrations 35 -> 36, tables 65 unchanged, dictionary 65/645.
+  Files: database/migrations/0036_sop_run_and_task_state.sql,
+  packages/domain/src/sop/sop-run.ts, services/api/src/sop/{sop-run.repository.ts,
+  sop-run.service.ts, sop-run.controller.ts, sop-run-errors.ts},
+  contracts/openapi/une-platform-api-v1.yaml,
+  docs/adr/ADR-40-cc260-sop-run-and-task-state-machine.md,
+  docs/evidence/CC-260-sop-run-and-task.md,
+  tests/contract/src/sop-run.contract.test.ts, tests/e2e/src/sop-run.e2e.test.ts.
+
 - CC-250 (2026-08-10): SOP canvas, validation, review and approval
   (UNE-SOP-003~009, ADR-39, migration 0035; tables 63 -> 65).
 
