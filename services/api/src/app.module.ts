@@ -1,5 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, DiscoveryModule } from '@nestjs/core';
 import { AuthController } from './auth/auth.controller';
 import { AuthRepository } from './auth/auth.repository';
 import { AuthService } from './auth/auth.service';
@@ -94,6 +94,10 @@ export class AppModule {
   static register(config: ApiConfig = loadApiConfig()): DynamicModule {
     return {
       module: AppModule,
+      // CC-430: 등록된 라우트를 런타임에 훑을 수 있어야 한다. 기동 시점 가드
+      // (`assertRoutesGuarded`)와 보안 전수 시험이 둘 다 이것을 쓴다 — 소스를
+      // 정규식으로 읽으면 적힌 것만 보이고 모듈 누락은 보이지 않는다.
+      imports: [DiscoveryModule],
       controllers: [
         HealthController,
         AuthController,
