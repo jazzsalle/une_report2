@@ -6,7 +6,7 @@
 스키마 변경 시 `pnpm db:data-dictionary`로 재생성해 커밋한다 (CI가 drift를 차단).
 
 - 테이블 수: 68
-- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state, 0037_outbox_relay_and_dispatch, 0038_field_task_execution, 0039_task_notice_and_settled_runs, 0040_execution_log_projection, 0041_execution_log_review_fixes, 0042_journal_projection_and_review, 0043_revision_origin_projection, 0044_journal_event_types, 0045_exercise_close_and_evaluation, 0046_close_guard_fail_closed, 0047_run_mode_must_not_exceed_situation, 0048_closed_situation_freezes_baseline
+- 적용 마이그레이션: 0001_extensions_and_common, 0002_iam, 0003_plan_document, 0004_situation_knowledge, 0005_sop_task, 0006_event_journal_admin, 0007_foreign_keys_indexes, 0008_row_level_security, 0009_seed_codes, 0010_execution_event_partitioning_plan, 0011_force_rls_and_app_role_grants, 0012_rbac_catalog, 0013_iam_hardening, 0014_api_idempotency, 0015_generation_job_worker_and_toc, 0016_child_table_rls, 0017_generated_block, 0018_document_child_table_rls, 0019_document_edit_surface, 0020_export_and_validation, 0021_export_lease_and_file_immutability, 0022_upload_state_and_plan_document_link, 0023_situation_fact_ingestion, 0024_situation_updated_at_triggers, 0025_duplicate_conflict_and_snapshot, 0026_situation_payload_retention, 0027_payload_redaction_transition_guard, 0028_knowledge_document_uni_lifecycle, 0029_redaction_guard_allows_lifecycle, 0030_worker_column_grants_and_open_job_guard, 0031_evidence_set_and_items, 0032_sop_graph_and_generation, 0033_worker_sop_source_reads, 0034_revoke_worker_sop_version_update, 0035_sop_review_approval_and_locked_versions, 0036_sop_run_and_task_state, 0037_outbox_relay_and_dispatch, 0038_field_task_execution, 0039_task_notice_and_settled_runs, 0040_execution_log_projection, 0041_execution_log_review_fixes, 0042_journal_projection_and_review, 0043_revision_origin_projection, 0044_journal_event_types, 0045_exercise_close_and_evaluation, 0046_close_guard_fail_closed, 0047_run_mode_must_not_exceed_situation, 0048_closed_situation_freezes_baseline, 0049_file_object_purpose, 0050_worker_login_role_membership
 
 ## api_idempotency
 
@@ -519,6 +519,7 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 ## file_object
 
 - 격리: RLS enforced (FORCE)
+- ck_file_object_purpose: CHECK (((purpose)::text = ANY ((ARRAY['HWPX_IMPORT'::character varying, 'KNOWLEDGE_DOCUMENT'::character varying, 'ATTACHMENT'::character varying])::text[])))
 - ck_file_object_scan_status: CHECK (((scan_status)::text = ANY ((ARRAY['PENDING'::character varying, 'CLEAN'::character varying, 'INFECTED'::character varying])::text[])))
 - ck_file_object_sha256: CHECK ((sha256 ~ '^[0-9a-f]{64}$'::text))
 - ck_file_object_size: CHECK ((size_bytes >= 0))
@@ -543,6 +544,7 @@ Fact 중복군 (계산 결과, UNE-SIT-009)
 | created_at | timestamp with time zone | NN | now() | 생성 |
 | upload_state | character varying(20) | NN | 'PENDING'::character varying | PENDING/VERIFIED/ABORTED (업로드 검증 축) |
 | verified_at | timestamp with time zone | - |  | 검증 확정 시각 |
+| purpose | character varying(30) | NN | 'HWPX_IMPORT'::character varying | 등록 용도 HWPX_IMPORT/KNOWLEDGE_DOCUMENT/ATTACHMENT. 용도별 MIME·크기 정책이 다르고, 소비하는 쪽이 자리를 대조한다 (OB-19) |
 
 ## generated_block
 

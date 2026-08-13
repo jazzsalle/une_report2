@@ -41,6 +41,8 @@ export interface KnowledgeFileRow {
   uploadState: string;
   scanStatus: string;
   storageKey: string;
+  /** 등록 용도 (OB-19). 지식문서 자리에 올 파일인지 대조한다. */
+  purpose: string;
 }
 
 const SELECT_DOC = `
@@ -88,7 +90,7 @@ export class KnowledgeRepository {
   ): Promise<KnowledgeFileRow | null> {
     const r = await c.query(
       `SELECT file_id, original_name, mime_type, size_bytes, sha256,
-              upload_state, scan_status, storage_key
+              upload_state, scan_status, storage_key, purpose
          FROM file_object
         WHERE file_id = $1 AND tenant_id = $2`,
       [fileId, tenantId],
@@ -104,6 +106,7 @@ export class KnowledgeRepository {
       uploadState: row.upload_state as string,
       scanStatus: row.scan_status as string,
       storageKey: row.storage_key as string,
+      purpose: row.purpose as string,
     };
   }
 

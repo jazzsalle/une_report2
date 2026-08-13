@@ -183,9 +183,10 @@ describe.skipIf(!ADMIN_URL)('CC-220 지식문서 e2e (UNE-KNOW-001~003)', () => 
           await c.query(
             `INSERT INTO file_object
              (tenant_id, original_name, mime_type, size_bytes, sha256, storage_key,
-              scan_status, upload_state, verified_at, created_by)
+              scan_status, upload_state, verified_at, purpose, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::varchar,
-                   CASE WHEN $8::varchar = 'VERIFIED' THEN now() ELSE NULL END, $9)
+                   CASE WHEN $8::varchar = 'VERIFIED' THEN now() ELSE NULL END,
+                   'KNOWLEDGE_DOCUMENT', $9)
            RETURNING file_id`,
             [
               tenantId,

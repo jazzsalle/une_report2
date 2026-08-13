@@ -160,7 +160,8 @@ export type KnowledgeFileBlocker =
   | 'INFECTED' // 악성코드 판정 (US-SIT-009 E-01)
   | 'SCAN_PENDING' // OB-15 — 검사기가 없어 판정이 없다
   | 'TOO_LARGE'
-  | 'MIME_NOT_ALLOWED';
+  | 'MIME_NOT_ALLOWED'
+  | 'PURPOSE_MISMATCH'; // OB-19 — 지식문서 용도로 등록된 파일이 아니다
 
 /**
  * 업로드 전 파일 검사 (US-SIT-009 2단계 "악성코드·MIME·hash·중복", E-01).
@@ -176,6 +177,15 @@ export function checkKnowledgeFile(
     scanStatus: string;
     sizeBytes: number;
     mimeType: string;
+    /**
+     * 등록 용도 (OB-19). 지금까지 파일 행이 이것을 기억하지 않아, 계획서
+     * 양식으로 올라온 HWPX를 지식문서로 등록할 수 있었다 — MIME 정책만으로는
+     * 못 막는다(HWPX가 지식문서 허용 목록에 들어가면 통과한다).
+     *
+     * 선택값으로 둔다. 호출자가 주지 않으면 이 검사를 건너뛴다 — 0049 이전에
+     * 만들어진 행을 다루는 경로가 아직 있을 수 있다.
+     */
+    purpose?: string;
   },
   policy: {
     maxSizeBytes: number;
@@ -183,6 +193,9 @@ export function checkKnowledgeFile(
     allowScanPending: boolean;
   },
 ): KnowledgeFileBlocker | null {
+  if (file.purpose !== undefined && file.purpose !== 'KNOWLEDGE_DOCUMENT') {
+    return 'PURPOSE_MISMATCH';
+  }
   if (file.scanStatus === 'INFECTED') return 'INFECTED';
   if (file.uploadState !== 'VERIFIED') return 'NOT_VERIFIED';
   if (file.scanStatus !== 'CLEAN' && !policy.allowScanPending) return 'SCAN_PENDING';

@@ -81,8 +81,8 @@ describe.skipIf(!ADMIN_URL)('지식문서 UNI 전송 러너 e2e (CC-220)', () =>
         await c.query(
           `INSERT INTO file_object
              (tenant_id, original_name, mime_type, size_bytes, sha256, storage_key,
-              scan_status, upload_state, verified_at, created_by)
-           VALUES ($1,$2,'application/pdf',3,$3,$4,'CLEAN','VERIFIED',now(),$5)
+              scan_status, upload_state, verified_at, purpose, created_by)
+           VALUES ($1,$2,'application/pdf',3,$3,$4,'CLEAN','VERIFIED',now(), 'KNOWLEDGE_DOCUMENT', $5)
            RETURNING file_id`,
           [tenantId, fileName, sha, storageKey, userId],
         )

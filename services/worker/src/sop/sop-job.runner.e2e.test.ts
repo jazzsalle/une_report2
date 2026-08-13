@@ -100,8 +100,8 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 러너 e2e (CC-240)', () => {
         await c.query(
           `INSERT INTO file_object
              (tenant_id, original_name, mime_type, size_bytes, sha256, storage_key,
-              scan_status, upload_state, verified_at, created_by)
-           VALUES ($1,'지침.pdf','application/pdf',3,$2,$3,'CLEAN','VERIFIED',now(),$4)
+              scan_status, upload_state, verified_at, purpose, created_by)
+           VALUES ($1,'지침.pdf','application/pdf',3,$2,$3,'CLEAN','VERIFIED',now(), 'KNOWLEDGE_DOCUMENT', $4)
            RETURNING file_id`,
           [tenantId, sha, `tenants/${tenantId}/k/${code}`, userId],
         )

@@ -114,6 +114,12 @@ const FILE_BLOCKER_MESSAGES: Record<string, { reason: string; userAction: string
     reason: '허용되지 않은 형식입니다',
     userAction: '허용된 문서 형식으로 변환한 뒤 다시 등록하십시오.',
   },
+  // OB-19. 형식이 맞아도 **그 자리에 올 파일이 아니다** — 계획서 양식으로
+  // 올라온 HWPX가 지식문서 허용 목록에 들면 MIME 검사만으로는 통과한다.
+  PURPOSE_MISMATCH: {
+    reason: '지식문서 용도로 등록된 파일이 아닙니다',
+    userAction: 'purpose=KNOWLEDGE_DOCUMENT로 파일을 등록한 뒤 다시 시도하십시오.',
+  },
 };
 
 /** 파일 검사 거부를 트랜잭션 밖으로 들고 나가는 내부 신호. */

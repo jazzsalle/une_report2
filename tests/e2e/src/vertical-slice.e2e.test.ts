@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -133,7 +133,9 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     });
 
   beforeAll(async () => {
-    h = await startHarness('cc320_e2e');
+    // AV 엔진이 없어 `scan_status`가 영구 PENDING이다(OB-15). 지식문서를 제품
+    // 경로로 등록해 보려면 그 완화를 켜야 한다 — 켜져 있다는 것이 기록이다.
+    h = await startHarness('cc320_e2e', { knowledgeAllowScanPending: true });
     api = apiFor(h);
     adminToken = await api.login(h.fixtures.tenantA, 'admin-a');
     fieldToken = await api.login(h.fixtures.tenantA, 'field-a');
@@ -264,27 +266,28 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
   // ── (4) 지식문서 → 근거집합 ──────────────────────────────────────────────
 
   it('(4) 지식문서를 올리고 근거를 검색해 동결한다', async () => {
-    // ── CC-320 V-1 ────────────────────────────────────────────────────────
-    // 여기가 이 항목이 처음 찾은 구멍이다. UNE-KNOW-001은 `fileId`를 받는데
-    // **그 fileId를 만들 수 있는 API가 없다** — UNE-DOC-001은 HWPX_IMPORT
-    // 용도만 열려 있고(`IMPLEMENTED_PURPOSES`) MIME도 HWPX만 받는다. 즉
-    // 지식문서·근거·SOP 생성 전 구간이 API만으로는 도달할 수 없다.
-    // 임시로 파일 행을 심어 나머지 구간을 계속 태운다.
-    const bytes = Buffer.from('CC-320 풍수해 대응 행동지침: 대피 방송, 통제, 보고.', 'utf8');
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
-    const storageKey = `tenants/${h.fixtures.tenantA}/knowledge/${randomUUID()}.pdf`;
-    await h.storage.put({ key: storageKey, body: bytes, contentType: 'application/pdf' });
-    const fileId = await withClient(h.dbUrl, async (c) => {
-      const r = await c.query(
-        `INSERT INTO file_object
-           (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256,
-            scan_status, upload_state, verified_at, created_by)
-         VALUES ($1,$2,'풍수해 행동지침.pdf','application/pdf',$3,$4,'CLEAN','VERIFIED',now(),$5)
-         RETURNING file_id`,
-        [h.fixtures.tenantA, storageKey, bytes.length, sha256, h.fixtures.adminA],
-      );
-      return r.rows[0].file_id as string;
+    // OB-19가 닫히기 전에는 여기서 `file_object` 행을 심어야 했다 — UNE-KNOW-001은
+    // `fileId`를 받는데 그 `fileId`를 만들 API가 없었다(CC-320 V-1). 이제
+    // `purpose=KNOWLEDGE_DOCUMENT`로 제품 경로를 그대로 지난다.
+    //
+    // **AV는 여전히 없다**(OB-15). `scan_status`는 PENDING에 머물고, 이 하네스가
+    // `knowledgeAllowScanPending`을 켜 두었다는 사실이 그 완화의 기록이다.
+    const fileId = await uploadFile(
+      '풍수해 행동지침.pdf',
+      Buffer.from('CC-320 풍수해 대응 행동지침: 대피 방송, 통제, 보고.', 'utf8'),
+      'application/pdf',
+      'KNOWLEDGE_DOCUMENT',
+    );
+
+    // 자리를 바꿔 쓸 수 없다 — 지식문서 용도로 올린 파일은 HWPX 반입이 받지
+    // 않는다(OB-19).
+    const wrongSlot = await api.call('POST', '/api/v1/documents/import-hwpx', adminToken, {
+      body: { fileId, title: '자리 바꿔 쓰기' },
+      idempotencyKey: idem('wrong-slot'),
     });
+    expect(wrongSlot.status, '지식문서 파일이 HWPX 반입에 들어가면 안 된다').toBeGreaterThanOrEqual(
+      400,
+    );
 
     const created = await api.call(
       'POST',

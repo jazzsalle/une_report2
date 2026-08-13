@@ -625,10 +625,15 @@ work_items:
   - IMPLEMENTATION_BASELINE
   evidence:
   - ADR-46
+  - ADR-47
   - docs/evidence/CC-320-vertical-slice.md
+  - docs/evidence/OB-19-OB-17-upload-purpose-and-worker-role.md
   - tests/e2e/src/vertical-slice.e2e.test.ts
+  - tests/integration/src/worker-login-role.test.ts
   - database/migrations/0047_run_mode_must_not_exceed_situation.sql
   - database/migrations/0048_closed_situation_freezes_baseline.sql
+  - database/migrations/0049_file_object_purpose.sql
+  - database/migrations/0050_worker_login_role_membership.sql
 - id: CC-400
   title: Bind actual T3Q contracts and run contract/E2E tests
   gate: G5

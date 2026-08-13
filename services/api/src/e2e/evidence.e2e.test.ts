@@ -198,8 +198,8 @@ describe.skipIf(!ADMIN_URL)('CC-230 근거 검색·EvidenceSet e2e (UNE-KNOW-004
           await c.query(
             `INSERT INTO file_object
                (tenant_id, original_name, mime_type, size_bytes, sha256, storage_key,
-                scan_status, upload_state, verified_at, created_by)
-             VALUES ($1,$2,'application/pdf',10,$3,$4,'CLEAN','VERIFIED',now(),$5)
+                scan_status, upload_state, verified_at, purpose, created_by)
+             VALUES ($1,$2,'application/pdf',10,$3,$4,'CLEAN','VERIFIED',now(), 'KNOWLEDGE_DOCUMENT', $5)
              RETURNING file_id`,
             [fx.tenantA, `${code}-${i}.pdf`, sha, `k/${code}-${i}`, fx.adminA],
           )

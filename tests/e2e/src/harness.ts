@@ -214,7 +214,19 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
   return { tenantA, tenantB, adminA, readerA, userB, sopOnlyA, fieldA, fieldA2 };
 }
 
-export async function startHarness(label: string): Promise<Harness> {
+export interface HarnessOptions {
+  /**
+   * 검사 미완료 파일의 지식문서 등록을 허용한다 (OB-15 완화).
+   *
+   * 기본값은 **운영과 같은 `false`**다 — 그래야 도메인이 막으려는 경로가
+   * 테스트에서 살아 있다(ADR-36 D6). AV 엔진이 없어 `scan_status`는 영구
+   * PENDING이므로, 지식문서를 실제로 등록해 봐야 하는 시험만 이것을 켠다.
+   * **켜져 있다는 사실 자체가 완화 기록이다.**
+   */
+  knowledgeAllowScanPending?: boolean;
+}
+
+export async function startHarness(label: string, options: HarnessOptions = {}): Promise<Harness> {
   if (!ADMIN_URL) throw new Error('DATABASE_URL이 필요하다');
   const adminUrl = new URL(ADMIN_URL);
   const dbName = `${label}_${randomUUID().slice(0, 8)}`;
@@ -250,7 +262,7 @@ export async function startHarness(label: string): Promise<Harness> {
     // 꺼진 상태여야 도메인이 막으려는 경로가 테스트에서 살아 있다(ADR-36 D6).
     knowledgeMaxFileBytes: 50 * 1024 * 1024,
     knowledgeAllowedMimeTypes: new Set(['application/pdf', 'text/plain']),
-    knowledgeAllowScanPending: false,
+    knowledgeAllowScanPending: options.knowledgeAllowScanPending ?? false,
     knowledgeMaxUploadAttempts: 3,
     corsAllowedOrigins: [],
     // CC-200: 이 슬라이스는 상황 수집을 지나지 않지만 ApiConfig는 전 필드를
