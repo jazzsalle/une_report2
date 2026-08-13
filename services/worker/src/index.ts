@@ -14,6 +14,13 @@ export { TocJobRunner } from './plan-toc/toc-job.runner';
 export { ContentJobRunner } from './plan-content/content-job.runner';
 export { SopJobRunner, type SopRunSummary } from './sop/sop-job.runner';
 export { OutboxRelayRunner, type OutboxRelaySummary } from './dispatch/outbox-relay.runner';
+// CC-320: 수직 슬라이스가 지식문서 등록도 API·워커로 지나므로 공개한다.
+export {
+  KnowledgeUploadRunner,
+  type PollSweepResult,
+  type ReferenceSweepResult,
+  type UploadSweepResult,
+} from './knowledge/knowledge-upload.runner';
 export { PlanJobPoller } from './plan-jobs/job.poller';
 export { WorkerDatabase } from './db/worker-database.service';
 export { loadWorkerConfig, type WorkerConfig } from './config/worker-config';
