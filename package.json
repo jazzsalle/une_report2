@@ -20,6 +20,7 @@
     "format:check": "prettier --check \"{apps,services,packages,tests}/**/*.{ts,tsx,json}\" \"*.{json,mjs}\" \"scripts/*.mjs\"",
     "db:migrate": "node-pg-migrate -m database/migrations -t pgmigrations --ignore-pattern \"\\..*|README\\.md\" up",
     "db:data-dictionary": "node scripts/generate-data-dictionary.mjs",
+    "db:backup-drill": "node scripts/backup-restore-drill.mjs",
     "db:seed:dev": "node scripts/run-sql.mjs database/seeds/dev-iam.sql",
     "validate:handoff": "python scripts/validate_handoff.py",
     "validate:contracts": "node scripts/validate-contracts.mjs",

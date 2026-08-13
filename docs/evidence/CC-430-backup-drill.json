@@ -1,0 +1,42 @@
+{
+  "startedAt": "2026-08-13T14:56:52.809Z",
+  "sourceDb": "une",
+  "targetDb": "une_drill_20260813145652",
+  "versions": {
+    "serverMajor": 16,
+    "clientMajor": 16
+  },
+  "source": {
+    "migrations": 50,
+    "tables": 69,
+    "columns": 683,
+    "rlsEnabled": 63,
+    "rlsForced": 63,
+    "policies": 81,
+    "triggers": 36,
+    "indexes": 175,
+    "checkConstraints": 143,
+    "foreignKeys": 187,
+    "rowFingerprint": "api_idempotency=0,app_user=3,audit_log=0,change_operation=0,change_set=0,conflict_resolution=0,dispatch=0,dispatch_recipient=0,document=0,document_autosave=0,document_block=0,document_revision=0,evaluation=0,evaluation_score=0,evidence_item=0,evidence_set=0,execution_event=0,export_job=0,fact_conflict=0,fact_duplicate_group=0,fact_source=0,file_object=0,generated_block=0,generation_job=0,improvement_action=0,job_event=0,journal=0,journal_approval=0,journal_projection_item=0,journal_review_request=0,knowledge_document=0,notification=0,organization=3,outbox_attempt=0,outbox_message=0,permission=54,pgmigrations=50,plan=0,plan_context_draft=0,plan_context_snapshot=0,provider_config=0,provider_job=0,provider_result=0,retention_policy=0,role=15,role_permission=70,situation=0,situation_fact=0,situation_snapshot=0,sop=0,sop_approval=0,sop_edge=0,sop_node=0,sop_review_request=0,sop_run=0,sop_validation=0,sop_version=0,style_prototype=0,task=0,task_assignment=0,task_attachment=0,task_event=0,template_profile=0,tenant=2,toc_node=0,toc_version=0,user_role=3,user_session=0,validation_report=0"
+  },
+  "dumpSeconds": 0.39,
+  "dumpBytes": 521292,
+  "restoreSeconds": 21.89,
+  "rtoSeconds": 22.28,
+  "restored": {
+    "migrations": 50,
+    "tables": 69,
+    "columns": 683,
+    "rlsEnabled": 63,
+    "rlsForced": 63,
+    "policies": 81,
+    "triggers": 36,
+    "indexes": 175,
+    "checkConstraints": 143,
+    "foreignKeys": 187,
+    "rowFingerprint": "api_idempotency=0,app_user=3,audit_log=0,change_operation=0,change_set=0,conflict_resolution=0,dispatch=0,dispatch_recipient=0,document=0,document_autosave=0,document_block=0,document_revision=0,evaluation=0,evaluation_score=0,evidence_item=0,evidence_set=0,execution_event=0,export_job=0,fact_conflict=0,fact_duplicate_group=0,fact_source=0,file_object=0,generated_block=0,generation_job=0,improvement_action=0,job_event=0,journal=0,journal_approval=0,journal_projection_item=0,journal_review_request=0,knowledge_document=0,notification=0,organization=3,outbox_attempt=0,outbox_message=0,permission=54,pgmigrations=50,plan=0,plan_context_draft=0,plan_context_snapshot=0,provider_config=0,provider_job=0,provider_result=0,retention_policy=0,role=15,role_permission=70,situation=0,situation_fact=0,situation_snapshot=0,sop=0,sop_approval=0,sop_edge=0,sop_node=0,sop_review_request=0,sop_run=0,sop_validation=0,sop_version=0,style_prototype=0,task=0,task_assignment=0,task_attachment=0,task_event=0,template_profile=0,tenant=2,toc_node=0,toc_version=0,user_role=3,user_session=0,validation_report=0"
+  },
+  "diffs": [],
+  "finishedAt": "2026-08-13T14:58:07.997Z",
+  "verdict": "PASS"
+}
