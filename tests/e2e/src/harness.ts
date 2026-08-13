@@ -216,12 +216,12 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
 
 export interface HarnessOptions {
   /**
-   * 검사 미완료 파일의 지식문서 등록을 허용한다 (OB-15 완화).
+   * 검사 미완료 파일의 지식문서 등록을 허용한다 (ADR-49 D1).
    *
-   * 기본값은 **운영과 같은 `false`**다 — 그래야 도메인이 막으려는 경로가
-   * 테스트에서 살아 있다(ADR-36 D6). AV 엔진이 없어 `scan_status`는 영구
-   * PENDING이므로, 지식문서를 실제로 등록해 봐야 하는 시험만 이것을 켠다.
-   * **켜져 있다는 사실 자체가 완화 기록이다.**
+   * 코드 기본값은 `false`다 — 그래야 도메인이 막으려는 경로가 테스트에서
+   * 살아 있다(ADR-36 D6). AV를 두지 않기로 했으므로(ADR-49 D1) 운영은 이 값을
+   * `true`로 명시해 배포하지만, **켜져 있다는 사실 자체가 수용 기록**이므로
+   * 기본값은 뒤집지 않는다. 지식문서를 실제로 등록해 봐야 하는 시험만 켠다.
    */
   knowledgeAllowScanPending?: boolean;
 }
