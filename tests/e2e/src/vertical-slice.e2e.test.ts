@@ -27,17 +27,22 @@ import {
  *
  *   상황 등록(CC-200) → 사실 수집·충돌 해소(CC-200/210) → 판 확정(CC-210)
  *   → 지식문서(CC-220) → 근거 검색·동결(CC-230) → SOP 생성(CC-240)
- *   → 캔버스·승인(CC-250) → 실행·임무(CC-260) → 전파(CC-270)
+ *   → 캔버스·검증·승인(CC-250) → 실행·임무(CC-260) → 전파(CC-270)
  *   → 현장 수행·에스컬레이션(CC-280) → 실행 로그·대시보드(CC-290)
  *   → 일지 투영·승인(CC-300) → 종료·평가(CC-310)
  *
  * 수용 기준 넷이 어디에 있는지.
  *
- *   end-to-end exercise flow  — (1)~(11) 전체가 한 시나리오다.
- *   multiple tasks            — (5) 노드 셋에서 임무 셋이 나오고 순차로 열린다.
- *   failure/retry/escalation  — (7) 채널 실패 → 재시도 → dead letter,
- *                                (8) 지연 임무 → 에스컬레이션 → 전파.
+ *   end-to-end exercise flow  — (1)~(13) 전체가 한 시나리오다.
+ *   multiple tasks            — (6) ACTION 셋에서 임무 셋이 나오고 첫 임무만
+ *                                열린다. (8) 완료·승인이 다음을 연다.
+ *   failure/retry/escalation  — (14) 실사건 전파가 실패해도 재시도하고 큐에
+ *                                갇히지 않는다. (8b) 지연 임무 에스컬레이션.
+ *                                전파 기계는 LIVE에서만 돈다(ADR-41 D9).
  *   journal fact consistency  — (10) 일지 사실칸이 확정 판·실행 로그와 같다.
+ *
+ * (13)·(15)는 **경계**를 묻는다 — 이어진 뒤에도 참인가. ADR-46 D1~D3이 여기서
+ * 나왔다.
  *
  * 테스트는 **순서대로** 돈다. 훈련은 상태를 쌓아 가는 일이고, 매 단계를 독립
  * 시나리오로 만들면 정확히 이 항목이 찾으려는 것(단계 사이의 어긋남)을 잃는다.
@@ -58,7 +63,7 @@ interface Exercise {
   taskIds: string[];
   journalId: string;
   evaluationId: string;
-  /** 종료가 남긴 기준선 해시. (11)이 이것과 지금을 견준다. */
+  /** 종료가 남긴 기준선 사건. (13)이 이것과 지금을 견준다. */
   baselineEventId: string;
 }
 
@@ -119,10 +124,9 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
 
   const taskStatuses = async (): Promise<Record<string, string>> =>
     withClient(h.dbUrl, async (c) => {
-      const rows = await c.query(
-        `SELECT t.task_id, t.status FROM task t WHERE t.run_id = $1`,
-        [ex.runId],
-      );
+      const rows = await c.query(`SELECT t.task_id, t.status FROM task t WHERE t.run_id = $1`, [
+        ex.runId,
+      ]);
       return Object.fromEntries(
         rows.rows.map((r: { task_id: string; status: string }) => [r.task_id, r.status]),
       ) as Record<string, string>;
@@ -163,12 +167,10 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
   it('(2) 사실을 모으고, 값이 갈리면 사람이 고른다', async () => {
     const observedAt = new Date(Date.now() - 600_000).toISOString();
     const addFact = async (body: Record<string, unknown>): Promise<string> => {
-      const res = await api.call(
-        'POST',
-        `/api/v1/situations/${ex.situationId}/facts`,
-        adminToken,
-        { body, idempotencyKey: idem('fact') },
-      );
+      const res = await api.call('POST', `/api/v1/situations/${ex.situationId}/facts`, adminToken, {
+        body,
+        idempotencyKey: idem('fact'),
+      });
       await expectStatus(res, 201, `사실 등록 ${String(body.factKey)}`);
       return ((await res.json()) as { data: { factId: string } }).data.factId;
     };
@@ -232,14 +234,19 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
   // ── (3) 판 확정 ──────────────────────────────────────────────────────────
 
   it('(3) 확정 판이 생기고 상황이 CONTEXT_CONFIRMED가 된다', async () => {
-    const res = await api.call('POST', `/api/v1/situations/${ex.situationId}/snapshots`, adminToken, {
-      body: {
-        factIds: ex.factIds,
-        effectiveAt: new Date().toISOString(),
-        expectedSnapshotId: null,
+    const res = await api.call(
+      'POST',
+      `/api/v1/situations/${ex.situationId}/snapshots`,
+      adminToken,
+      {
+        body: {
+          factIds: ex.factIds,
+          effectiveAt: new Date().toISOString(),
+          expectedSnapshotId: null,
+        },
+        idempotencyKey: idem('snapshot'),
       },
-      idempotencyKey: idem('snapshot'),
-    });
+    );
     await expectStatus(res, 201, '판 확정');
     const body = (await res.json()) as {
       data: { snapshotId: string; versionNo: number; contentHash: string };
@@ -300,9 +307,10 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
         h.dbUrl,
         async (c) =>
           (
-            await c.query(`SELECT uni_status FROM knowledge_document WHERE knowledge_document_id=$1`, [
-              ex.knowledgeDocumentId,
-            ])
+            await c.query(
+              `SELECT uni_status FROM knowledge_document WHERE knowledge_document_id=$1`,
+              [ex.knowledgeDocumentId],
+            )
           ).rows[0]?.uni_status as string | undefined,
       );
       if (status === 'READY') break;
@@ -311,9 +319,10 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
       h.dbUrl,
       async (c) =>
         (
-          await c.query(`SELECT uni_status FROM knowledge_document WHERE knowledge_document_id=$1`, [
-            ex.knowledgeDocumentId,
-          ])
+          await c.query(
+            `SELECT uni_status FROM knowledge_document WHERE knowledge_document_id=$1`,
+            [ex.knowledgeDocumentId],
+          )
         ).rows[0]?.uni_status as string,
     );
     expect(finalStatus, '워커가 지식문서를 UNI에 올려야 근거 검색이 가능하다').toBe('READY');
@@ -334,10 +343,15 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     ex.evidenceSetId = set.data.evidenceSetId;
     expect(set.data.items.length).toBeGreaterThan(0);
 
-    const lock = await api.call('POST', `/api/v1/evidence-sets/${ex.evidenceSetId}/lock`, adminToken, {
-      body: { reason: 'SOP 생성 근거로 고정' },
-      idempotencyKey: idem('lock'),
-    });
+    const lock = await api.call(
+      'POST',
+      `/api/v1/evidence-sets/${ex.evidenceSetId}/lock`,
+      adminToken,
+      {
+        body: { reason: 'SOP 생성 근거로 고정' },
+        idempotencyKey: idem('lock'),
+      },
+    );
     await expectStatus(lock, 200, '근거 동결');
     expect(((await lock.json()) as { data: { status: string } }).data.status).toBe('FROZEN');
   }, 180_000);
@@ -381,7 +395,9 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     await expectStatus(stream, 200, 'SOP 생성 스트림');
     const frames = await stream.text();
     expect(frames).toContain('event: job.completed');
-    const completed = frames.split('\n\n').find((f) => f.includes('event: job.completed')) as string;
+    const completed = frames
+      .split('\n\n')
+      .find((f) => f.includes('event: job.completed')) as string;
     const payload = JSON.parse(completed.slice(completed.indexOf('data: ') + 6)) as {
       payload: { sopId: string; sopVersionId: string; graphViolations: string[] };
     };
@@ -499,14 +515,19 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     }
 
     // 훈련이 실제 문자를 보내면 훈련이 아니다. 여기서 막히는 것이 정본이다.
-    const dispatched = await api.call('POST', `/api/v1/tasks/${ex.taskIds[0]}/dispatch`, adminToken, {
-      body: {
-        channels: ['SYSTEM', 'SMS'],
-        recipients: [{ userId: h.fixtures.fieldA }],
-        messageTemplate: '대피 방송을 시행하십시오.',
+    const dispatched = await api.call(
+      'POST',
+      `/api/v1/tasks/${ex.taskIds[0]}/dispatch`,
+      adminToken,
+      {
+        body: {
+          channels: ['SYSTEM', 'SMS'],
+          recipients: [{ userId: h.fixtures.fieldA }],
+          messageTemplate: '대피 방송을 시행하십시오.',
+        },
+        idempotencyKey: idem('dispatch'),
       },
-      idempotencyKey: idem('dispatch'),
-    });
+    );
     expect(dispatched.status).toBe(412);
     expect(await errorCode(dispatched)).toBe('TASK-412-001');
 
@@ -514,13 +535,11 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     const queued = await withClient(
       h.dbUrl,
       async (c) =>
-        (
-          await c.query(`SELECT count(*)::int n FROM dispatch WHERE task_id = $1`, [ex.taskIds[0]])
-        ).rows[0].n as number,
+        (await c.query(`SELECT count(*)::int n FROM dispatch WHERE task_id = $1`, [ex.taskIds[0]]))
+          .rows[0].n as number,
     );
     expect(queued).toBe(0);
   }, 180_000);
-
 
   // ── (8) 현장 수행과 에스컬레이션 ─────────────────────────────────────────
 
@@ -570,10 +589,15 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
   }, 120_000);
 
   it('(8b) 지연된 임무는 에스컬레이션된다 — 훈련에서도 기록은 남는다', async () => {
-    const escalated = await api.call('POST', `/api/v1/tasks/${ex.taskIds[1]}/escalate`, adminToken, {
-      body: { reason: '도로 통제 착수 지연', level: 'L1', targetIds: [h.fixtures.adminA] },
-      idempotencyKey: idem('escalate'),
-    });
+    const escalated = await api.call(
+      'POST',
+      `/api/v1/tasks/${ex.taskIds[1]}/escalate`,
+      adminToken,
+      {
+        body: { reason: '도로 통제 착수 지연', level: 'L1', targetIds: [h.fixtures.adminA] },
+        idempotencyKey: idem('escalate'),
+      },
+    );
     await expectStatus(escalated, 201, '에스컬레이션');
 
     // 에스컬레이션이 훈련에서 무엇을 하는지 고정한다. 전파가 만들어졌다면
@@ -736,14 +760,22 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
         expect(rendered, `확정 판의 사실 "${value}"가 일지에 없다`).toContain(value);
       }
     }
-    expect(compared, '대조할 사실이 하나도 없으면 이 단언은 아무것도 증명하지 않는다').toBeGreaterThan(0);
+    expect(
+      compared,
+      '대조할 사실이 하나도 없으면 이 단언은 아무것도 증명하지 않는다',
+    ).toBeGreaterThan(0);
   }, 180_000);
 
   it('(10b) 일지를 승인하면 문서가 얼고, 그 뒤 사실칸은 못 고친다', async () => {
-    const review = await api.call('POST', `/api/v1/journals/${ex.journalId}/submit-review`, adminToken, {
-      body: { reviewers: [h.fixtures.readerA] },
-      idempotencyKey: idem('jnl-review'),
-    });
+    const review = await api.call(
+      'POST',
+      `/api/v1/journals/${ex.journalId}/submit-review`,
+      adminToken,
+      {
+        body: { reviewers: [h.fixtures.readerA] },
+        idempotencyKey: idem('jnl-review'),
+      },
+    );
     await expectStatus(review, 201, '일지 검토요청');
 
     const approve = await api.call('POST', `/api/v1/journals/${ex.journalId}/approve`, adminToken, {
@@ -773,10 +805,15 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
       .filter((b) => b.kind !== 'QUEUED_DISPATCH')
       .map((b) => ({ refId: b.refId, disposition: 'WAIVED', reason: '훈련 종료 시점 정리' }));
 
-    const closed = await api.call('POST', `/api/v1/situations/${ex.situationId}/close`, adminToken, {
-      body: { resultSummary: 'CC-320 수직 슬라이스 훈련 종료', dispositions },
-      idempotencyKey: idem('close'),
-    });
+    const closed = await api.call(
+      'POST',
+      `/api/v1/situations/${ex.situationId}/close`,
+      adminToken,
+      {
+        body: { resultSummary: 'CC-320 수직 슬라이스 훈련 종료', dispositions },
+        idempotencyKey: idem('close'),
+      },
+    );
     await expectStatus(closed, 200, '훈련 종료');
     const result = (await closed.json()) as { data: { status: string; closedAt: string } };
     expect(result.data.status).toBe('CLOSED');
@@ -805,21 +842,26 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
       return r.rows[0].execution_event_id as string;
     });
 
-    const res = await api.call('POST', `/api/v1/situations/${ex.situationId}/evaluations`, adminToken, {
-      body: {
-        summary: '전파·이행 모두 기준 안에서 진행됨',
-        scores: [
-          {
-            criterionCode: 'DISPATCH_TIME',
-            scoreValue: 85,
-            weightValue: 1,
-            comment: '전파는 기준 안에 들어왔다.',
-            evidenceEventIds: [anyEvent],
-          },
-        ],
+    const res = await api.call(
+      'POST',
+      `/api/v1/situations/${ex.situationId}/evaluations`,
+      adminToken,
+      {
+        body: {
+          summary: '전파·이행 모두 기준 안에서 진행됨',
+          scores: [
+            {
+              criterionCode: 'DISPATCH_TIME',
+              scoreValue: 85,
+              weightValue: 1,
+              comment: '전파는 기준 안에 들어왔다.',
+              evidenceEventIds: [anyEvent],
+            },
+          ],
+        },
+        idempotencyKey: idem('evaluate'),
       },
-      idempotencyKey: idem('evaluate'),
-    });
+    );
     await expectStatus(res, 201, '평가 생성');
     const evaluation = (await res.json()) as {
       data: { evaluationId: string; metrics: Record<string, unknown> };
@@ -853,7 +895,11 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     );
     await expectStatus(confirmed, 200, '평가 확정');
 
-    const report = await api.call('GET', `/api/v1/evaluations/${ex.evaluationId}/report`, adminToken);
+    const report = await api.call(
+      'GET',
+      `/api/v1/evaluations/${ex.evaluationId}/report`,
+      adminToken,
+    );
     await expectStatus(report, 200, '평가보고서');
     const doc = (await report.json()) as { data: Record<string, unknown> };
     expect(JSON.stringify(doc.data)).toContain('NOT_COLLECTED');
@@ -867,25 +913,85 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
   it('(13) 종료 뒤에는 기준선이 담은 것이 바뀌지 않거나, 바뀌면 드러난다', async () => {
     // 종료가 남긴 기준선은 사실원장만이 아니라 **일지 해시와 확정 판**까지 담는다.
     const payload = await withClient(h.dbUrl, async (c) => {
-      const r = await c.query(`SELECT payload_json FROM execution_event WHERE execution_event_id=$1`, [
-        ex.baselineEventId,
-      ]);
+      const r = await c.query(
+        `SELECT payload_json FROM execution_event WHERE execution_event_id=$1`,
+        [ex.baselineEventId],
+      );
       return r.rows[0].payload_json as Record<string, unknown>;
     });
     expect(payload).toBeDefined();
 
-    // 종료된 훈련의 일지를 새로 Export한다 — 기준선 밖에서 산출물이 나오는가.
-    const exported = await api.call('POST', `/api/v1/journals/${ex.journalId}/exports`, adminToken, {
-      body: {},
-      idempotencyKey: idem('post-close-export'),
-    });
+    // ── 여는 것 ──────────────────────────────────────────────────────────
+    // 이미 승인돼 얼어붙은 판의 Export는 막지 않는다. 같은 내용을 다시 뽑는
+    // 일이므로 기준선을 흔들지 않고, 감사 제출·재인쇄가 정확히 종료 뒤에
+    // 필요한 일이다(ADR-46 D3).
+    const exported = await api.call(
+      'POST',
+      `/api/v1/journals/${ex.journalId}/exports`,
+      adminToken,
+      {
+        body: {},
+        idempotencyKey: idem('post-close-export'),
+      },
+    );
+    expect(exported.status, '종료된 훈련의 승인 일지는 다시 내보낼 수 있어야 한다').toBe(202);
 
-    // **종료된 훈련에서 새 산출물이 나오면 기준선 밖의 종이가 생긴다.**
-    // 막혀야 한다(409/412). 접수되면 ADR-45 한계 12·13이 실제로 열려 있다.
-    expect(
-      exported.status,
-      `종료된 훈련의 일지 Export가 접수되면 기준선 밖에서 종이가 나온다 (ADR-45 한계 12·13)`,
-    ).toBeGreaterThanOrEqual(400);
+    // ── 막는 것 ──────────────────────────────────────────────────────────
+    // 기준선이 담은 것을 **바꾸는** 연산은 전부 막힌다(ADR-46 D2).
+    const post = async (path: string, body: unknown): Promise<Response> =>
+      api.call('POST', path, adminToken, { body, idempotencyKey: idem('post-close') });
+
+    const newProjection = await post(`/api/v1/situations/${ex.situationId}/journal-projections`, {
+      snapshotId: ex.snapshotId,
+      templateFileId: await uploadFile(
+        '간략 보고 양식.hwpx',
+        readFileSync(TEMPLATE),
+        'application/hwp+zip',
+        'HWPX_IMPORT',
+      ),
+      from: new Date(Date.now() - 3_600_000).toISOString(),
+      to: new Date().toISOString(),
+    });
+    expect(newProjection.status, '종료 뒤 새 일지 투영').toBe(409);
+    expect(await errorCode(newProjection)).toBe('JOURNAL-409-004');
+
+    const edited = await post(`/api/v1/journals/${ex.journalId}/changesets`, {
+      baseRevisionId: null,
+      operations: [],
+    });
+    expect(edited.status, '종료 뒤 일지 편집').toBeGreaterThanOrEqual(400);
+
+    const reReview = await post(`/api/v1/journals/${ex.journalId}/submit-review`, {
+      reviewers: [h.fixtures.readerA],
+    });
+    expect(reReview.status, '종료 뒤 일지 검토요청').toBe(409);
+    expect(await errorCode(reReview)).toBe('JOURNAL-409-004');
+
+    // 새 확정 판도 막힌다 — 확정 판은 기준선이 이름으로 담는다.
+    const newSnapshot = await post(`/api/v1/situations/${ex.situationId}/snapshots`, {
+      factIds: ex.factIds,
+      effectiveAt: new Date().toISOString(),
+      expectedSnapshotId: ex.snapshotId,
+    });
+    expect(newSnapshot.status, '종료 뒤 새 판 확정').toBeGreaterThanOrEqual(400);
+
+    // DB도 막는다 — API를 지나지 않는 문서 경로(changeset·autosave·Undo)가
+    // 일지 문서를 고치지 못해야 한다.
+    const documentId = await withClient(
+      h.dbUrl,
+      async (c) =>
+        (await c.query(`SELECT document_id FROM journal WHERE journal_id=$1`, [ex.journalId]))
+          .rows[0].document_id as string,
+    );
+    await expect(
+      withClient(h.dbUrl, (c) =>
+        c.query(
+          `INSERT INTO document_revision (document_id, revision_no, ir_json, content_hash, created_by)
+           VALUES ($1, 999, '{}'::jsonb, $2, $3)`,
+          [documentId, 'c'.repeat(64), h.fixtures.adminA],
+        ),
+      ),
+    ).rejects.toThrow();
   }, 180_000);
 
   // ── (14) 전파 기계와 모드 경계 ───────────────────────────────────────────
@@ -895,7 +1001,9 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
   // 증명한다. 같은 자리에서 **모드 경계**도 함께 묻는다.
 
   /** 실사건 상황 하나를 API로 세운다 — 승인된 SOP까지. */
-  const seedLiveSituation = async (label: string): Promise<{ sopId: string; versionId: string; snapshotId: string; situationId: string }> => {
+  const seedLiveSituation = async (
+    label: string,
+  ): Promise<{ sopId: string; versionId: string; snapshotId: string; situationId: string }> => {
     const created = await api.call('POST', '/api/v1/situations', adminToken, {
       body: { mode: 'LIVE', title: `CC-320 ${label}`, hazardType: '태풍/호우' },
       idempotencyKey: idem('live-situation'),
@@ -916,12 +1024,22 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     await expectStatus(fact, 201, `${label} 사실`);
     const factId = ((await fact.json()) as { data: { factId: string } }).data.factId;
 
-    const snapshot = await api.call('POST', `/api/v1/situations/${situationId}/snapshots`, adminToken, {
-      body: { factIds: [factId], effectiveAt: new Date().toISOString(), expectedSnapshotId: null },
-      idempotencyKey: idem('live-snapshot'),
-    });
+    const snapshot = await api.call(
+      'POST',
+      `/api/v1/situations/${situationId}/snapshots`,
+      adminToken,
+      {
+        body: {
+          factIds: [factId],
+          effectiveAt: new Date().toISOString(),
+          expectedSnapshotId: null,
+        },
+        idempotencyKey: idem('live-snapshot'),
+      },
+    );
     await expectStatus(snapshot, 201, `${label} 판 확정`);
-    const snapshotId = ((await snapshot.json()) as { data: { snapshotId: string } }).data.snapshotId;
+    const snapshotId = ((await snapshot.json()) as { data: { snapshotId: string } }).data
+      .snapshotId;
 
     const sop = await api.call('POST', '/api/v1/sops', adminToken, {
       body: { title: `CC-320 ${label} SOP`, hazardType: 'FLOOD', situationId },
@@ -979,7 +1097,8 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
       idempotencyKey: idem('live-save'),
     });
     await expectStatus(saved, 201, `${label} 캔버스 저장`);
-    const approvedId = ((await saved.json()) as { data: { sopVersionId: string } }).data.sopVersionId;
+    const approvedId = ((await saved.json()) as { data: { sopVersionId: string } }).data
+      .sopVersionId;
 
     // 검증하지 않은 버전은 승인되지 않는다 — 검증도 경로의 일부다.
     await expectStatus(

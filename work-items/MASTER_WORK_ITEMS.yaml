@@ -613,7 +613,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-310
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - end-to-end exercise flow
   - multiple tasks
@@ -623,7 +623,12 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - ADR-46
+  - docs/evidence/CC-320-vertical-slice.md
+  - tests/e2e/src/vertical-slice.e2e.test.ts
+  - database/migrations/0047_run_mode_must_not_exceed_situation.sql
+  - database/migrations/0048_closed_situation_freezes_baseline.sql
 - id: CC-400
   title: Bind actual T3Q contracts and run contract/E2E tests
   gate: G5

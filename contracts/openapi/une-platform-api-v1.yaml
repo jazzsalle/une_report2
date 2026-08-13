@@ -6034,6 +6034,10 @@ paths:
       - SOP-404-003
       - SOP-409-005
       - SOP-412-004
+      # CC-320 V-2 (ADR-46 D1): 실행은 자기 상황보다 더 실제일 수 없다.
+      # 훈련(EXERCISE) 상황에서 LIVE 실행을 열면 ADR-41 D9의 전파 방어가
+      # 비껴간다 — 요청 시점에 거절한다.
+      - SOP-422-009
       requestBody:
         required: true
         content:
@@ -7686,6 +7690,9 @@ paths:
       - audit_log
       x-error-codes:
       - COM-0400
+      # CC-320 V-3 (ADR-46 D2): 종료된 상황에는 새 일지를 만들 수 없다 —
+      # 종료 기준선이 일지 목록을 담는다.
+      - JOURNAL-409-004
       - JOURNAL-412-001
       - JOURNAL-422-001
       - JOURNAL-422-007
@@ -8008,6 +8015,8 @@ paths:
       - COM-0400
       - JOURNAL-400-001
       - JOURNAL-404-001
+      # CC-320 V-3 (ADR-46 D2): 종료된 상황의 일지는 상태가 움직이지 않는다.
+      - JOURNAL-409-004
       - JOURNAL-412-002
       requestBody:
         required: true
@@ -8074,6 +8083,8 @@ paths:
       - JOURNAL-400-001
       - JOURNAL-404-001
       - JOURNAL-409-002
+      # CC-320 V-3 (ADR-46 D2): 종료 뒤 승인은 기준선의 status를 바꾼다.
+      - JOURNAL-409-004
       - JOURNAL-412-003
       requestBody:
         required: false
