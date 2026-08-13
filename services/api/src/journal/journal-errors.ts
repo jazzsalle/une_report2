@@ -30,6 +30,25 @@ export const journalErrors = {
       userAction: '상황 판을 확정한 뒤 일지를 만드십시오.',
     }),
 
+  /**
+   * 종료된 훈련의 일지를 바꾸려 한다 (CC-320 V-3, ADR-46 D2).
+   *
+   * 종료는 기준선 해시에 **일지 목록(journalId·status·projectionHash)**까지
+   * 담는다(`closureBaselineHash`). 그런데 0045 §5가 얼린 것은 사실원장뿐이라,
+   * 종료 뒤에도 일지를 새로 투영하고 고치고 승인할 수 있었다 — 그때마다
+   * 기준선은 조용히 거짓이 되고, 어긋났다고 말해 주는 코드가 없었다.
+   *
+   * 막는 것은 **기준선이 담은 것을 바꾸는** 연산이다. 이미 승인돼 얼어붙은
+   * 판의 Export는 막지 않는다 — 같은 내용을 다시 뽑는 일이므로 기준선을
+   * 흔들지 않는다(`exportPrecondition`이 승인된 판만 내보낸다).
+   */
+  situationClosed: (): ApiError =>
+    new ApiError(409, 'JOURNAL-409-004', '종료된 상황의 일지는 바꿀 수 없습니다.', {
+      recoverable: false,
+      userAction:
+        '종료 시점의 기준선이 이 일지를 담고 있습니다. 고칠 것이 있으면 정정 이벤트로 남기십시오.',
+    }),
+
   invalidPeriod: (violations: ErrorViolation[]): ApiError =>
     new ApiError(422, 'JOURNAL-422-001', '상황일지 생성 요청을 확인하십시오.', {
       recoverable: true,

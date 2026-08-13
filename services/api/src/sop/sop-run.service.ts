@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import {
   affectsSituation,
+  canRunModeInSituation,
   canTransitionRun,
   computeActiveTaskNodes,
   isTaskNode,
@@ -158,6 +159,12 @@ export class SopRunService {
         forUpdate: true,
       });
       if (!situation) throw sopRunErrors.situationNotFound();
+      // **실행은 자기 상황보다 더 실제일 수 없다** (CC-320 V-2, ADR-46 D1).
+      // ADR-41 D9는 전파 시점에 `run.mode`만 본다. 여기서 대조하지 않으면
+      // 훈련 상황에 LIVE 실행이 서고 그 실행은 실제 문자를 보낸다.
+      if (!canRunModeInSituation(situation.mode, input.mode)) {
+        throw sopRunErrors.runModeExceedsSituation(situation.mode, input.mode);
+      }
       // 실행은 **확정된 판** 위에서 시작한다. 낡은 판으로 시작하면 대응의
       // 근거와 실제 사실이 어긋난 채로 굳는다.
       if (situation.currentSnapshotId !== input.snapshotId) {

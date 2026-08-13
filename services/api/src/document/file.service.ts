@@ -66,22 +66,50 @@ export interface FileRegisterInput {
 }
 
 /**
- * 허용 MIME. 확장자·헤더를 신뢰하지 않지만(`.claude/rules/security.md`), 선언
- * 단계에서 명백히 다른 종류를 걸러 두면 저장소에 올라갈 일 자체가 없어진다.
- * 최종 판정은 UNE-DOC-002의 내용 검사다.
+ * 용도별 업로드 정책 (OB-19, ADR-47 D1).
+ *
+ * CC-170은 `HWPX_IMPORT` 하나만 열었고, 그것이 CC-320이 찾은 구멍의 원인이었다
+ * — UNE-KNOW-001은 `fileId`를 요구하는데 그 `fileId`를 만들 API가 없었다.
+ *
+ * 용도마다 받을 것이 다르다. HWPX 반입은 hwpx만, 지식문서는 텍스트에서 뽑을
+ * 것이 있는 형식만. 크기 상한도 다르다 — 상한을 한 값으로 묶으면 둘 중 하나는
+ * 반드시 틀린 값을 쓴다.
+ *
+ * `ATTACHMENT`(현장 첨부, CC-280)는 **아직 열지 않는다.** 사진·동영상이 오는
+ * 자리라 개인정보 최소화와 EXIF 제거 판단이 선행이고, 그것 없이 열면 위치가
+ * 박힌 원본이 그대로 쌓인다. 어휘에는 두되 `FILE-422-001`로 거절한다.
+ */
+
+/**
+ * HWPX 반입 허용 MIME. 확장자·헤더를 신뢰하지 않지만
+ * (`.claude/rules/security.md`), 선언 단계에서 명백히 다른 종류를 걸러 두면
+ * 저장소에 올라갈 일 자체가 없어진다. 최종 판정은 UNE-DOC-002의 내용 검사다.
  */
 const HWPX_MIME_TYPES: ReadonlySet<string> = new Set([
   'application/hwp+zip',
   'application/vnd.hancom.hwpx',
 ]);
 
-/** CC-170이 실제로 처리하는 용도. 나머지는 각 항목에서 열린다. */
-const IMPLEMENTED_PURPOSES: ReadonlySet<string> = new Set(['HWPX_IMPORT']);
+/**
+ * 지식문서 MIME.
+ *
+ * UNI가 파싱해 색인하는 형식이다(설계 08 §1.9). `ApiConfig`의
+ * `knowledgeAllowedMimeTypes`와 **같은 목록이어야 한다** — 여기서 받고 저기서
+ * 거절하면 사용자는 올린 뒤에 못 쓴다는 것을 안다.
+ */
+const KNOWLEDGE_MIME_EXTENSIONS: ReadonlyMap<string, string> = new Map([
+  ['application/pdf', 'pdf'],
+  ['text/plain', 'txt'],
+]);
+
 const UPLOAD_PURPOSES: ReadonlySet<string> = new Set([
   'HWPX_IMPORT',
   'KNOWLEDGE_DOCUMENT',
   'ATTACHMENT',
 ]);
+
+/** 실제로 업로드를 받는 용도. 나머지는 어휘에만 있고 거절한다. */
+const IMPLEMENTED_PURPOSES: ReadonlySet<string> = new Set(['HWPX_IMPORT', 'KNOWLEDGE_DOCUMENT']);
 
 export function toFileResource(row: FileObjectRow): FileObjectResource {
   return {
@@ -122,17 +150,36 @@ export class FileService {
     }
     if (!IMPLEMENTED_PURPOSES.has(purpose)) {
       throw fileErrors.registerRejected(`${purpose} 용도는 아직 지원하지 않습니다.`, [
-        { field: 'purpose', reason: '현재 업로드 가능한 용도는 HWPX_IMPORT뿐입니다.' },
+        {
+          field: 'purpose',
+          reason: `현재 업로드 가능한 용도: ${[...IMPLEMENTED_PURPOSES].join(', ')}`,
+        },
       ]);
     }
-    if (!HWPX_MIME_TYPES.has(input.mimeType)) {
+
+    // **용도가 정책을 고른다.** 상한과 MIME을 한 값으로 묶으면 둘 중 하나는
+    // 반드시 틀린 값을 쓴다.
+    const knowledge = purpose === 'KNOWLEDGE_DOCUMENT';
+    const extension = knowledge ? KNOWLEDGE_MIME_EXTENSIONS.get(input.mimeType) : 'hwpx';
+    if (knowledge) {
+      if (!extension) {
+        throw fileErrors.registerRejected('지식문서로 올릴 수 없는 형식입니다.', [
+          {
+            field: 'mimeType',
+            reason: `${[...KNOWLEDGE_MIME_EXTENSIONS.keys()].join(' 또는 ')}여야 합니다.`,
+          },
+        ]);
+      }
+    } else if (!HWPX_MIME_TYPES.has(input.mimeType)) {
       throw fileErrors.registerRejected('HWPX 파일만 업로드할 수 있습니다.', [
         { field: 'mimeType', reason: `${[...HWPX_MIME_TYPES].join(' 또는 ')}여야 합니다.` },
       ]);
     }
-    if (input.sizeBytes > this.config.uploadMaxBytes) {
+
+    const maxBytes = knowledge ? this.config.knowledgeMaxFileBytes : this.config.uploadMaxBytes;
+    if (input.sizeBytes > maxBytes) {
       throw fileErrors.registerRejected('업로드 상한을 넘는 크기입니다.', [
-        { field: 'sizeBytes', reason: `최대 ${this.config.uploadMaxBytes} 바이트입니다.` },
+        { field: 'sizeBytes', reason: `최대 ${maxBytes} 바이트입니다.` },
       ]);
     }
 
@@ -142,7 +189,7 @@ export class FileService {
       tenantId: auth.tenantId,
       fileId,
       sha256: input.sha256,
-      extension: 'hwpx',
+      extension: extension as string,
     });
 
     const row = await this.db.withTenant(auth.tenantId, async (c) => {
@@ -154,6 +201,9 @@ export class FileService {
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
         sha256: input.sha256,
+        // **행이 용도를 기억한다** (OB-19). 지금까지 감사 detail에만 남아서
+        // 소비하는 쪽이 "이 파일이 그 자리에 올 파일인가"를 되물을 수 없었다.
+        purpose,
         createdBy: auth.userId,
       });
       await this.audit.insertAudit(c, {
@@ -327,6 +377,15 @@ export class FileService {
       violations.push({ field: 'sha256', reason: '사전등록한 해시와 다릅니다.' });
     }
     if (violations.length > 0) return violations;
+
+    // **용도가 내용 검사를 고른다** (OB-19). 지식문서는 PDF·텍스트이므로
+    // HWPX 패키지 분석을 걸면 정상 파일이 100% 거절된다.
+    //
+    // 지식문서의 내용 판정은 여기서 하지 않는다. 크기·해시는 위에서 이미
+    // 봤고, 형식의 최종 판정은 UNI가 파싱하며 그 결과가 `uni_status`로 돌아온다
+    // (설계 08 §1.9). 여기서 PDF 매직바이트를 흉내 내면 UNI가 실제로 읽을 수
+    // 있는지와 무관한 판정을 한 벌 더 만드는 것이고, 그것은 갈라진다.
+    if (row.purpose === 'KNOWLEDGE_DOCUMENT') return violations;
 
     // 내용 기반 형식 검증. 확장자·Content-Type이 아니라 ZIP 구조와 mimetype
     // 엔트리를 본다. 엔진의 패키지 분석을 재사용하는 이유는 "HWPX인가"의

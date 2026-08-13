@@ -35,6 +35,27 @@ export function dispatchesForReal(mode: SopRunMode): boolean {
 }
 
 /**
+ * 이 상황에서 이 실행 방식을 열 수 있는가 (CC-320).
+ *
+ * ADR-41 D9는 `dispatchesForReal(run.mode)`로 훈련의 전파를 막는다. 그런데
+ * 실행을 만드는 쪽이 `run.mode`를 **`situation.mode`와 대조하지 않으면** 그
+ * 방어가 통째로 비껴간다 — 훈련 상황에서 `mode: 'LIVE'`로 실행을 열면 실제
+ * 문자가 나간다. CC-320 수직 슬라이스가 이것을 실측했다(V-2).
+ *
+ * 규칙은 하나다: **실행은 자기 상황보다 더 실제일 수 없다.**
+ *
+ *   상황 LIVE      → LIVE / EXERCISE / DRY_RUN 모두 연다.
+ *   상황 EXERCISE  → EXERCISE / DRY_RUN만 연다. LIVE는 막는다.
+ *
+ * 실사건에서 훈련 방식 실행을 여는 것은 막지 않는다 — 그쪽은 덜 실제이므로
+ * 밖으로 나가는 것이 없고, 실제 대응과 나란히 도는 연습을 금지할 이유가 없다
+ * (`affectsSituation`이 이미 그 자리를 잡아 두었다).
+ */
+export function canRunModeInSituation(situationMode: string, runMode: SopRunMode): boolean {
+  return situationMode === 'EXERCISE' ? runMode !== 'LIVE' : true;
+}
+
+/**
  * 실행 상태.
  *
  * 설계 09는 여섯을 적지만 CC-260이 만들 수 있는 것은 넷이다. `COMPLETED`와

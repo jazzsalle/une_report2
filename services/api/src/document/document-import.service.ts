@@ -178,6 +178,13 @@ export class DocumentImportService {
       this.files.find(c, auth.tenantId, input.fileId),
     );
     if (!file) throw fileErrors.notFound();
+    // **그 자리에 올 파일인가** (OB-19). 지식문서용으로 올라온 바이트를 HWPX
+    // 반입이 받으면 용도별 정책이 무의미해진다 — 형식 검사는 통과할 수 있다.
+    if (file.purpose !== 'HWPX_IMPORT') {
+      throw fileErrors.importRejected('HWPX 반입 용도로 등록된 파일이 아닙니다.', [
+        { field: 'fileId', reason: `purpose=${file.purpose} — HWPX_IMPORT여야 합니다.` },
+      ]);
+    }
     if (file.uploadState !== 'VERIFIED') {
       throw fileErrors.importRejected('업로드 검증을 통과하지 않은 파일입니다.', [
         {
@@ -433,10 +440,13 @@ export class DocumentImportService {
         // 해시를 계산했으므로 검증된 것이 사실이며, 0022의 백필이 기존 행에
         // 내린 판단과 같다. 기본값(PENDING)에 맡기면 그 판단과 반대되는 행이
         // 계속 쌓이고 미완료 정리 인덱스에 걸린다(리뷰 M-5).
+        // purpose는 HWPX_IMPORT다 — 기본값에 맡기지 않고 적는다(OB-19). 이
+        // 경로가 만드는 것은 언제나 HWPX 원본이고, 기본값은 언젠가 바뀐다.
         `INSERT INTO file_object
            (tenant_id, storage_key, original_name, mime_type, size_bytes, sha256,
-            scan_status, upload_state, verified_at, created_by)
-         VALUES ($1, $2, $3, 'application/hwp+zip', $4, $5, 'PENDING', 'VERIFIED', now(), $6)
+            scan_status, upload_state, verified_at, purpose, created_by)
+         VALUES ($1, $2, $3, 'application/hwp+zip', $4, $5, 'PENDING', 'VERIFIED', now(),
+                 'HWPX_IMPORT', $6)
          RETURNING file_id`,
         [
           auth.tenantId,

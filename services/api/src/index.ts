@@ -6,6 +6,17 @@ export { API_CONFIG, loadApiConfig, type ApiConfig } from './config/api-config';
  * 안의 Map이므로 새로 만들면 워커가 원본 바이트를 찾지 못한다.
  */
 export { OBJECT_STORAGE } from './common/storage.provider';
+// CC-430: 보안 전수 시험이 **등록된 것**을 봐야 한다. 정규식으로 소스를 읽으면
+// 적힌 것만 보이고, 모듈 누락·조건부 등록은 보이지 않는다.
+export { listRoutes, type RegisteredRoute } from './common/route-registry';
+// CC-430: 관측성. 로거는 가림 규칙을 한 곳에 모으므로 워커도 같은 것을 쓴다.
+export {
+  createLogger,
+  type LogFields,
+  type LogLevel,
+  type StructuredLogger,
+} from './common/observability/logger';
+export { MetricsRegistry, METRICS } from './common/observability/metrics';
 export { buildMockExternalToken, parseMockExternalToken } from './auth/mock-sso';
 export {
   hashRefreshToken,

@@ -8,6 +8,7 @@ import { MockLegacyT3qPlanAdapter } from '@une/provider-adapters';
 import {
   ContentJobRunner,
   ExportJobRunner,
+  KnowledgeUploadRunner,
   OutboxRelayRunner,
   SopJobRunner,
   TocJobRunner,
@@ -16,6 +17,7 @@ import {
 } from '@une/worker';
 import {
   MemoryObjectStorage,
+  MockUniKnowledgeAdapter,
   MockUniSopAdapter,
   createChannelRegistry,
 } from '@une/provider-adapters';
@@ -76,6 +78,14 @@ export interface Harness {
   sop: SopJobRunner;
   /** CC-270: Outbox 릴레이. 채널은 SYSTEM만 진짜이고 나머지는 시뮬레이션이다. */
   outbox: OutboxRelayRunner;
+  /**
+   * CC-220 지식문서 업로드 러너 (CC-320에서 추가).
+   *
+   * 앞선 슬라이스들은 지식문서·근거집합을 SQL로 심었다. 수직 슬라이스는
+   * **그 경로도 API로 지나야** 근거가 SOP까지 실제로 이어지는지 말할 수 있다.
+   * UNI는 mock이다 — 실 UNI 지원이 아니다(OB-13은 여전히 열려 있다).
+   */
+  knowledge: KnowledgeUploadRunner;
   storage: MemoryObjectStorage;
   close(): Promise<void>;
 }
@@ -136,7 +146,15 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
                                 'DASHBOARD_READ','EXECUTION_READ','EXECUTION_CORRECT',
                                 'JOURNAL_CREATE','JOURNAL_READ','JOURNAL_EDIT',
                                 'JOURNAL_AI_EDIT','JOURNAL_APPROVE','JOURNAL_EXPORT',
-                                'SITUATION_CLOSE','EVALUATION_EDIT','EVALUATION_READ')
+                                'SITUATION_CLOSE','EVALUATION_EDIT','EVALUATION_READ',
+                                -- CC-320: 수직 슬라이스는 상황 등록·사실·판 확정과
+                                -- 지식·근거 경로까지 **API로** 지난다. 앞선 슬라이스가
+                                -- SQL로 심던 구간이라 이 권한들이 빠져 있었다.
+                                'SITUATION_CREATE','SITUATION_READ','SITUATION_EDIT',
+                                'SITUATION_FACT_COLLECT','SITUATION_FACT_EDIT',
+                                'SITUATION_CONFIRM',
+                                'KNOWLEDGE_UPLOAD','KNOWLEDGE_READ',
+                                'EVIDENCE_SEARCH','EVIDENCE_READ','EVIDENCE_LOCK')
      WHERE r.tenant_id IS NULL AND r.role_code = 'INSTITUTION_ADMIN'
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
@@ -196,7 +214,19 @@ export async function insertFixtures(c: Client): Promise<Fixtures> {
   return { tenantA, tenantB, adminA, readerA, userB, sopOnlyA, fieldA, fieldA2 };
 }
 
-export async function startHarness(label: string): Promise<Harness> {
+export interface HarnessOptions {
+  /**
+   * 검사 미완료 파일의 지식문서 등록을 허용한다 (OB-15 완화).
+   *
+   * 기본값은 **운영과 같은 `false`**다 — 그래야 도메인이 막으려는 경로가
+   * 테스트에서 살아 있다(ADR-36 D6). AV 엔진이 없어 `scan_status`는 영구
+   * PENDING이므로, 지식문서를 실제로 등록해 봐야 하는 시험만 이것을 켠다.
+   * **켜져 있다는 사실 자체가 완화 기록이다.**
+   */
+  knowledgeAllowScanPending?: boolean;
+}
+
+export async function startHarness(label: string, options: HarnessOptions = {}): Promise<Harness> {
   if (!ADMIN_URL) throw new Error('DATABASE_URL이 필요하다');
   const adminUrl = new URL(ADMIN_URL);
   const dbName = `${label}_${randomUUID().slice(0, 8)}`;
@@ -232,7 +262,7 @@ export async function startHarness(label: string): Promise<Harness> {
     // 꺼진 상태여야 도메인이 막으려는 경로가 테스트에서 살아 있다(ADR-36 D6).
     knowledgeMaxFileBytes: 50 * 1024 * 1024,
     knowledgeAllowedMimeTypes: new Set(['application/pdf', 'text/plain']),
-    knowledgeAllowScanPending: false,
+    knowledgeAllowScanPending: options.knowledgeAllowScanPending ?? false,
     knowledgeMaxUploadAttempts: 3,
     corsAllowedOrigins: [],
     // CC-200: 이 슬라이스는 상황 수집을 지나지 않지만 ApiConfig는 전 필드를
@@ -277,6 +307,15 @@ export async function startHarness(label: string): Promise<Harness> {
     outbox: new OutboxRelayRunner(
       workerDb,
       createChannelRegistry({ UNE_CHANNEL_SCENARIOS: 'true' }),
+      workerConfig,
+    ),
+    // 시나리오 훅은 끈다 — 수직 슬라이스에서 지식문서는 **지나가는 구간**이고,
+    // 업로드 실패 경로는 CC-220의 e2e가 이미 증명했다. 여기서 켜면 파일명에
+    // 따라 정상 경로가 흔들린다.
+    knowledge: new KnowledgeUploadRunner(
+      workerDb,
+      storage,
+      new MockUniKnowledgeAdapter({ scenariosEnabled: false }),
       workerConfig,
     ),
     async close(): Promise<void> {

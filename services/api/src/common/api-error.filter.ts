@@ -1,7 +1,15 @@
-import { Catch, HttpException, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
+import {
+  Catch,
+  HttpException,
+  Inject,
+  type ArgumentsHost,
+  type ExceptionFilter,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiError, type ErrorViolation } from './api-error';
 import { metaFor } from './envelope';
+import { LOGGER, type StructuredLogger } from './observability/logger.provider';
+import { METRICS, type MetricsRegistry } from './observability/metrics';
 import type { ApiRequest } from './request-context';
 
 interface ErrorBody {
@@ -16,6 +24,11 @@ interface ErrorBody {
 /** Maps every thrown error to the common-error envelope (common-error.schema.json). */
 @Catch()
 export class ApiErrorFilter implements ExceptionFilter {
+  constructor(
+    @Inject(LOGGER) private readonly logger: StructuredLogger,
+    @Inject(METRICS) private readonly metrics: MetricsRegistry,
+  ) {}
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const req = ctx.getRequest<ApiRequest | undefined>();
@@ -71,7 +84,16 @@ export class ApiErrorFilter implements ExceptionFilter {
     } else {
       // Unexpected failure: keep internals out of the response, keep the
       // correlation id in the log so the report can be traced.
-      console.error(`[une-api] unhandled error corr=${req?.correlationId ?? '-'}`, exception);
+      // 상관관계 ID와 함께 구조화해 남기고 센다 (CC-430). 응답에는 여전히
+      // 내부가 나가지 않는다 — 로그와 응답은 독자가 다르다.
+      this.metrics.errors.inc({ kind: 'unhandled' });
+      this.logger.error('unhandled', {
+        requestId: req?.requestId ?? null,
+        correlationId: req?.correlationId ?? null,
+        tenantId: req?.auth?.tenantId ?? null,
+        route: (req as unknown as { route?: { path?: string } })?.route?.path ?? 'unmatched',
+        error: exception,
+      });
     }
 
     res.status(status).json({ success: false, error, meta: { ...metaFor(req), ...extraMeta } });

@@ -21,9 +21,12 @@
       "Bash(docker compose config:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
+      "Bash(git push:*)",
       "Bash(git worktree list:*)"
     ],
     "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
       "Bash(git reset --hard:*)",
       "Bash(git clean -fd:*)",
       "Bash(docker system prune:*)",

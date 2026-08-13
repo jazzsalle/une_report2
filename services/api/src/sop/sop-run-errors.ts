@@ -43,6 +43,19 @@ export const sopRunErrors = {
     }),
 
   /**
+   * 실행 방식이 상황 방식보다 더 실제다 (CC-320 V-2).
+   *
+   * 훈련 상황에서 LIVE 실행을 열면 ADR-41 D9의 방어(`dispatchesForReal`)가
+   * 비껴가고 훈련이 실제 문자를 보낸다. 요청 시점에 거절한다 — 만들어진 뒤에
+   * 전파에서 막으면 이미 임무가 현장 화면에 떠 있다.
+   */
+  runModeExceedsSituation: (situationMode: string, runMode: string): ApiError =>
+    new ApiError(422, 'SOP-422-009', '상황 방식보다 더 실제인 실행은 시작할 수 없습니다.', {
+      recoverable: false,
+      userAction: `훈련(${situationMode}) 상황에서는 ${runMode} 실행을 열 수 없습니다. EXERCISE 또는 DRY_RUN으로 시작하십시오.`,
+    }),
+
+  /**
    * 이미 살아 있는 실행이 있다.
    *
    * 둘이 동시에 돌면 같은 상황에 대해 "지금 무엇을 하고 있는가"의 답이 둘이

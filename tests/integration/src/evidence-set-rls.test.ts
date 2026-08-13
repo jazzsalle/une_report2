@@ -72,8 +72,8 @@ async function insertEvFixture(c: Client, code: string): Promise<EvFixture> {
     await c.query(
       `INSERT INTO file_object
          (tenant_id, original_name, mime_type, size_bytes, sha256, storage_key,
-          scan_status, upload_state, verified_at, created_by)
-       VALUES ($1, 'm.pdf', 'application/pdf', 10, $2, $3, 'CLEAN', 'VERIFIED', now(), $4)
+          scan_status, upload_state, verified_at, purpose, created_by)
+       VALUES ($1, 'm.pdf', 'application/pdf', 10, $2, $3, 'CLEAN', 'VERIFIED', now(), 'KNOWLEDGE_DOCUMENT', $4)
        RETURNING file_id`,
       [base.tenantId, 'b'.repeat(64), `k/${code}`, base.userId],
     )

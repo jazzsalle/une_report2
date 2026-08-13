@@ -27,7 +27,8 @@ jobs:
       # Compose stays structurally valid incl. interpolation; dummy secrets
       # satisfy the ${VAR:?} guards (no services are started in CI).
       - run: >
-          UNE_DB_PASSWORD=ci UNE_DB_APP_PASSWORD=ci UNE_MINIO_ROOT_PASSWORD=ci
+          UNE_DB_PASSWORD=ci UNE_DB_APP_PASSWORD=ci UNE_DB_WORKER_PASSWORD=ci
+          UNE_MINIO_ROOT_PASSWORD=ci
           UNE_STORAGE_ACCESS_KEY=ci UNE_STORAGE_SECRET_KEY=ci
           docker compose -f infrastructure/docker-compose.yml config --quiet
       # Generated contract types must match contracts/openapi (ADR-20).

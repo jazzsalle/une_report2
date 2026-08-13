@@ -162,6 +162,9 @@ export class JournalService {
     const precheck = await this.db.withTenant(auth.tenantId, async (c) => {
       const situation = await this.repo.findSituation(c, auth.tenantId, situationId);
       if (!situation) throw journalErrors.situationNotFound();
+      // 종료된 훈련에 새 일지를 만들면 기준선이 담지 않은 일지가 생긴다
+      // (CC-320 V-3). 양식을 반입하기 **전에** 막는다.
+      if (situation.status === 'CLOSED') throw journalErrors.situationClosed();
       const snapshot = await this.repo.findSnapshot(
         c,
         auth.tenantId,
@@ -291,6 +294,7 @@ export class JournalService {
     return this.db.withTenant(auth.tenantId, async (c) => {
       const journal = await this.repo.findJournal(c, auth.tenantId, journalId);
       if (!journal) throw journalErrors.notFound();
+      await this.assertSituationOpen(c, auth, journal.situationId);
       if (!isJournalEditable(journal.status)) throw journalErrors.notEditable(journal.status);
 
       const cells = await this.repo.listProjectionItems(c, journalId);
@@ -444,6 +448,7 @@ export class JournalService {
     return this.db.withTenant(auth.tenantId, async (c) => {
       const journal = await this.repo.findJournal(c, auth.tenantId, journalId);
       if (!journal) throw journalErrors.notFound();
+      await this.assertSituationOpen(c, auth, journal.situationId);
       if (!isJournalEditable(journal.status)) throw journalErrors.notEditable(journal.status);
       await this.assertBaseRevision(c, auth, journal, input.baseRevisionId);
 
@@ -502,6 +507,7 @@ export class JournalService {
     return this.db.withTenant(auth.tenantId, async (c) => {
       const journal = await this.repo.findJournal(c, auth.tenantId, journalId);
       if (!journal) throw journalErrors.notFound();
+      await this.assertSituationOpen(c, auth, journal.situationId);
       if (!isJournalEditable(journal.status)) throw journalErrors.notEditable(journal.status);
 
       const situation = await this.repo.findSituation(c, auth.tenantId, journal.situationId);
@@ -569,6 +575,7 @@ export class JournalService {
     return this.db.withTenant(auth.tenantId, async (c) => {
       const journal = await this.repo.findJournal(c, auth.tenantId, journalId);
       if (!journal) throw journalErrors.notFound();
+      await this.assertSituationOpen(c, auth, journal.situationId);
       if (!canTransitionJournal(journal.status, 'REVIEW')) {
         throw journalErrors.cannotSubmitReview(journal.status);
       }
@@ -633,6 +640,7 @@ export class JournalService {
     return this.db.withTenant(auth.tenantId, async (c) => {
       const journal = await this.repo.findJournal(c, auth.tenantId, journalId);
       if (!journal) throw journalErrors.notFound();
+      await this.assertSituationOpen(c, auth, journal.situationId);
       if (!canTransitionJournal(journal.status, input.decision)) {
         throw journalErrors.cannotDecide(journal.status);
       }
@@ -776,6 +784,22 @@ export class JournalService {
    * 절을 저장할 때 나중 것이 조용히 이긴다 — 그리고 계약은 있지도 않은
    * 방어를 약속한 것이 된다.
    */
+  /**
+   * 종료된 훈련의 일지를 바꾸려는 요청인가 (CC-320 V-3, ADR-46 D2).
+   *
+   * 0048의 트리거가 같은 것을 DB에서 한 번 더 막는다. 여기서 먼저 거절하는
+   * 이유는 사람이 읽을 오류를 주기 위해서다 — 트리거만 두면 사용자는 42501을
+   * 받는다. 반대로 여기만 두면 일지 API를 지나지 않는 문서 경로가 뚫린다.
+   */
+  private async assertSituationOpen(
+    c: PoolClient,
+    auth: AuthContext,
+    situationId: string,
+  ): Promise<void> {
+    const situation = await this.repo.findSituation(c, auth.tenantId, situationId);
+    if (situation?.status === 'CLOSED') throw journalErrors.situationClosed();
+  }
+
   private async assertBaseRevision(
     c: PoolClient,
     auth: AuthContext,

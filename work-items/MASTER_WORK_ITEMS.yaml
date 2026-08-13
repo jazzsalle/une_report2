@@ -613,7 +613,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-310
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - end-to-end exercise flow
   - multiple tasks
@@ -623,7 +623,17 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - ADR-46
+  - ADR-47
+  - docs/evidence/CC-320-vertical-slice.md
+  - docs/evidence/OB-19-OB-17-upload-purpose-and-worker-role.md
+  - tests/e2e/src/vertical-slice.e2e.test.ts
+  - tests/integration/src/worker-login-role.test.ts
+  - database/migrations/0047_run_mode_must_not_exceed_situation.sql
+  - database/migrations/0048_closed_situation_freezes_baseline.sql
+  - database/migrations/0049_file_object_purpose.sql
+  - database/migrations/0050_worker_login_role_membership.sql
 - id: CC-400
   title: Bind actual T3Q contracts and run contract/E2E tests
   gate: G5
@@ -680,7 +690,7 @@ work_items:
   dependencies:
   - CC-400
   - CC-410
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - RBAC/tenant/file/security tests
   - P95 targets
@@ -690,14 +700,21 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - ADR-48
+  - docs/evidence/CC-430-security-perf-observability.md
+  - docs/evidence/CC-430-backup-drill.json
+  - tests/e2e/src/security-matrix.e2e.test.ts
+  - tests/e2e/src/observability.e2e.test.ts
+  - tests/e2e/src/perf-ops-baseline.e2e.test.ts
+  - scripts/backup-restore-drill.mjs
 - id: CC-440
   title: Release candidate, acceptance package, and deployment runbook
   gate: G6
   dependencies:
   - CC-420
   - CC-430
-  status: NOT_STARTED
+  status: IN_PROGRESS
   acceptance_criteria:
   - release manifest
   - all gates
@@ -708,4 +725,6 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/handoff/DEPLOYMENT_RUNBOOK.md (operator/developer docs + rollback/forward-fix)
+  - 'BLOCKED on "all gates" - OB-08 (Track B), OB-01 (T3Q contract), OB-13 (UNI contract)'

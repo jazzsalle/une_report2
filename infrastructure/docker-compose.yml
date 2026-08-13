@@ -22,6 +22,13 @@ services:
       # runtime services must connect as this role so RLS is enforced.
       UNE_DB_APP_USER: ${UNE_DB_APP_USER:-une_app}
       UNE_DB_APP_PASSWORD: ${UNE_DB_APP_PASSWORD:?set UNE_DB_APP_PASSWORD in infrastructure/.env}
+      # Worker's own LOGIN role (OB-17), created by initdb/02-worker-role.sh.
+      # Memberships in une_worker/une_retention come from migration 0050 —
+      # those roles do not exist yet at initdb time. Granting them to
+      # UNE_DB_APP_USER instead would let the API runtime inherit the
+      # retention role's cross-tenant policy membership (ADR-35 D2/D4).
+      UNE_DB_WORKER_USER: ${UNE_DB_WORKER_USER:-une_worker_app}
+      UNE_DB_WORKER_PASSWORD: ${UNE_DB_WORKER_PASSWORD:?set UNE_DB_WORKER_PASSWORD in infrastructure/.env}
       # UTC storage per backend rules; clients convert on read.
       TZ: UTC
       PGTZ: UTC

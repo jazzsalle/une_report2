@@ -20,13 +20,15 @@ export interface FileObjectRow {
   uploadState: 'PENDING' | 'VERIFIED' | 'ABORTED';
   scanStatus: string;
   verifiedAt: Date | null;
+  /** 등록 용도 (OB-19). 소비하는 쪽이 자리를 대조한다. */
+  purpose: string;
   createdBy: string;
   createdAt: Date;
 }
 
 const COLUMNS = `file_id, tenant_id, storage_key, original_name, mime_type,
                  size_bytes, sha256, upload_state, scan_status, verified_at,
-                 created_by, created_at`;
+                 purpose, created_by, created_at`;
 
 function toRow(row: Record<string, unknown>): FileObjectRow {
   return {
@@ -42,6 +44,7 @@ function toRow(row: Record<string, unknown>): FileObjectRow {
     uploadState: row.upload_state as FileObjectRow['uploadState'],
     scanStatus: row.scan_status as string,
     verifiedAt: (row.verified_at as Date | null) ?? null,
+    purpose: row.purpose as string,
     createdBy: row.created_by as string,
     createdAt: row.created_at as Date,
   };
@@ -59,14 +62,15 @@ export class FileRepository {
       mimeType: string;
       sizeBytes: number;
       sha256: string;
+      purpose: string;
       createdBy: string;
     },
   ): Promise<FileObjectRow> {
     const res = await client.query(
       `INSERT INTO file_object
          (file_id, tenant_id, storage_key, original_name, mime_type, size_bytes,
-          sha256, scan_status, upload_state, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', 'PENDING', $8)
+          sha256, scan_status, upload_state, purpose, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', 'PENDING', $8, $9)
        RETURNING ${COLUMNS}`,
       [
         input.fileId,
@@ -76,6 +80,7 @@ export class FileRepository {
         input.mimeType,
         input.sizeBytes,
         input.sha256,
+        input.purpose,
         input.createdBy,
       ],
     );

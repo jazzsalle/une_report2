@@ -1,5 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, DiscoveryModule } from '@nestjs/core';
 import { AuthController } from './auth/auth.controller';
 import { AuthRepository } from './auth/auth.repository';
 import { AuthService } from './auth/auth.service';
@@ -9,6 +9,8 @@ import { ApiErrorFilter } from './common/api-error.filter';
 import { AuditRepository } from './common/audit.repository';
 import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 import { IdempotencyRepository } from './common/idempotency.repository';
+import { loggerProvider, metricsProvider } from './common/observability/logger.provider';
+import { RequestLogInterceptor } from './common/observability/request-log.interceptor';
 import { API_CONFIG, loadApiConfig, type ApiConfig } from './config/api-config';
 import { DatabaseService } from './db/database.service';
 import { ChangeSetService } from './document/change-set.service';
@@ -24,7 +26,7 @@ import { DocumentService } from './document/document.service';
 import { ExportRepository } from './document/export.repository';
 import { ExportService } from './document/export.service';
 import { objectStorageProvider } from './common/storage.provider';
-import { HealthController } from './health/health.controller';
+import { HealthController, MetricsController } from './health/health.controller';
 import { OrganizationsController, RolesController, UsersController } from './iam/iam.controller';
 import { IamRepository } from './iam/iam.repository';
 import { IamService } from './iam/iam.service';
@@ -94,8 +96,13 @@ export class AppModule {
   static register(config: ApiConfig = loadApiConfig()): DynamicModule {
     return {
       module: AppModule,
+      // CC-430: 등록된 라우트를 런타임에 훑을 수 있어야 한다. 기동 시점 가드
+      // (`assertRoutesGuarded`)와 보안 전수 시험이 둘 다 이것을 쓴다 — 소스를
+      // 정규식으로 읽으면 적힌 것만 보이고 모듈 누락은 보이지 않는다.
+      imports: [DiscoveryModule],
       controllers: [
         HealthController,
+        MetricsController,
         AuthController,
         OrganizationsController,
         UsersController,
@@ -201,8 +208,12 @@ export class AppModule {
         IdempotencyRepository,
         // Registration order matters: authentication before permission checks;
         // the idempotency interceptor runs after both guards.
+        loggerProvider,
+        metricsProvider,
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: PermissionsGuard },
+        // 요청 로그는 **가장 바깥**이어야 걸린 시간 전부를 잰다.
+        { provide: APP_INTERCEPTOR, useClass: RequestLogInterceptor },
         { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
         { provide: APP_FILTER, useClass: ApiErrorFilter },
       ],
