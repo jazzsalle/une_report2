@@ -49,4 +49,25 @@ export class DatabaseService implements OnModuleDestroy {
       client.release();
     }
   }
+
+  /**
+   * 준비 상태 점검 (CC-430).
+   *
+   * 테넌트 스코프 없이 붙어 **한 번 물어보고 끊는다**. 트랜잭션도 열지 않고
+   * 도메인 테이블도 읽지 않는다 — readiness는 "이 프로세스가 요청을 받을 수
+   * 있는가"이지 "데이터가 맞는가"가 아니다.
+   */
+  async ping(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+    const started = Date.now();
+    let client: PoolClient | undefined;
+    try {
+      client = await this.pool.connect();
+      await client.query('SELECT 1');
+      return { ok: true, latencyMs: Date.now() - started };
+    } catch (err) {
+      return { ok: false, latencyMs: Date.now() - started, error: (err as Error).message };
+    } finally {
+      client?.release();
+    }
+  }
 }
