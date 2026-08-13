@@ -690,7 +690,7 @@ work_items:
   dependencies:
   - CC-400
   - CC-410
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - RBAC/tenant/file/security tests
   - P95 targets
@@ -700,14 +700,21 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - ADR-48
+  - docs/evidence/CC-430-security-perf-observability.md
+  - docs/evidence/CC-430-backup-drill.json
+  - tests/e2e/src/security-matrix.e2e.test.ts
+  - tests/e2e/src/observability.e2e.test.ts
+  - tests/e2e/src/perf-ops-baseline.e2e.test.ts
+  - scripts/backup-restore-drill.mjs
 - id: CC-440
   title: Release candidate, acceptance package, and deployment runbook
   gate: G6
   dependencies:
   - CC-420
   - CC-430
-  status: NOT_STARTED
+  status: IN_PROGRESS
   acceptance_criteria:
   - release manifest
   - all gates
@@ -718,4 +725,6 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/handoff/DEPLOYMENT_RUNBOOK.md (operator/developer docs + rollback/forward-fix)
+  - 'BLOCKED on "all gates" - OB-08 (Track B), OB-01 (T3Q contract), OB-13 (UNI contract)'
