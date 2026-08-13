@@ -4,11 +4,12 @@ import { ApiCallError, describeFailure } from '../api/errors';
 import { SliceApi } from '../api/slice';
 import { apiBaseUrl } from '../config';
 import { SituationBoard } from '../board/SituationBoard';
+import { EvaluationScreen } from '../evaluation/EvaluationScreen';
 import { JournalScreen } from '../journal/JournalScreen';
 import { buildMockExternalToken } from '../slice/mock-sso';
 
 /**
- * 운영 화면 껍데기 — 전자상황판(CC-290)과 상황일지(CC-300).
+ * 운영 화면 껍데기 — 전자상황판(CC-290)·상황일지(CC-300)·종료와 평가(CC-310).
  *
  * 둘 다 **상황 하나**를 두고 보는 화면이라 로그인과 상황 ID를 공유한다.
  * CC-290의 판은 이 껍데기가 생기기 전까지 어디에도 붙어 있지 않았다 — 만들어
@@ -18,7 +19,7 @@ import { buildMockExternalToken } from '../slice/mock-sso';
  * 상위 App이 탭으로 나눈다.
  */
 
-type Tab = 'board' | 'journal';
+type Tab = 'board' | 'journal' | 'evaluation';
 
 export function OpsWorkspace(): JSX.Element {
   const clientRef = useRef<ApiClient>(new ApiClient(apiBaseUrl()));
@@ -84,6 +85,9 @@ export function OpsWorkspace(): JSX.Element {
             <button onClick={() => setTab('journal')} disabled={tab === 'journal'}>
               상황일지
             </button>
+            <button onClick={() => setTab('evaluation')} disabled={tab === 'evaluation'}>
+              종료·평가
+            </button>
           </>
         ) : (
           <>
@@ -119,8 +123,10 @@ export function OpsWorkspace(): JSX.Element {
       {who && situationId ? (
         tab === 'board' ? (
           <SituationBoard client={clientRef.current} situationId={situationId} />
-        ) : (
+        ) : tab === 'journal' ? (
           <JournalScreen client={clientRef.current} situationId={situationId} />
+        ) : (
+          <EvaluationScreen client={clientRef.current} situationId={situationId} />
         )
       ) : (
         <p style={{ padding: '1rem', fontSize: '0.9rem', color: '#64748b' }}>

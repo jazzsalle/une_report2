@@ -69,6 +69,9 @@ import {
 import { ExecutionRepository } from './execution/execution.repository';
 import { ExecutionService } from './execution/execution.service';
 import { JournalController, SituationJournalController } from './journal/journal.controller';
+import { EvaluationController, SituationCloseController } from './evaluation/evaluation.controller';
+import { EvaluationRepository } from './evaluation/evaluation.repository';
+import { EvaluationService } from './evaluation/evaluation.service';
 import { JOURNAL_NARRATIVE_PROVIDER, createNarrativeProvider } from '@une/provider-adapters';
 import { JournalRepository } from './journal/journal.repository';
 import { JournalService } from './journal/journal.service';
@@ -122,6 +125,8 @@ export class AppModule {
         ExecutionEventController,
         SituationJournalController,
         JournalController,
+        SituationCloseController,
+        EvaluationController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -186,6 +191,8 @@ export class AppModule {
         ExecutionService,
         JournalRepository,
         JournalService,
+        EvaluationRepository,
+        EvaluationService,
         // 서술 제안 어댑터는 **모듈이 고른다**. 지금은 규칙 기반 시뮬레이션
         // 하나뿐이고(T3Q 계약에 일지 서술 연산이 없다, OB-03), 실 어댑터가
         // 오면 서비스가 아니라 이 줄이 바뀐다.

@@ -593,7 +593,7 @@ work_items:
   gate: G3
   dependencies:
   - CC-300
-  status: NOT_STARTED
+  status: DONE
   acceptance_criteria:
   - close preconditions
   - evaluation evidence
@@ -603,7 +603,11 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/adr/ADR-45-cc310-exercise-close-and-evaluation.md
+  - docs/evidence/CC-310-exercise-close-and-evaluation.md
+  - database/migrations/0045_exercise_close_and_evaluation.sql
+  - database/migrations/0046_close_guard_fail_closed.sql
 - id: CC-320
   title: Complete Situation-SOP-Journal vertical slice E2E
   gate: G3

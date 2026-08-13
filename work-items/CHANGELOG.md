@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- CC-310 (2026-08-13): Exercise close, evaluation, and improvement feedback
+  (UNE-JNL-012-015, ADR-45, migrations 0045-0046).
+
+  US-SIT-035's acceptance criterion is one line: "no unresolved item and no
+  missing reason at close". A summary screen does not satisfy it, so the gate
+  collects every unresolved thing into one list, returns it inside the 412 (an
+  empty 412 tells the user nothing and leaves the disposition screen nothing to
+  draw), and requires a reason on each before it will close. The only
+  disposition this endpoint produces is WAIVED - completing, cancelling and
+  transferring belong to their own state machines, and doing them here would
+  move state outside the machine that owns it, which is the defect 0039 fixed.
+
+  Metrics come from CC-290's one calculator and are frozen at the moment they
+  are taken, because an evaluation is a document someone signs. Freezing means
+  they go stale when a source event is corrected (US-SIT-036 E-02), so the
+  basis is stored alongside and staleness is surfaced rather than silently
+  recalculated - the same judgement as ADR-44 D6.
+
+  The trap in this item is that closing must freeze the ledger while leaving
+  corrections open. Block nothing and new facts leak in after the baseline is
+  fixed; block everything and there is no way to fix a wrong one. A trigger
+  splits it: a closed situation accepts corrections and the closure event, and
+  nothing else.
+
+  Dual review found two fatal defects and eleven major ones (ADR-45 D11-D16).
+  The worst: a dispatch still queued for a closed exercise was resent forever -
+  the ledger guard rejected the relay's event, the whole batch rolled back, the
+  row stayed SENDING and was re-leased on every poll, so it kept going out
+  while nothing was recorded and the summary counted it as dead-lettered.
+  Fixed on both sides: PENDING_DISPATCH is now an unwaivable blocker, and the
+  relay dead-letters that one row in its own transaction. Also: overdue was
+  structurally always zero (due dates live on the task row, not in events), so
+  the report carried a false "0% overdue"; and two endpoints were implemented
+  but absent from the contract, the same class of defect as CC-300's
+  fact-refresh - the gate now cross-checks every controller route.
+
+  Files: database/migrations/0045-0046, packages/domain/src/evaluation/*,
+  packages/domain/src/situation/situation-status.ts,
+  services/api/src/evaluation/*, services/api/src/common/api-error.filter.ts,
+  services/worker/src/dispatch/outbox-relay.runner.ts,
+  apps/web/src/evaluation/*, apps/web/src/ops/OpsWorkspace.tsx,
+  contracts/openapi/une-platform-api-v1.yaml, tests/{contract,e2e,integration},
+  docs/adr/ADR-45, docs/evidence/CC-310, docs/handoff/OPEN_BINDINGS.md (OB-18).
+
 - CC-300 (2026-08-12): Situation journal projection, locked facts, editing,
   and export (UNE-JNL-005-011, ADR-44, migrations 0042-0044).
 

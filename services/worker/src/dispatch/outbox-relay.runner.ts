@@ -41,6 +41,18 @@ export interface OutboxRelaySummary {
  * **시뮬레이션 성공을 실제 도달로 보고하지 않는다** — 시도 기록에
  * `simulated: true`가 남고 기동 로그가 채널별 상태를 적는다.
  */
+/**
+ * 0045 §5의 가드가 던진 것인가.
+ *
+ * SQLSTATE만 보면 다른 42501(권한 부족)까지 삼킨다 — 그것은 배선 결함이므로
+ * 그대로 터져야 한다. 메시지까지 함께 본다.
+ */
+function isClosedSituationError(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  const message = err instanceof Error ? err.message : String(err);
+  return code === '42501' && message.includes('종료된 상황에는 새 사실을 쓸 수 없다');
+}
+
 export class OutboxRelayRunner {
   constructor(
     private readonly db: WorkerDatabase,
@@ -127,6 +139,9 @@ export class OutboxRelayRunner {
       ? nextAttemptDelayMs(message.attemptNo, message.outboxId)
       : null;
 
+    /** 종료된 훈련이라 사실원장이 이 전파를 받지 않았다. */
+    let closedSituation = false;
+
     await this.db.withTenant(message.tenantId, async (client) => {
       await recordAttempt(client, {
         outboxId: message.outboxId,
@@ -165,20 +180,56 @@ export class OutboxRelayRunner {
             const taskId = await findTaskIdOfDispatch(client, dispatchId);
             if (taskId) {
               // 상태만 바꾸지 않는다 — 사실원장에도 남긴다(0040 §3).
-              await markTaskSent(client, taskId, {
-                tenantId: message.tenantId,
-                // 큐에 실린 상관관계 ID를 이어 쓴다 — 접수한 요청과 이 이벤트가
-                // 같은 추적선에 있어야 한다.
-                correlationId:
-                  typeof message.payload.correlationId === 'string'
-                    ? message.payload.correlationId
-                    : `outbox-${message.outboxId}`,
-              });
+              try {
+                await markTaskSent(client, taskId, {
+                  tenantId: message.tenantId,
+                  // 큐에 실린 상관관계 ID를 이어 쓴다 — 접수한 요청과 이 이벤트가
+                  // 같은 추적선에 있어야 한다.
+                  correlationId:
+                    typeof message.payload.correlationId === 'string'
+                      ? message.payload.correlationId
+                      : `outbox-${message.outboxId}`,
+                });
+              } catch (err) {
+                // **종료된 훈련의 사실원장은 새 사실을 받지 않는다**(0045 §5).
+                //
+                // 그냥 던지면 이 트랜잭션 전체가 롤백되고 — 시도 기록도, 줄의
+                // 상태 전이도 함께 사라진다. 줄은 `SENDING`인 채 남아 임차가
+                // 만료될 때마다 **다시 집혀 다시 발송된다**. 바깥으로는 계속
+                // 나가면서 안에는 아무 기록도 남지 않는 상태가 된다.
+                //
+                // 그래서 여기서 국소적으로 받는다: 이 줄은 더 보낼 곳이 없으므로
+                // dead letter로 확정하고, 왜 그렇게 됐는지를 시도 기록에 남긴다.
+                if (!isClosedSituationError(err)) throw err;
+                closedSituation = true;
+              }
             }
           }
         }
       }
     });
+
+    if (closedSituation) {
+      // 같은 줄을 다시 집지 않도록 **별도 트랜잭션에서** 확정한다. 재시도해도
+      // 결과가 달라지지 않는다 — 훈련은 이미 닫혔다.
+      await this.db.withTenant(message.tenantId, async (client) => {
+        await recordAttempt(client, {
+          outboxId: message.outboxId,
+          attemptNo: message.attemptNo,
+          resultStatus: 'DEAD_LETTER',
+          providerMessageId: result.providerMessageId,
+          response: { adapterId: provider?.adapterId ?? null },
+          error: {
+            code: 'SITUATION_CLOSED',
+            message:
+              '종료된 훈련이라 사실원장이 전파 사실을 받지 않았습니다. 이 줄은 더 재시도하지 않습니다.',
+            retryable: false,
+          },
+        });
+        await settleMessage(client, message.outboxId, 'DEAD_LETTER', null);
+      });
+      return 'deadLettered';
+    }
 
     if (decision.status === 'SENT') return 'sent';
     if (decision.status === 'FAILED') return 'retrying';

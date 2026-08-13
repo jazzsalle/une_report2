@@ -86,6 +86,10 @@ const RLS_TABLES = [
   'journal_projection_item',
   'journal_review_request',
   'journal_approval',
+  // 0045 (CC-310): 평가 계열. 이로써 RLS 커버리지 목록에서 평가·개선조치가 닫힌다.
+  'evaluation',
+  'evaluation_score',
+  'improvement_action',
 ];
 
 describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
@@ -100,11 +104,11 @@ describe.skipIf(!ADMIN_URL)('empty-database migration (CC-004)', () => {
     if (db) await dropTestDb(db.name);
   });
 
-  it('applies all 44 baseline migrations', async () => {
+  it('applies all 46 baseline migrations', async () => {
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT name FROM pgmigrations ORDER BY id'),
     );
-    expect(applied.rows).toHaveLength(44);
+    expect(applied.rows).toHaveLength(46);
     expect(applied.rows[0].name).toBe('0001_extensions_and_common');
     expect(applied.rows[10].name).toBe('0011_force_rls_and_app_role_grants');
     expect(applied.rows[11].name).toBe('0012_rbac_catalog');
@@ -256,11 +260,11 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     if (db) await dropTestDb(db.name);
   });
 
-  it('upgrades a populated 0010-level database to 0044 without data loss', async () => {
+  it('upgrades a populated 0010-level database to 0046 without data loss', async () => {
     await migrate(db.url, 10);
     const fixture = await withClient(db.url, (c) => insertFixture(c, 'upg'));
 
-    await migrate(db.url); // remaining: 0011 ~ 0044
+    await migrate(db.url); // remaining: 0011 ~ 0046
 
     const rows = await withClient(db.url, (c) =>
       c.query(
@@ -275,7 +279,7 @@ describe.skipIf(!ADMIN_URL)('upgrade migration on fixture data (CC-004)', () => 
     const applied = await withClient(db.url, (c) =>
       c.query('SELECT count(*)::int AS n FROM pgmigrations'),
     );
-    expect(applied.rows[0].n).toBe(44);
+    expect(applied.rows[0].n).toBe(46);
     expect(fixture.tenantId).toBeTruthy();
   }, 120_000);
 });
