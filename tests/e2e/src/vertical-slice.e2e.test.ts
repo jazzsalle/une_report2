@@ -133,8 +133,8 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     });
 
   beforeAll(async () => {
-    // AV 엔진이 없어 `scan_status`가 영구 PENDING이다(OB-15). 지식문서를 제품
-    // 경로로 등록해 보려면 그 완화를 켜야 한다 — 켜져 있다는 것이 기록이다.
+    // AV를 두지 않기로 했다(ADR-49 D1). `scan_status`는 PENDING에 머물고,
+    // 지식문서 등록은 이 값을 켜야 열린다 — 켜져 있다는 것이 수용 기록이다.
     h = await startHarness('cc320_e2e', { knowledgeAllowScanPending: true });
     api = apiFor(h);
     adminToken = await api.login(h.fixtures.tenantA, 'admin-a');
@@ -270,8 +270,8 @@ describe.skipIf(!ADMIN_URL)('상황–SOP–일지 수직 슬라이스 (CC-320)'
     // `fileId`를 받는데 그 `fileId`를 만들 API가 없었다(CC-320 V-1). 이제
     // `purpose=KNOWLEDGE_DOCUMENT`로 제품 경로를 그대로 지난다.
     //
-    // **AV는 여전히 없다**(OB-15). `scan_status`는 PENDING에 머물고, 이 하네스가
-    // `knowledgeAllowScanPending`을 켜 두었다는 사실이 그 완화의 기록이다.
+    // **검사는 하지 않는다**(ADR-49 D1). `scan_status`는 PENDING에 머물고,
+    // 이 하네스가 `knowledgeAllowScanPending`을 켜 둔 것이 그 수용의 기록이다.
     const fileId = await uploadFile(
       '풍수해 행동지침.pdf',
       Buffer.from('CC-320 풍수해 대응 행동지침: 대피 방송, 통제, 보고.', 'utf8'),
