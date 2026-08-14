@@ -50,10 +50,12 @@ export interface HttpUniKnowledgeConfig {
   baseUrl: string;
   username: string;
   password: string;
-  /** multipart 파일 파트의 이름. OB-13 — 사내 개발자에게 받아야 한다. */
+  /** multipart 파일 파트의 이름. CC-410 실측: `file`. */
   uploadFileField: string;
-  /** `/auth/login` 응답에서 JWT를 담은 필드 이름. OB-13. */
+  /** `/auth/login` 응답에서 JWT를 담은 필드 이름. CC-410 실측: `token`. */
   tokenField: string;
+  /** `/auth/login` 요청의 계정 필드 이름. CC-410 실측: `account`. */
+  loginAccountField: string;
   /** 설계 08 §1.14: 업로드 60초. 나머지는 UNE 기준선이며 provider 합의값이 아니다. */
   uploadTimeoutMs: number;
   requestTimeoutMs: number;
@@ -126,8 +128,13 @@ export class HttpUniKnowledgeAdapter implements UniKnowledgeProvider {
       res = await this.fetchImpl(`${this.config.baseUrl}/auth/login`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        // **필드 이름은 `account`다 (CC-410, 2026-08-14 실측).** `username`으로
+        // 보내면 422다 — 라이브 스펙 `LoginRequest`가 `{account, password}`를
+        // required로 못박고 있고 실호출로도 확인했다. `uni-sop-1` 시절 이 한
+        // 필드만 설정 밖 하드코딩이었고, 그것이 위 42행 주석이 경고한 바로 그
+        // 실패("422를 보고 UNI가 거부했다고 읽는다")를 만들 자리였다.
         body: JSON.stringify({
-          username: this.config.username,
+          [this.config.loginAccountField]: this.config.username,
           password: this.config.password,
         }),
         signal: AbortSignal.timeout(this.config.requestTimeoutMs),
@@ -198,7 +205,19 @@ export class HttpUniKnowledgeAdapter implements UniKnowledgeProvider {
     };
 
     const url = new URL(`${this.config.baseUrl}/documents/upload`);
-    url.searchParams.set('uploader', input.uploader);
+    // **`uploader`를 보내지 않는다 (CC-410, 2026-08-14 실측).**
+    //
+    // 보내면 UNI가 그 문자열을 문서 소유자로 기록하고, 삭제 권한은 "업로드한
+    // 본인(JWT의 `user_name`) 또는 대표이사"만 갖는다. UNE는 여기에
+    // `target.createdBy`(UNE 사용자 UUID)를 넣고 있었으므로 **UNI에 올린 문서를
+    // UNE 계정으로 영원히 지울 수 없게 된다** — 실측으로 403을 확인했다
+    // ("삭제 권한이 없습니다. 업로드한 본인 또는 대표이사만 삭제할 수 있습니다").
+    // 멱등키가 없어(OB-13 §6) 재시도가 중복 문서를 만드는 것과 겹치면, 2만 건짜리
+    // 공용 색인에 **지울 수 없는 쓰레기**가 쌓인다.
+    //
+    // 생략하면 UNI가 JWT의 `user_name`을 쓴다(실측 확인). 누가 올렸는지는 UNE
+    // 쪽 `knowledge_document`가 이미 안다 — provider에 UUID를 흘릴 이유가 없다.
+    // `input.uploader`는 원문 추적(`raw.requestSummary`)에만 남는다.
     url.searchParams.set('force', String(input.force));
 
     const send = async (token: string) => {

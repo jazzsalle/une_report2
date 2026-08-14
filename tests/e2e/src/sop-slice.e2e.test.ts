@@ -188,7 +188,10 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 슬라이스 (CC-240)', () => {
     const payload = JSON.parse(completed.slice(completed.indexOf('data: ') + 6)) as {
       payload: { sopVersionNo: number; nodeCount: number; graphViolations: string[] };
     };
-    expect(payload.payload).toMatchObject({ sopVersionNo: 1, nodeCount: 3, graphViolations: [] });
+    // nodeCount 4 = UNI가 보낸 노드 3 + **매달린 간선을 보고 UNE가 세운 END 1**
+    // (CC-410). 실 UNI는 마지막 노드가 가리키는 종료 노드를 보내지 않는다 —
+    // 세우지 않으면 NO_END·DANGLING_EDGE로 승인이 막힌다.
+    expect(payload.payload).toMatchObject({ sopVersionNo: 1, nodeCount: 4, graphViolations: [] });
   }, 120_000);
 
   it('같은 멱등키로 두 번 부르면 같은 Job이다', async () => {

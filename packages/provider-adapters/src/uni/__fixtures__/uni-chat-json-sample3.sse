@@ -1,0 +1,24 @@
+data: {"__status__":"searching"}
+
+data: {"__status__":"reranking"}
+
+data: {"__status__":"generating"}
+
+data: {"__compn__":{"compnSn":-1,"endCompns":[{"compnSn":-2,"arrwCn":null,"beginArrwDrc":"bottom","endArrwDrc":"top"}],"compnGroupSn":null,"compnTyCode":"104001","compnSj":"화재 발생 및 발견","compnCrdnt":{"x":180,"y":40},"width":280,"hg":80,"atmcProgrsYn":"N","charstSort":"","fontSize":0,"color":"","compnAttrbSaveParamsList":[]}}
+
+data: {"__compn__":{"compnSn":-2,"endCompns":[{"compnSn":-3,"arrwCn":null,"beginArrwDrc":"bottom","endArrwDrc":"top"}],"compnGroupSn":null,"compnTyCode":"104003","compnSj":"초동 대응 및 119 신고","compnCrdnt":{"x":180,"y":200},"width":280,"hg":80,"atmcProgrsYn":"N","charstSort":"","fontSize":0,"color":"","compnAttrbSaveParamsList":[{"attrbSn":-1,"attrbSj":"화재 상황 확인 및 경보 발령","attrbCn":"소방기본법 제19조에 따라 화재 현장을 발견한 경우 지체 없이 소방본부(119)에 신고하고, 건물 내 경보를 울려 대피를 유도한다.","attrbRm":null,"dffTyCode":"000000","sortOrdr":1,"receiveOrgnztSns":[],"receiveUserSns":[]},{"attrbSn":-2,"attrbSj":"초동 소화 활동","attrbCn":"소방대가 도착할 때까지 소화기 등을 이용하여 불을 끄거나 번지는 것을 방지하는 인명구조 조치를 취한다.","attrbRm":null,"dffTyCode":"000000","sortOrdr":2,"receiveOrgnztSns":[],"receiveUserSns":[]}]}}
+
+data: {"__compn__":{"compnSn":-3,"endCompns":[{"compnSn":-4,"arrwCn":"예","beginArrwDrc":"bottom","endArrwDrc":"top"},{"compnSn":-5,"arrwCn":"아니오","beginArrwDrc":"right","endArrwDrc":"left"}],"compnGroupSn":null,"compnTyCode":"104005","compnSj":"대피 경로 확보 여부","compnCrdnt":{"x":180,"y":360},"width":280,"hg":80,"atmcProgrsYn":"N","charstSort":"","fontSize":0,"color":"","compnAttrbSaveParamsList":[]}}
+
+data: {"__compn__":{"compnSn":-4,"endCompns":[{"compnSn":-6,"arrwCn":null,"beginArrwDrc":"bottom","endArrwDrc":"top"}],"compnGroupSn":null,"compnTyCode":"104003","compnSj":"안전한 대피 유도","compnCrdnt":{"x":180,"y":520},"width":280,"hg":80,"atmcProgrsYn":"N","charstSort":"","fontSize":0,"color":"","compnAttrbSaveParamsList":[{"attrbSn":-3,"attrbSj":"대피 안내 및 유도","attrbCn":"비상구 및 대피로를 확인하여 재실자가 신속하게 건물 밖으로 대피할 수 있도록 유도한다. 엘리베이터 사용은 금지하고 계단을 이용한다.","attrbRm":null,"dffTyCode":"000000","sortOrdr":1,"receiveOrgnztSns":[],"receiveUserSns":[]}]}}
+
+data: {"__compn__":{"compnSn":-5,"endCompns":[{"compnSn":-7,"arrwCn":null,"beginArrwDrc":"bottom","endArrwDrc":"top"}],"compnGroupSn":null,"compnTyCode":"104003","compnSj":"인명 구조 활동","compnCrdnt":{"x":540,"y":360},"width":280,"hg":80,"atmcProgrsYn":"N","charstSort":"","fontSize":0,"color":"","compnAttrbSaveParamsList":[{"attrbSn":-4,"attrbSj":"현장 인명 구조","attrbCn":"대피 경로가 차단되었거나 갇힌 사람이 있을 경우, 소방대가 도착할 때까지 안전을 확보한 상태에서 구조 활동을 실시하거나 소방대에 정확한 위치를 전달한다.","attrbRm":null,"dffTyCode":"000000","sortOrdr":1,"receiveOrgnztSns":[],"receiveUserSns":[]}]}}
+
+data: {"__status__":"end"}
+
+data: {"__sources__":[{"filename":"REDACTED-SOURCE-1.pdf","score":0.4897,"text":"[사내 문서 발췌 203자 — 저장소에 담지 않는다]"},{"filename":"REDACTED-SOURCE-2.pdf","score":0.3094,"text":"[사내 문서 발췌 203자 — 저장소에 담지 않는다]"},{"filename":"REDACTED-SOURCE-3.pdf","score":0.2558,"text":"[사내 문서 발췌 203자 — 저장소에 담지 않는다]"}]}
+
+data: {"__done__":{"filename":"REDACTED_SOP.json","count":5}}
+
+data: [DONE]
+

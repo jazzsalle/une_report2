@@ -8844,9 +8844,13 @@ export interface operations {
              *
              *     UNI 원문 이벤트를 그대로 흘리지 않는다. 설계 08 §1.11의 __status__/__thinking__/__compn__/__sources__/__done__/__error__는 provider의 어휘이고 화면에는 위 UNE 어휘로 투영한다. __thinking__은 사용자 화면에 표시하지 않으므로(설계 08 §1.11) SSE로도 나가지 않는다.
              *
-             *     sop.node payload: {nodeKey, nodeType(START|ACTION|DECISION|NOTE|END), title, taskCount, warnings[]}. warnings는 UNI SOP 매퍼 경고이며 노드를 버리지 않고 무엇이 비었는지 알린다(MISSING_TITLE, MISSING_TASK, MISSING_ASSIGNEE, MISSING_DECISION_EXPRESSION, NO_SOURCE_REFS, UNKNOWN_FIELD_DROPPED, NODE_KEY_NORMALIZED, TITLE_TRUNCATED, SOURCE_OUT_OF_SCOPE).
+             *     sop.node payload: {nodeKey, nodeType(START|ACTION|DECISION|NOTE|END), title, taskCount, warnings[]}. warnings는 UNI SOP 매퍼 경고이며 노드를 버리지 않고 무엇이 비었는지 알린다(MISSING_TITLE, MISSING_TASK, MISSING_ASSIGNEE, MISSING_DECISION_EXPRESSION, NO_SOURCE_REFS, UNKNOWN_FIELD_DROPPED, NODE_KEY_NORMALIZED, TITLE_TRUNCATED, SOURCE_OUT_OF_SCOPE, END_SYNTHESIZED).
              *
              *     NODE_KEY_NORMALIZED는 UNI의 compnSn이 노드 키 규칙 (sop-graph.schema.json의 ^[A-Za-z][A-Za-z0-9_-]{1,79}$)에 맞지 않아 UNE가 고쳐 썼다는 뜻이다. 원래 값은 노드의 providerNodeKey로 남는다. TITLE_TRUNCATED는 provider 제목이 sop_node.title(varchar 300)을 넘어 잘렸다는 뜻이고, SOURCE_OUT_OF_SCOPE는 그 노드가 요청한 동결 근거 **범위 밖 문서**를 출처로 들었다는 뜻이다 — 차단하지 않고 표시한다 (LLM 출력은 권위 있는 사실 출처가 아니다).
+             *
+             *     END_SYNTHESIZED (CC-410)는 그 종료 노드를 **UNI가 보내지 않았고 UNE가 세웠다**는 뜻이다. 실 UNI는 마지막 처리 노드에서 나가는 간선을 남기면서 그 대상 노드를 끝내 보내지 않는다(2026-08-14 실측 3표본 전부, __done__.count가 보낸 노드 수와 일치하므로 잘린 스트림이 아니다). 세우지 않으면 DANGLING_EDGE와 NO_END가 함께 서서 UNI가 만든 모든 SOP가 승인 불가가 된다. 이 노드의 내용은 provider가 준 것이 아니므로 승인 전 캔버스에서 사용자가 보고 판단한다.
+             *
+             *     **NO_SOURCE_REFS가 실 UNI에서는 모든 노드에 선다 (CC-410).** UNI는 노드 단위 출처를 주지 않고, 스트림 수준 __sources__에도 문서 식별자가 없다 (실측 항목은 {filename, score, text}뿐). 노드와 근거를 이을 방법이 provider에 없다 — 그래서 SOURCE_OUT_OF_SCOPE도 실 UNI 응답에서는 일어날 수 없다(요청에 doc_ids 같은 범위 지정 필드 자체가 없다).
              *
              *     sop.sources payload: {sources: [{documentId, providerDocumentId, chunkId, inScope}]}. documentId는 **UNE knowledge_document_id**이며 범위 밖 출처면 null이다. provider가 쓰는 식별자는 providerDocumentId에 따로 싣는다 — 그래야 클라이언트가 UNE 문서와 대조할 수 있고, UNI가 id 체계를 바꿔도 저장된 근거 참조가 끊기지 않는다. 노드의 sourceRefs도 같은 규칙으로 UNE id를 담는다.
              *

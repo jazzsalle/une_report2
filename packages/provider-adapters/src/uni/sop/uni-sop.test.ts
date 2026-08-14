@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  deriveSequentialEdges,
-  validateSopGraph,
-  type SopGraphDraft,
-  type SopNodeDraft,
-} from '@une/domain';
-import { mapUniCompn } from './uni-sop-mapper';
+import { validateSopGraph, type SopGraphDraft, type SopNodeDraft } from '@une/domain';
+import { mapUniCompn, resolveUniEdges, type UniRawEdge } from './uni-sop-mapper';
 import { MockUniSopAdapter } from './mock-uni-sop-adapter';
 import { isRetryableUniSopError } from './uni-sop-port';
 import {
@@ -13,7 +8,7 @@ import {
   parseUniSopLine,
   UniSopSseError,
   UNI_SOP_STREAM_TERMINATOR,
-} from './uni-sop-sse.assumed';
+} from './uni-sop-sse.measured';
 
 const CTX = { correlationId: 'corr-sop' };
 const req = (prompt: string) => ({
@@ -150,6 +145,10 @@ describe('mock 스트림 → UniSopMapper → 그래프 검증 (설계 08 §1.11
     const uni = new MockUniSopAdapter({ scenariosEnabled: true });
     const r = await uni.generateSop(req(prompt), CTX);
     const nodes: SopNodeDraft[] = [];
+    const mapped: Array<{
+      node: { nodeKey: string; providerNodeKey: string };
+      outgoing: UniRawEdge[];
+    }> = [];
     let rejected = 0;
     let seq = 0;
     if (r.ok) {
@@ -162,15 +161,34 @@ describe('mock 스트림 → UniSopMapper → 그래프 검증 (설계 08 §1.11
           continue;
         }
         nodes.push(m.value.node);
+        mapped.push({
+          node: { nodeKey: m.value.node.nodeKey, providerNodeKey: m.value.node.providerNodeKey },
+          outgoing: m.value.outgoing,
+        });
       }
     }
-    // UNI는 간선을 주지 않는다 — 도착 순서로 잇는 것이 매퍼 규칙이다.
-    return { nodes, edges: deriveSequentialEdges(nodes), rejected };
+    // **CC-410: 간선은 UNI가 준다.** `endCompns`가 진짜 그래프를 들고 온다 —
+    // 도착 순서로 이으면 분기 노드의 두 갈래가 사라진다.
+    const { edges, synthesizedEnds } = resolveUniEdges(mapped);
+    for (const end of synthesizedEnds) {
+      nodes.push({
+        nodeKey: end.nodeKey,
+        providerNodeKey: end.providerNodeKey,
+        type: 'END',
+        title: '종료',
+        sequence: nodes.length + 1,
+        tasks: [],
+        decisionExpression: null,
+        sourceRefs: [],
+      });
+    }
+    return { nodes, edges, rejected };
   };
 
-  it('정상 스트림은 START → ACTION → END 그래프가 되고 검증을 통과한다', async () => {
+  it('정상 스트림은 START → ACTION → 세운 END 그래프가 되고 검증을 통과한다', async () => {
     const g = await build('정상');
-    expect(g.nodes.map((n) => n.type)).toEqual(['START', 'ACTION', 'END']);
+    // 마지막 END는 UNI가 보낸 것이 아니라 매달린 간선을 보고 UNE가 세운 것이다.
+    expect(g.nodes.map((n) => n.type)).toEqual(['START', 'ACTION', 'ACTION', 'END']);
     expect(g.rejected).toBe(0);
     expect(validateSopGraph(g)).toEqual([]);
   });
@@ -179,20 +197,24 @@ describe('mock 스트림 → UniSopMapper → 그래프 검증 (설계 08 §1.11
     const g = await build('.sop-malformed. 절차');
     expect(g.rejected).toBe(1);
     // 거부된 노드 하나를 빼고 그래프가 성립한다 — 응답 전체를 버리지 않는다.
-    expect(g.nodes.map((n) => n.type)).toEqual(['START', 'ACTION', 'END']);
+    expect(g.nodes.map((n) => n.type)).toEqual(['START', 'ACTION', 'ACTION', 'END']);
     expect(validateSopGraph(g)).toEqual([]);
   });
 
-  it('END 뒤에 노드가 더 오면 검증이 잡는다 (그래도 노드는 남는다)', async () => {
-    const g = await build('.sop-after-end. 절차');
-    expect(g.nodes.length).toBe(4);
-    // DAG는 성립하고 END도 있다 — CYCLE·NO_END로는 잡히지 않는 위반이다.
-    const v = validateSopGraph(g);
-    expect(v).toContain('EDGE_FROM_END');
-    expect(v).not.toContain('CYCLE');
-    expect(v).not.toContain('NO_END');
-    // 위반이 있어도 DRAFT로 남는다 — 고칠 대상이 없으면 고칠 수 없다.
-    expect(g.nodes.map((n) => n.nodeKey).length).toBe(4);
+  it('모르는 유형 코드는 노드를 버리지 않는다 (유형 코드 표를 받지 못했다)', async () => {
+    const g = await build('.sop-unknown-type. 절차');
+    expect(g.rejected).toBe(0);
+    // 999999는 표에 없다. 거부하면 사용자는 그 절차가 있었다는 사실조차 모른다.
+    expect(g.nodes.filter((n) => n.type === 'ACTION').length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('같은 키로 접히는 노드를 매퍼가 알아볼 수 있게 남긴다', async () => {
+    const g = await build('.sop-dup-key. 절차');
+    // 정규화하면 `3`과 `-3`이 둘 다 `n3`가 된다. 매퍼는 키를 고치고 원본을
+    // 남기며, 충돌 해소는 러너가 한다(트랜잭션 전체가 되돌아가는 것을 막는다).
+    const collided = g.nodes.filter((n) => n.providerNodeKey === '3' || n.providerNodeKey === '-3');
+    expect(collided).toHaveLength(2);
+    expect(collided[0].nodeKey).toBe(collided[1].nodeKey);
   });
 });
 

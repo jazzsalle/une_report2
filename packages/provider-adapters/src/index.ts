@@ -365,8 +365,15 @@ export {
   extractDataLines,
   parseUniSopLine,
   type UniSopParsedFrame,
-} from './uni/sop/uni-sop-sse.assumed';
-export { UNI_SOP_MAPPER_VERSION, mapUniCompn, type UniRawCompn } from './uni/sop/uni-sop-mapper';
+} from './uni/sop/uni-sop-sse.measured';
+export {
+  UNI_SOP_MAPPER_VERSION,
+  mapUniCompn,
+  resolveUniEdges,
+  type UniCompnMapping,
+  type UniRawCompn,
+  type UniRawEdge,
+} from './uni/sop/uni-sop-mapper';
 export { MockUniSopAdapter } from './uni/sop/mock-uni-sop-adapter';
 export {
   DEFAULT_UNI_SOP_FIELDS,

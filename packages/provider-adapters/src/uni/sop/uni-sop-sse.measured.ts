@@ -2,22 +2,29 @@ import type { UniSopEvent, UniSopStatus } from './uni-sop-port';
 import { UNI_SOP_STATUSES } from './uni-sop-port';
 
 /**
- * UNI `/chat/json` SSE 프레이밍 — **UNE 가정** (CC-240, OB-04).
+ * UNI `/chat/json` SSE 프레이밍 — **실측 확인됨** (CC-240 가정 → CC-410 확인).
  *
- * 설계 08 §1.11이 정한 것은 **이벤트 이름뿐**이다: `__status__`, `__thinking__`,
- * `__compn__`, `__sources__`, `__done__`, `__error__`, `[DONE]`. 그 이름들이
- * 어떤 프레임에 담겨 오는지는 **어디에도 없다** — 번들 스냅샷의 `/chat/json`도
- * 요청·응답이 `additionalProperties: true`다.
+ * CC-240에서는 이것이 전부 UNE 가정이었다(`uni-sop-sse.assumed.ts`). 설계 08
+ * §1.11이 정한 것은 이벤트 **이름뿐**이었고, 그 이름들이 어떤 프레임에 담겨
+ * 오는지는 어디에도 없었다 — OB-04 ①이 "이것이 틀리면 어댑터는 한 줄도 읽지
+ * 못한다"고 적은 가장 앞선 차단이었다.
  *
- * 아래의 모든 것이 **UNE가 요청하는 형태**다. T3Q의 `.assumed` 규약을 그대로
- * 따른다(`legacy-sse.ts`, `target-v2-sse.assumed.ts`):
+ * **2026-08-14, 실 UNI 3표본으로 확인했다. 가정이 맞았다.** 그래서 파일 이름의
+ * `.assumed` 표식을 뗀다(T3Q `target-v2-sse.assumed.ts`는 아직 가정이므로 그대로
+ * 둔다 — 표식은 검증 상태를 말하는 것이지 장식이 아니다).
  *
- *   - `data:` 한 줄에 JSON 객체 하나
- *   - 그 객체의 **키**가 이벤트 이름이다 (`{"__compn__": {...}}`)
- *   - `[DONE]`은 `data: [DONE]` 리터럴로 스트림을 닫는다
+ *   - `data:` 한 줄에 JSON 객체 하나                          ← 확인
+ *   - 그 객체의 **키**가 이벤트 이름이다 (`{"__compn__": {...}}`) ← 확인
+ *   - `[DONE]`은 `data: [DONE]` 리터럴로 스트림을 닫는다        ← 확인
+ *   - `event:` 필드를 쓰지 않는다 (실측 0줄)                    ← 확인
+ *   - `content-type: text/event-stream; charset=utf-8`         ← 확인
  *
- * UNI가 답하면(CC-410) 이 파일이 provider 진실에 맞춰 재검증되지, 그 반대가
- * 아니다.
+ * 실측 이벤트 분포(표본 1): `__status__`×4, `__compn__`×6, `__sources__`×1,
+ * `__done__`×1, `[DONE]`×1. 라이브 스펙의 `/chat/json` 설명문도 같은 형태를
+ * 문서화하고 있다.
+ *
+ * **`id:`도 `retry:`도 하트비트도 없다(실측 0줄).** Last-Event-ID로 이어받을
+ * 수단이 provider에 없다는 뜻이다 — 재접속은 전체 재생성뿐이다(ADR-50 수용 한계).
  *
  * **종결 규칙** — 레거시 `[DONE]` 규칙과 같은 원리다. `__done__` 없이 끝난
  * 스트림은 **부분 결과가 아니라 오류다**. 파서는 프레이밍만 강제하고 종결
@@ -153,7 +160,15 @@ export function parseUniSopLine(line: string): UniSopParsedFrame {
 
   if ('__done__' in rec) {
     const done = asRecord(rec.__done__);
-    const count = done && typeof done.node_count === 'number' ? done.node_count : null;
+    // **실측 필드명은 `count`다 (CC-410).** `node_count`는 CC-240의 가정이었다.
+    // 둘 다 받는다 — UNI가 이름을 되돌릴 이유는 없지만, 이 값은 "몇 개 보냈다고
+    // 주장하는가"라서 못 읽으면 잘린 스트림을 잡을 수단이 사라진다.
+    const count =
+      done && typeof done.count === 'number'
+        ? done.count
+        : done && typeof done.node_count === 'number'
+          ? done.node_count
+          : null;
     return {
       raw: parsed,
       event: { kind: 'done', nodeCount: count },

@@ -102,6 +102,7 @@ const WARNING_MESSAGES: Record<SopMappingWarning, string> = {
   NODE_KEY_NORMALIZED: 'provider가 준 노드 키를 규칙에 맞게 고쳤습니다.',
   TITLE_TRUNCATED: '제목이 길어 잘렸습니다.',
   SOURCE_OUT_OF_SCOPE: '동결 근거 범위 밖 문서를 출처로 듭니다.',
+  END_SYNTHESIZED: 'provider가 가리키기만 하고 보내지 않은 종료 노드를 UNE가 세웠습니다.',
 };
 
 /** 절차를 실행할 수 없게 만드는 매핑 경고. */

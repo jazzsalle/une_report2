@@ -226,15 +226,27 @@ describe('UNI 검색 응답 가드 (CC-230)', () => {
     expect(bare.ok && bare.value.chunks).toEqual(wrapped.ok ? wrapped.value.chunks : null);
   });
 
-  it('설계 06 3단계의 네 필드를 매핑한다', () => {
+  it('실 UNI가 주는 네 필드를 매핑하고, 없는 chunk id는 null로 둔다 (CC-410)', () => {
     const r = guardUniSearch({ results: [chunk] });
     expect(r.ok && r.value.chunks[0]).toEqual({
       documentId: 'd-1',
-      chunkId: 'c-1',
+      // **UNI에는 chunk id가 없다** — 실응답 항목 키는 filename/score/text/doc_id
+      // 넷뿐이다(2026-08-14 실측). 기본 필드명을 빈 문자열로 두어 "찾지 않는다"를
+      // 뜻하게 했다. 있지도 않은 이름을 두면 "UNI가 안 줬다"인지 "우리가 딴
+      // 이름을 봤다"인지 구분되지 않는다.
+      chunkId: null,
       fileName: 'a.pdf',
       score: 0.87,
       text: '대피 절차',
     });
+  });
+
+  it('UNI가 chunk id를 열면 설정만으로 집는다', () => {
+    const r = guardUniSearch(
+      { results: [chunk] },
+      { ...DEFAULT_UNI_FIELD_NAMES, chunkId: 'chunk_id' },
+    );
+    expect(r.ok && r.value.chunks[0].chunkId).toBe('c-1');
   });
 
   it('결과 0건은 오류가 아니다 (A-01은 정상 분기다)', () => {

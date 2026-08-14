@@ -16,6 +16,14 @@
 export const CAPABILITY_STATES = [
   'MOCK_ONLY',
   'UNE_ADAPTER_READY',
+  /**
+   * 실 provider(T3Q가 **아닌**)에 대고 성공했다 — UNI용 (CC-410).
+   *
+   * `T3Q_DEV_VERIFIED`를 UNI에 쓰면 레지스트리가 "T3Q가 검증했다"고 말하게
+   * 된다. 이 프로젝트에서 provider 이름을 잘못 붙이는 것은 mock을 실 지원으로
+   * 보고하는 것과 같은 종류의 거짓이다(CLAUDE.md).
+   */
+  'PROVIDER_DEV_VERIFIED',
   'T3Q_DEV_VERIFIED',
   'T3Q_PROD_VERIFIED',
 ] as const;

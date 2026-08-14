@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import {
-  deriveSequentialEdges,
   fitTitle,
   parseSopJobRequest,
   sopGraphHashInput,
@@ -12,7 +11,9 @@ import {
 } from '@une/domain';
 import {
   mapUniCompn,
+  resolveUniEdges,
   UNI_SOP_MAPPER_VERSION,
+  type UniRawEdge,
   type UniSopProvider,
   type UniSopResult,
 } from '@une/provider-adapters';
@@ -306,6 +307,11 @@ export class SopJobRunner {
     // 매핑은 DB 밖에서 끝낸다 — 트랜잭션 안에서 계산하면 실패 하나가 잡 전체를
     // 되돌린다.
     const nodes: Array<SopNodeDraft & { warnings: SopMappingWarning[] }> = [];
+    // 간선은 노드가 직접 들고 온다(`endCompns`). 대상은 아직 provider 키다.
+    const outgoingByNode: Array<{
+      node: { nodeKey: string; providerNodeKey: string };
+      outgoing: UniRawEdge[];
+    }> = [];
     const rejected: Array<{ reason: string; sequence: number }> = [];
     const sourceRefs: Array<{ documentId: string; chunkId: string | null }> = [];
     const usedKeys = new Set<string>();
@@ -352,6 +358,10 @@ export class SopJobRunner {
       node.sourceRefs = node.sourceRefs.map((ref) => scope.toKnowledgeDocumentId.get(ref) ?? ref);
 
       nodes.push({ ...node, warnings });
+      outgoingByNode.push({
+        node: { nodeKey: node.nodeKey, providerNodeKey: node.providerNodeKey },
+        outgoing: mapped.value.outgoing,
+      });
     }
 
     if (nodes.length === 0) {
@@ -368,7 +378,25 @@ export class SopJobRunner {
       );
     }
 
-    const edges = deriveSequentialEdges(nodes);
+    // **간선을 순번으로 만들지 않는다 (CC-410).** `uni-sop-1`은 UNI가 간선을
+    // 주지 않는다고 보고 `deriveSequentialEdges`로 일렬로 이었다. 실 UNI는
+    // `endCompns`로 **진짜 그래프**를 준다 — 분기 노드(104005)는 나가는 간선이
+    // 둘이다. 순번으로 이으면 그 분기가 사라지고 **판단 없이 한 줄로 흐르는
+    // 절차**가 된다.
+    const { edges, synthesizedEnds } = resolveUniEdges(outgoingByNode);
+    for (const end of synthesizedEnds) {
+      nodes.push({
+        nodeKey: end.nodeKey,
+        providerNodeKey: end.providerNodeKey,
+        type: 'END',
+        title: '종료',
+        sequence: nodes.length + 1,
+        tasks: [],
+        decisionExpression: null,
+        sourceRefs: [],
+        warnings: ['END_SYNTHESIZED'],
+      });
+    }
     const graph = { nodes, edges };
     const violations: SopGraphViolation[] = validateSopGraph(graph);
     const graphHash = createHash('sha256')

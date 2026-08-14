@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- CC-410 (2026-08-14): Bind actual UNI contracts and rewrite the SOP mapper
+  (ADR-50, no migration).
+
+  The first real connection to UNI closed both OB-13 blockers by measurement:
+  the multipart file part is `file` and the login token field is `token`. It
+  also exposed the one field the adapter had guessed instead of configuring -
+  the login body sends `account`, not `username`, and the live server answers
+  422 to the latter. The adapter's own comment had warned about exactly that
+  failure mode ("a wrong default makes a UNE defect look like a UNI refusal").
+
+  The larger finding is that `uni-sop-1` could not map a single node from a
+  real response. It was built on the field names design 08 s1.11 records, and
+  none of them exist: the live payload is a drawing-canvas schema keyed on
+  `compnTyCode`/`compnSj`/`compnAttrbSaveParamsList`/`endCompns`, with
+  `compnSn` as a number where the guard required a string. Every node fell out
+  at the first gate. The CC-240 mock emitted the design's shape, so the mapper
+  tests passed against a fiction - which is why the unit tests now run on three
+  captured real streams instead of invented samples.
+
+  `uni-sop-2` maps the measured vocabulary and takes edges from `endCompns`
+  rather than deriving them sequentially; sequential edges silently erased the
+  decision node's two branches, turning a judgement into a straight line. UNI
+  never sends the terminal node its last edges point at (three samples, and
+  `__done__.count` agrees), so UNE synthesises an END and says it did
+  (`END_SYNTHESIZED`) - the same rule the mapper already followed when it
+  rewrites a node key or truncates a title.
+
+  Upload stops sending `uploader`: UNI records that string as the owner and
+  only the owner or the CEO may delete, so passing a UNE user UUID made every
+  uploaded document permanently undeletable (403, measured).
+
 - CC-310 (2026-08-13): Exercise close, evaluation, and improvement feedback
   (UNE-JNL-012-015, ADR-45, migrations 0045-0046).
 

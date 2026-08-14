@@ -24,6 +24,7 @@ export interface UniKnowledgeFactoryEnv {
   UNE_UNI_PASSWORD?: string;
   UNE_UNI_UPLOAD_FILE_FIELD?: string;
   UNE_UNI_TOKEN_FIELD?: string;
+  UNE_UNI_LOGIN_ACCOUNT_FIELD?: string;
   UNE_UNI_UPLOAD_TIMEOUT_MS?: string;
   UNE_UNI_REQUEST_TIMEOUT_MS?: string;
   UNE_UNI_SEARCH_TIMEOUT_MS?: string;
@@ -87,8 +88,13 @@ export function createUniKnowledgeProvider(env: UniKnowledgeFactoryEnv): UniKnow
     baseUrl: required(env, 'UNE_UNI_BASE_URL').replace(/\/+$/, ''),
     username: required(env, 'UNE_UNI_USERNAME'),
     password: required(env, 'UNE_UNI_PASSWORD'),
-    uploadFileField: required(env, 'UNE_UNI_UPLOAD_FILE_FIELD'),
-    tokenField: required(env, 'UNE_UNI_TOKEN_FIELD'),
+    // **CC-410에서 실측했으므로 기본값을 둔다.** `required`로 막아 둔 이유는
+    // "틀린 기본값으로 호출하면 UNE의 결함이 UNI의 거절처럼 보인다"였다
+    // (OB-13). 2026-08-14에 실 서버에서 값을 확인했으므로 그 근거가 사라졌다 —
+    // 이제 기본값이 곧 실측값이다. 환경변수 재정의는 남긴다(UNI가 바꿀 수 있다).
+    uploadFileField: env.UNE_UNI_UPLOAD_FILE_FIELD?.trim() || 'file',
+    tokenField: env.UNE_UNI_TOKEN_FIELD?.trim() || 'token',
+    loginAccountField: env.UNE_UNI_LOGIN_ACCOUNT_FIELD?.trim() || 'account',
     // 설계 08 §1.14: 업로드 60초. 나머지는 UNE 기준선이며 provider 합의값이 아니다.
     uploadTimeoutMs: intFrom(env.UNE_UNI_UPLOAD_TIMEOUT_MS, 60_000),
     requestTimeoutMs: intFrom(env.UNE_UNI_REQUEST_TIMEOUT_MS, 30_000),

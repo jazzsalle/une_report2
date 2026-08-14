@@ -44,6 +44,7 @@ const HTTP_CONFIG = {
   password: 'pw',
   uploadFileField: 'file',
   tokenField: 'access_token',
+  loginAccountField: 'account',
   uploadTimeoutMs: 60_000,
   requestTimeoutMs: 30_000,
   searchTimeoutMs: 30_000,
@@ -64,8 +65,51 @@ describe('실 HTTP 어댑터 — 추측하지 않는다', () => {
 
     expect(r.ok).toBe(true);
     const uploadCall = calls.find((c) => c.url.includes('/documents/upload'));
-    expect(uploadCall?.url).toContain('uploader=kim');
     expect(uploadCall?.url).toContain('force=true');
+    // **`uploader`를 보내지 않는다 (CC-410).** 보내면 UNI가 그 문자열을 소유자로
+    // 기록하고, 삭제 권한은 JWT의 `user_name` 또는 대표이사만 갖는다. UNE는
+    // 여기에 사용자 UUID를 넣고 있었으므로 올린 문서를 영원히 지울 수 없게
+    // 됐다 — 실 서버에서 403을 확인했다.
+    expect(uploadCall?.url).not.toContain('uploader=');
+  });
+
+  it('로그인 요청의 계정 필드는 `account`다 (CC-410 실측)', async () => {
+    const { fetch, calls } = stubFetch([
+      loginOk,
+      (c) => (c.url.includes('/documents/upload') ? json({ doc_id: 'd-1' }) : null),
+    ]);
+    const uni = new HttpUniKnowledgeAdapter(HTTP_CONFIG, fetch);
+    await uni.uploadDocument(upload('a.pdf'), CTX);
+
+    const login = calls.find((c) => c.url.endsWith('/auth/login'));
+    const body = JSON.parse(String(login?.init?.body)) as Record<string, unknown>;
+    // `username`으로 보내면 실 서버가 422를 낸다 — 그리고 그 422를 보고
+    // "UNI가 거부했다"고 읽게 된다. 실제로는 UNE가 잘못 보낸 것이다.
+    expect(body).toHaveProperty('account', 'svc');
+    expect(body).not.toHaveProperty('username');
+  });
+
+  it('로그인 실패 응답의 본문을 절대 보존하지 않는다 (비밀번호가 되돌아온다)', async () => {
+    // **실 UNI의 422는 제출 본문을 그대로 에코한다 — 비밀번호를 평문으로.**
+    // 원문 보존은 이 프로젝트의 비협상 규칙이고 사실원장은 append-only라,
+    // 한 번 들어가면 마스킹도 삭제도 못 한다. 이 성질을 시험으로 못박는다.
+    const secret = 'pw';
+    const { fetch } = stubFetch([
+      (c) =>
+        c.url.endsWith('/auth/login')
+          ? json(
+              { detail: [{ type: 'missing', input: { account: 'svc', password: secret } }] },
+              422,
+            )
+          : null,
+    ]);
+    const uni = new HttpUniKnowledgeAdapter(HTTP_CONFIG, fetch);
+    const r = await uni.uploadDocument(upload('a.pdf'), CTX);
+
+    expect(r.ok).toBe(false);
+    const serialized = JSON.stringify(r);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain('missing');
   });
 
   it('로그인 응답의 토큰 필드명이 다르면 다른 필드를 뒤지지 않고 실패한다', async () => {
@@ -198,16 +242,24 @@ describe('어댑터 선택 (factory)', () => {
     };
     expect(createUniKnowledgeProvider(full).isMock).toBe(false);
 
-    for (const key of [
-      'UNE_UNI_BASE_URL',
-      'UNE_UNI_USERNAME',
-      'UNE_UNI_PASSWORD',
-      'UNE_UNI_UPLOAD_FILE_FIELD',
-      'UNE_UNI_TOKEN_FIELD',
-    ] as const) {
+    // 자격증명과 주소는 여전히 추측할 수 없다.
+    for (const key of ['UNE_UNI_BASE_URL', 'UNE_UNI_USERNAME', 'UNE_UNI_PASSWORD'] as const) {
       const partial = { ...full, [key]: '' };
       expect(() => createUniKnowledgeProvider(partial), key).toThrow(new RegExp(key));
     }
+  });
+
+  it('실측된 필드명은 기본값이 있다 (CC-410) — 그러나 재정의는 남는다', () => {
+    // `required`로 막아 둔 이유는 "틀린 기본값으로 호출하면 UNE의 결함이 UNI의
+    // 거절처럼 보인다"였다. 2026-08-14에 실 서버에서 값을 확인했으므로 그
+    // 근거가 사라졌다 — 이제 기본값이 곧 실측값이다.
+    const minimal = {
+      UNE_UNI_KNOWLEDGE_ADAPTER: 'http',
+      UNE_UNI_BASE_URL: 'http://uni.example',
+      UNE_UNI_USERNAME: 'svc',
+      UNE_UNI_PASSWORD: 'pw',
+    };
+    expect(createUniKnowledgeProvider(minimal).isMock).toBe(false);
   });
 
   it('base URL이 http(s)가 아니면 거부한다', () => {

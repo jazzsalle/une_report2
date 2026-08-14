@@ -12,10 +12,16 @@ import type { CapabilityState } from './plan-feature-capabilities';
  *   UNE_ADAPTER_READY   실 어댑터 코드가 있으나 provider 미검증
  *   *_DEV/PROD_VERIFIED 실제 provider에 대고 성공했다
  *
- * UNI는 전부 `UNE_ADAPTER_READY`다. HTTP 어댑터는 있지만 **한 번도 실제 UNI에
- * 대고 성공한 적이 없고**, multipart 파일 필드명과 로그인 토큰 필드명이
- * OB-13으로 열려 있어 지금 호출하면 실패한다. 그 두 값이 오기 전까지는
- * 승격이 불가능하다.
+ * **CC-410(2026-08-14)에서 셋이 승격됐다.** 실 UNI(`http://221.147.100.161:8000`)에
+ * 대고 업로드·검색·SOP 생성이 성공했고 응답을 픽스처로 고정했다. OB-13의 두
+ * 미지수(multipart 파일 필드명 `file`, 로그인 토큰 필드명 `token`)도 실측으로
+ * 닫혔다. `PROVIDER_DEV_VERIFIED`를 쓴다 — `T3Q_DEV_VERIFIED`를 쓰면 레지스트리가
+ * "T3Q가 검증했다"고 말하게 된다.
+ *
+ * **`knowledgeStatus`는 승격하지 못했다.** 어댑터가 부르는
+ * `GET /documents/{doc_id}`가 **라이브 UNI에 존재하지 않고**(목록 `GET /documents/`와
+ * `GET /documents/{doc_id}/reference`만 있다) 상태 어휘도 설계와 다르다
+ * (설계: QUEUED/PARSING/… ↔ 실측: "참고자료 생성 중"/"완료" + progress 0~100).
  */
 
 export interface UniFeatureCapability {
@@ -35,16 +41,16 @@ export const UNI_KNOWLEDGE_FEATURE_CAPABILITIES: readonly UniFeatureCapability[]
   {
     featureId: 'knowledgeUpload',
     endpoint: 'POST /documents/upload',
-    state: 'UNE_ADAPTER_READY',
+    state: 'PROVIDER_DEV_VERIFIED',
     adapterImplemented: true,
     mockAvailable: true,
-    openBinding: 'OB-13',
-    providerEvidence: null,
+    openBinding: null,
+    providerEvidence: 'docs/evidence/CC-410-uni-contract-binding.md',
     notes:
-      '지식문서 업로드. HttpUniKnowledgeAdapter 구현 + 워커 결선. ' +
-      '경로·질의 파라미터·응답 모양은 설계 08 §1.9가 기준선이지만 ' +
-      '**multipart 파일 필드명이 미확인**이라 실 호출은 아직 성공할 수 없다(OB-13). ' +
-      'mock: MockUniKnowledgeAdapter — UNI 지원이 아니다.',
+      '지식문서 업로드. **2026-08-14 실 UNI에서 200 확인** — multipart 파일 필드명은 ' +
+      '`file`, `uploader`/`force`는 쿼리 파라미터, 응답은 설계 08 §1.9 그대로 ' +
+      '{message, filename, doc_id}. **`uploader`는 보내지 않는다** — 보내면 UNI가 그 ' +
+      '문자열을 소유자로 기록해 UNE 계정으로 영원히 삭제할 수 없게 된다(403 실측).',
   },
   {
     featureId: 'knowledgeStatus',
@@ -55,9 +61,12 @@ export const UNI_KNOWLEDGE_FEATURE_CAPABILITIES: readonly UniFeatureCapability[]
     openBinding: 'OB-13',
     providerEvidence: null,
     notes:
-      'UNI 처리상태 조회. 상태 어휘는 설계 08 §1.9(QUEUED/PARSING/INDEXING/' +
-      'REFERENCE_GENERATING/READY/ERROR)를 가드가 강제하며 모르는 값은 거부한다. ' +
-      '응답 필드명은 설정으로 바꿀 수 있다(OB-13).',
+      '**승격 불가 — 이 엔드포인트는 라이브 UNI에 없다(CC-410 실측).** 어댑터는 ' +
+      'GET /documents/{doc_id}를 부르는데 라이브 스펙에 그 경로가 없다(DELETE만 있다). ' +
+      '상태는 목록 GET /documents/ 의 항목에서 오고, 어휘도 다르다 — 설계 08 §1.9의 ' +
+      'QUEUED/PARSING/INDEXING/REFERENCE_GENERATING/READY/ERROR가 아니라 한국어 표시 ' +
+      '문자열("참고자료 생성 중"/"완료")과 progress(0~100)다. 가드가 모르는 값을 ' +
+      '거부하므로 지금 실 UNI에 붙이면 상태 조회가 전부 실패한다. CC-410 잔여 작업.',
   },
   {
     featureId: 'knowledgeReference',
@@ -74,34 +83,37 @@ export const UNI_KNOWLEDGE_FEATURE_CAPABILITIES: readonly UniFeatureCapability[]
   {
     featureId: 'knowledgeSearch',
     endpoint: 'POST /search/',
-    state: 'UNE_ADAPTER_READY',
+    state: 'PROVIDER_DEV_VERIFIED',
     adapterImplemented: true,
     mockAvailable: true,
-    openBinding: 'OB-13',
-    providerEvidence: null,
+    openBinding: null,
+    providerEvidence: 'docs/evidence/CC-410-uni-contract-binding.md',
     notes:
-      '근거 검색(CC-230). 감싸는 배열 필드명·chunk id 필드명·score 척도·doc_ids ' +
-      '범위 지정 지원 여부가 **전부 미확인**이다(CR-UNI-008). 설계 06 US-SIT-011 ' +
-      '3단계의 filename/score/text/doc_id만 기준선으로 쓴다. mock이 검증하는 것은 ' +
-      'UNE 쪽 상태기계뿐이다.',
+      '근거 검색(CC-230). **2026-08-14 실 UNI에서 200 확인** — 요청 {query, top_k}, ' +
+      '응답 {results:[{filename, score, text, doc_id}]}, score는 0..1 척도. ' +
+      '**chunk id는 없고**(기본 필드명을 빈 문자열로 두어 찾지 않는다) 설계 09 ' +
+      'REG-02/03의 page/section도 없다. **doc_ids 범위 지정 필드가 아예 없다** — ' +
+      '문서 범위를 좁혀 검색할 수 없다(OB-13에 요청으로 남는다).',
   },
   {
     featureId: 'sopGeneration',
     endpoint: 'POST /chat/json',
-    state: 'UNE_ADAPTER_READY',
+    state: 'PROVIDER_DEV_VERIFIED',
     adapterImplemented: true,
     mockAvailable: true,
     // OB-13(필드명)이 아니라 **OB-04**다 — 여기서 막고 있는 것은 응답
     // 필드명이 아니라 SSE **프레이밍 자체**이고, 그것이 틀리면 어댑터가
     // 한 줄도 읽지 못한다.
-    openBinding: 'OB-04',
-    providerEvidence: null,
+    openBinding: null,
+    providerEvidence: 'docs/evidence/CC-410-uni-contract-binding.md',
     notes:
-      'UNI 구조화 SOP 생성(CC-240). 이벤트 이름은 설계 08 §1.11이 적었지만 ' +
-      '`data:` 한 줄에 JSON 객체 하나, 그 객체의 키가 이벤트 이름이라는 ' +
-      '**프레이밍은 UNE 가정**이다(uni-sop-sse.assumed.ts). 요청 본문 필드명 ' +
-      '(query/doc_ids)도 계약이 없어 설정으로 열려 있다. mock이 검증하는 것은 ' +
-      'UniSopMapper와 UNE 상태기계이지 UNI 지원이 아니다.',
+      'UNI 구조화 SOP 생성(CC-240 → CC-410). **2026-08-14 실 UNI 3표본 확인.** ' +
+      'SSE 프레이밍 가정이 맞았다(data: 한 줄에 JSON 객체 하나, 키가 이벤트 이름, ' +
+      '[DONE] 리터럴, event: 없음). 그러나 **compn 필드명은 설계 08 §1.11과 전혀 ' +
+      '달랐고**(type/name/task/branch/source → compnTyCode/compnSj/' +
+      'compnAttrbSaveParamsList/endCompns) uni-sop-1은 실 응답을 한 노드도 매핑하지 ' +
+      '못했다 — uni-sop-2가 실측 어휘로 옮긴다. **재접속은 불가능하다**: id:/retry:/' +
+      '하트비트가 0줄이라 Last-Event-ID로 이어받을 수단이 없다(ADR-50 수용 한계).',
   },
 ];
 

@@ -40,11 +40,23 @@ export const DEFAULT_UNI_FIELD_NAMES: UniFieldNames = {
   fileName: 'filename',
   message: 'message',
   status: 'status',
-  // 설계 06 US-SIT-011 3단계가 "filename/score/text/doc_id를 EvidenceChunk로
-  // 변환한다"고 적은 이름을 기준선으로 둔다. 감싸는 필드명(`results`)과
-  // chunk id 필드명은 설계에도 없다 — 전부 설정으로 바꿀 수 있다.
+  // **CC-410 실측(2026-08-14).** `/search/` 실응답은
+  // `{results:[{filename, score, text, doc_id}]}`이고 score는 0..1이다
+  // (0.9594·0.9456·0.9088 관측). 감싸는 필드명 `results`도 확인됐다.
   searchResults: 'results',
-  chunkId: 'chunk_id',
+  /**
+   * **UNI에는 chunk id가 없다 (CC-410 실측).**
+   *
+   * `uni-sop-1` 시절 `'chunk_id'`를 기본값으로 두었으나 실 응답의 항목 키는
+   * `filename/score/text/doc_id` 넷뿐이다. 있지도 않은 이름을 기본값으로 두면
+   * 가드가 매번 못 찾고, "UNI가 안 줬다"인지 "우리가 딴 이름을 봤다"인지
+   * 구분되지 않는다. 빈 문자열은 **찾지 않는다**는 뜻이다 — 근거 항목의
+   * chunkId는 null이 되고, 그것이 사실이다.
+   *
+   * 설계 09 REG-02/03이 요구하는 page/section도 UNI 응답에 없다. 청크 단위
+   * 인용을 하려면 UNI가 필드를 열어야 한다(OB-13에 유지).
+   */
+  chunkId: '',
   score: 'score',
   text: 'text',
 };

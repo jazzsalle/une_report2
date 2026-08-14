@@ -7,7 +7,7 @@ import type {
   UniSopResult,
   UniSopResultMeta,
 } from './uni-sop-port';
-import { parseUniSopLine, UniSopSseError } from './uni-sop-sse.assumed';
+import { parseUniSopLine, UniSopSseError } from './uni-sop-sse.measured';
 
 /**
  * UNI `/chat/json` SOP 생성 HTTP 어댑터 (CC-240).

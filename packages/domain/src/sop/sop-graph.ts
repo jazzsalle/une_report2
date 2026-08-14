@@ -119,6 +119,24 @@ export const SOP_MAPPING_WARNINGS = [
    * 출처가 아니다). 거부하지는 않는다(스트리밍 원칙, ADR-38 D3).
    */
   'SOURCE_OUT_OF_SCOPE',
+  /**
+   * UNI가 가리키기만 하고 보내지 않은 종료 노드를 UNE가 세웠다 (CC-410).
+   *
+   * 실 UNI는 마지막 처리 노드에서 나가는 간선을 남기면서 **그 대상 노드를
+   * 끝내 보내지 않는다**(2026-08-14 실측 3표본 전부: 표본1 `-7`, 표본2·3
+   * `-6`·`-7`. `__done__.count`가 보낸 노드 수와 일치하므로 잘린 스트림이
+   * 아니라 UNI의 체계적 동작이다). 그대로 두면 `DANGLING_EDGE`와 `NO_END`가
+   * 함께 서서 **UNI가 만든 모든 SOP가 승인 불가**가 된다.
+   *
+   * 그래서 세우되 **세웠다는 사실을 노드에 붙인다.** 같은 매퍼가 노드 키를
+   * 고쳐 쓰고(NODE_KEY_NORMALIZED) 제목을 자르는(TITLE_TRUNCATED) 것과 같은
+   * 규칙이다 — 자동으로 고치되 고쳤다고 말한다. `providerNodeKey`에는 UNI가
+   * 가리킨 원래 번호가 남으므로 어느 간선이 이 노드를 불렀는지 되짚을 수 있다.
+   *
+   * **이 노드의 내용은 UNI가 준 것이 아니다.** 승인 전 캔버스에서 사용자가
+   * 보고 판단한다.
+   */
+  'END_SYNTHESIZED',
 ] as const;
 export type SopMappingWarning = (typeof SOP_MAPPING_WARNINGS)[number];
 

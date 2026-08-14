@@ -307,11 +307,16 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 러너 e2e (CC-240)', () => {
     expect(graph.version.version_no).toBe(1);
     expect(graph.version.generation_job_id).toBe(f.jobId);
     // schema_version에는 **매퍼 버전**이 들어간다 (계약 '1.0'이 아니라).
-    expect(graph.version.schema_version).toBe('uni-sop-1');
+    expect(graph.version.schema_version).toBe('uni-sop-2');
     expect(graph.version.graph_hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(graph.nodes.map((n) => n.node_type)).toEqual(['START', 'ACTION', 'END']);
-    expect(graph.edges).toHaveLength(2);
+    // **마지막 END는 UNI가 보낸 것이 아니다 (CC-410).** UNI는 마지막 노드에서
+    // 나가는 간선을 남기면서 그 대상을 보내지 않는다 — 실 UNI 3표본 전부.
+    // 세우지 않으면 NO_END와 DANGLING_EDGE가 함께 서서 승인이 막힌다.
+    expect(graph.nodes.map((n) => n.node_type)).toEqual(['START', 'ACTION', 'ACTION', 'END']);
+    expect(graph.edges).toHaveLength(3);
     expect(graph.version.graph_violations).toEqual([]);
+    const synthesized = graph.nodes.find((n) => n.node_type === 'END');
+    expect((synthesized?.mapping_warnings as string[]) ?? []).toContain('END_SYNTHESIZED');
 
     // 상황이 SOP_READY로 올라간다.
     const status = await withClient(
@@ -332,8 +337,20 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 러너 e2e (CC-240)', () => {
     expect(types).toContain('job.started');
     expect(types).toContain('provider.requested');
     expect(types).toContain('provider.responded');
-    expect(types).toContain('sop.sources');
-    expect(types.filter((t) => t === 'sop.node')).toHaveLength(3);
+    // **`sop.sources`가 서지 않는다 (CC-410).** 실 UNI의 `__sources__`에는
+    // doc_id가 없어(`{filename, score, text}`뿐) 어느 문서인지 가리킬 수 없다.
+    // 가리킬 수 없는 출처를 근거로 적으면 추적이 되는 것처럼 보인다.
+    expect(types).not.toContain('sop.sources');
+    // 3개는 UNI가 보낸 노드, 1개는 매달린 간선을 보고 UNE가 세운 END다.
+    // **세운 노드도 투영에 넣는다** — 캔버스에 보이는 것이 그래프이고, 사용자는
+    // 그 노드의 `END_SYNTHESIZED` 경고로 "UNI가 준 것이 아니다"를 안다.
+    expect(types.filter((t) => t === 'sop.node')).toHaveLength(4);
+    const endEvent = events
+      .filter((e) => e.event_type === 'sop.node')
+      .find((e) => (e.payload_json as { nodeType?: string }).nodeType === 'END');
+    expect((endEvent?.payload_json as { warnings?: string[] }).warnings).toContain(
+      'END_SYNTHESIZED',
+    );
     expect(types[types.length - 1]).toBe('job.completed');
 
     const responded = events.find((e) => e.event_type === 'provider.responded');
@@ -358,21 +375,25 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 러너 e2e (CC-240)', () => {
     ]);
   });
 
-  it('(3) 검증 위반이 있어도 DRAFT로 저장하고 위반을 남긴다', async () => {
-    const f = await seed('sop-viol', { prompt: '.sop-after-end. 상황' });
+  it('(3) 모르는 유형 코드가 와도 노드를 버리지 않고 알린다', async () => {
+    // **CC-410에서 바뀐 시험이다.** `.sop-after-end.`(END 뒤 노드 → EDGE_FROM_END)는
+    // 없어졌다 — 실 UNI는 END 노드를 아예 보내지 않으므로 그 시나리오를 만들 수
+    // 없다. 대신 실제로 일어날 수 있는 것을 시험한다: UNI 유형 코드 표를 우리가
+    // 받지 못했으므로(OB-13) 처음 보는 코드가 오는 것이 정상이다.
+    const f = await seed('sop-viol', { prompt: '.sop-unknown-type. 상황' });
     const summary = await runner().runOnce();
     expect(summary.completed).toBe(1);
 
     const job = await readJob(f.jobId);
-    // 위반은 **실패가 아니다** — 고칠 대상이 없으면 사용자가 고칠 수 없다.
     expect(job.status).toBe('COMPLETED');
 
     const graph = await readGraph(f.situationId);
-    expect(graph?.version.graph_violations).toContain('EDGE_FROM_END');
-    expect(graph?.nodes).toHaveLength(4);
-
-    const completed = (await readEvents(f.jobId)).find((e) => e.event_type === 'job.completed');
-    expect(completed?.payload_json.graphViolations).toContain('EDGE_FROM_END');
+    // 거부하면 사용자는 그 절차가 있었다는 사실조차 모른다 — 세우고 알린다.
+    expect(graph?.nodes).toHaveLength(5);
+    const flagged = (graph?.nodes ?? []).filter((n) =>
+      ((n.mapping_warnings as string[]) ?? []).includes('UNKNOWN_FIELD_DROPPED'),
+    );
+    expect(flagged.length).toBeGreaterThan(0);
   });
 
   it('(4) 깨진 노드 하나가 나머지를 죽이지 않는다', async () => {
@@ -380,7 +401,7 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 러너 e2e (CC-240)', () => {
     await runner().runOnce();
 
     const graph = await readGraph(f.situationId);
-    expect(graph?.nodes.map((n) => n.node_type)).toEqual(['START', 'ACTION', 'END']);
+    expect(graph?.nodes.map((n) => n.node_type)).toEqual(['START', 'ACTION', 'ACTION', 'END']);
 
     const completed = (await readEvents(f.jobId)).find((e) => e.event_type === 'job.completed');
     // 거부 사실이 결과에 남는다 — 조용히 빠지면 "노드가 왜 3개인가"에 답할 수 없다.
@@ -490,7 +511,14 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 러너 e2e (CC-240)', () => {
     expect(await readGraph(f.situationId)).toBeNull();
   });
 
-  it('(10) 저장된 근거는 UNE 문서 id다 (provider id가 새지 않는다)', async () => {
+  it('(10) 노드 근거가 비어 있고, 비어 있다는 사실이 경고로 남는다', async () => {
+    // **CC-410에서 뒤집힌 시험이다.** CC-240은 UNI가 노드마다 `source`를 준다고
+    // 보고 "provider id가 새지 않는다"를 시험했다. 실 UNI는 노드에 출처를 아예
+    // 붙이지 않고, 스트림 수준 `__sources__`에도 doc_id가 없다
+    // (`{filename, score, text}`뿐). 그래서 이을 수 있는 근거가 하나도 없다.
+    //
+    // 매핑이 조용히 비는 것과 provider가 주지 않는 것은 다르다 — 후자는
+    // 경고로 드러나야 한다.
     const f = await seed('sop-ids');
     await runner().runOnce();
 
@@ -498,21 +526,18 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 러너 e2e (CC-240)', () => {
     const refs = (graph?.nodes ?? []).flatMap(
       (n) => (n.config_json as { sourceRefs?: string[] }).sourceRefs ?? [],
     );
-    expect(refs.length).toBeGreaterThan(0);
-    // provider id를 그대로 저장하면 UNI가 id 체계를 바꿀 때 근거 참조가 끊긴다.
+    expect(refs).toHaveLength(0);
+    // provider id가 샐 자리 자체가 없다.
     expect(refs).not.toContain(f.providerDocumentId);
-    expect(new Set(refs)).toEqual(new Set([f.knowledgeDocumentId]));
 
+    const noSource = (graph?.nodes ?? []).filter((n) =>
+      ((n.mapping_warnings as string[]) ?? []).includes('NO_SOURCE_REFS'),
+    );
+    expect(noSource.length).toBe((graph?.nodes ?? []).length - 1); // 세운 END는 제외
+
+    // 가리킬 수 없는 출처로 `sop.sources`를 세우지 않는다.
     const sources = (await readEvents(f.jobId)).find((e) => e.event_type === 'sop.sources');
-    const payload = sources?.payload_json as {
-      sources: Array<{ documentId: string | null; providerDocumentId: string; inScope: boolean }>;
-    };
-    expect(payload.sources[0]).toEqual({
-      documentId: f.knowledgeDocumentId,
-      providerDocumentId: f.providerDocumentId,
-      chunkId: 'c1',
-      inScope: true,
-    });
+    expect(sources).toBeUndefined();
   });
 
   it('(11) 같은 키로 접히는 노드가 와도 저장된다 (트랜잭션이 죽지 않는다)', async () => {
@@ -530,20 +555,27 @@ describe.skipIf(!ADMIN_URL)('SOP 생성 러너 e2e (CC-240)', () => {
     expect(keys.filter((k) => k.startsWith('n3'))).toHaveLength(2);
   });
 
-  it('(12) 요청 범위 밖 근거를 표시하되 거부하지 않는다', async () => {
-    const f = await seed('sop-scope', { prompt: '.sop-out-of-scope. 상황' });
+  it('(12) 근거 범위 이탈을 검출할 수 없다는 사실을 고정한다', async () => {
+    // **CC-410에서 뒤집힌 시험이다.** CC-240은 `doc_ids`로 범위를 지정하고
+    // 응답 출처와 대조해 이탈을 잡았다. 실 UNI에는 **`doc_ids` 필드 자체가
+    // 없고**(요청은 `{query, model_key?, top_k}`뿐) 노드에 출처도 없다.
+    // 범위 이탈을 만들 수도, 검출할 수도 없다.
+    //
+    // 러너의 대조 코드는 남겨 둔다(UNI가 출처를 붙이면 그날 살아난다). 다만
+    // **지금 그것이 아무것도 잡지 못한다는 사실**을 시험으로 고정해 둔다 —
+    // 그러지 않으면 "범위 검사가 있다"는 인상만 남는다.
+    const f = await seed('sop-scope');
     const summary = await runner().runOnce();
-    // LLM이 범위를 무시해도 결과는 남긴다 — 사용자가 판단한다.
     expect(summary.completed).toBe(1);
 
     const graph = await readGraph(f.situationId);
     const flagged = (graph?.nodes ?? []).filter((n) =>
       ((n.mapping_warnings as string[]) ?? []).includes('SOURCE_OUT_OF_SCOPE'),
     );
-    expect(flagged).toHaveLength(1);
+    expect(flagged).toHaveLength(0);
 
     const completed = (await readEvents(f.jobId)).find((e) => e.event_type === 'job.completed');
-    expect(completed?.payload_json.outOfScopeNodeCount).toBe(1);
+    expect(completed?.payload_json.outOfScopeNodeCount).toBe(0);
   });
 
   it('(13) 어느 어댑터가 만들었는지 버전 행에 남는다', async () => {

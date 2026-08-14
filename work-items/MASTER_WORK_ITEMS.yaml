@@ -657,7 +657,7 @@ work_items:
   gate: G5
   dependencies:
   - CC-320
-  status: NOT_STARTED
+  status: IN_PROGRESS
   acceptance_criteria:
   - upload/search/chat mapping
   - SSE reconnect
@@ -667,7 +667,9 @@ work_items:
   - ADR
   - API_DB_SEQUENCE
   - IMPLEMENTATION_BASELINE
-  evidence: []
+  evidence:
+  - docs/evidence/CC-410-uni-contract-binding.md
+  - docs/adr/ADR-50-cc410-uni-measured-contract-binding.md
 - id: CC-420
   title: Run Hancom Track B round-trip gate
   gate: G4
