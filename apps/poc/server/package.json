@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/main.ts",
-    "start": "tsx src/main.ts"
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@rhwp/core": "0.8.4",

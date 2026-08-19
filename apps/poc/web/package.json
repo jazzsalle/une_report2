@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host --port 5300 --strictPort",
-    "build": "vite build"
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@rhwp/editor": "0.8.4",
