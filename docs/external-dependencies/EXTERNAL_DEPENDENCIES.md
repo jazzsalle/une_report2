@@ -22,7 +22,7 @@ Date: 2026-07-28
 - rhwp source: https://github.com/edwardkim/rhwp
 - rhwp releases: https://github.com/edwardkim/rhwp/releases
 - rhwp demo: https://edwardkim.github.io/rhwp/
-- UNI candidate host from supplied OpenAPI filename: http://221.147.100.161:8000
+- UNI API host: http://10.20.10.101:8088 (실측 2026-08-18, ADR-51). 웹 UI는 http://10.20.10.101:3101 — API 아님
 
 ## Non-negotiable rules
 

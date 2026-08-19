@@ -8,7 +8,8 @@ import { UNI_SOP_MAPPER_VERSION, mapUniCompn, resolveUniEdges } from './uni-sop-
  * UniSopMapper 단위 시험 (CC-410).
  *
  * **인수기준 "test payload evidence"가 여기다.** 표본은 지어낸 것이 아니라
- * 2026-08-14에 실 UNI(`http://221.147.100.161:8000/chat/json`)에서 받은 SSE
+ * 2026-08-14에 실 UNI(`http://221.147.100.161:8000/chat/json` — 그 호스트는
+ * 2026-08-18에 `http://10.20.10.101:8088`으로 이전했다, ADR-51)에서 받은 SSE
  * 원문 세 벌이다(`__fixtures__/uni-chat-json-sample{1,2,3}.sse`). `__sources__`의
  * 사내 문서명·발췌와 생성문에 섞인 고객사명만 가렸고 **구조는 손대지 않았다** —
  * 매핑이 보는 것이 구조이므로, 가린 자리가 매핑 판정에 끼어들지 않는다.

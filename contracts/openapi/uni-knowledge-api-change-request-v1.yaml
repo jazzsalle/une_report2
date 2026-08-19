@@ -23,7 +23,7 @@ info:
     T3Q에 보낸 `t3q-plan-api-change-request-v1.yaml`과 같은 방식·같은 성격의
     문서다.
 servers:
-  - url: http://221.147.100.161:8000
+  - url: http://10.20.10.101:8088
     description: >-
       현행 후보 호스트. **평문 HTTP다.** 운영 배포에서는 TLS 종단이 필요하며
       최종 바인딩은 OPEN이다(OB-13).

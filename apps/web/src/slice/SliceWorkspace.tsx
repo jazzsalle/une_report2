@@ -2,7 +2,7 @@ import { useCallback, useMemo, useReducer, useRef, useState, type JSX } from 're
 import { ApiClient } from '../api/client';
 import { ApiCallError } from '../api/errors';
 import { SliceApi, sha256Hex } from '../api/slice';
-import { apiBaseUrl } from '../config';
+import { apiBaseUrl, defaultTenantId } from '../config';
 import { buildMockExternalToken } from './mock-sso';
 import {
   STEPS,
@@ -202,13 +202,12 @@ function nextStep(current: StepKey): StepKey {
 // ── 1. 로그인 ────────────────────────────────────────────────────────────
 
 function LoginStep({ state, api, run, dispatch }: StepProps): JSX.Element {
-  const [tenantId, setTenantId] = useState('');
   const [loginId, setLoginId] = useState('');
 
   const login = async (): Promise<void> => {
     const ok = await run('UNE-AUTH-001 SSO 교환', async () => {
       await api.exchange(
-        buildMockExternalToken({ tenantId: tenantId.trim(), loginId: loginId.trim() }),
+        buildMockExternalToken({ tenantId: defaultTenantId(), loginId: loginId.trim() }),
       );
       return api.me();
     });
@@ -234,25 +233,16 @@ function LoginStep({ state, api, run, dispatch }: StepProps): JSX.Element {
         />
       ) : (
         <>
-          <Field label="기관 ID (tenantId, UUID)">
-            <input
-              style={inputStyle}
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-              data-testid="tenant-id"
-              placeholder="00000000-0000-4000-8000-000000000001"
-            />
-          </Field>
           <Field label="로그인 ID">
             <input
               style={inputStyle}
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
               data-testid="login-id"
-              placeholder="admin-a"
+              placeholder="demo-author"
             />
           </Field>
-          <Button onClick={login} disabled={state.busy || !tenantId || !loginId} testId="login">
+          <Button onClick={login} disabled={state.busy || !loginId} testId="login">
             로그인
           </Button>
         </>

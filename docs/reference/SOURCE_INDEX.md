@@ -17,4 +17,4 @@ Large research-plan and stage-report PDFs are not duplicated in this development
 - ProcessGPT Office MCP: https://github.com/uengine-oss/process-gpt-office-mcp
 - ProcessGPT Docs: https://docs.process-gpt.io
 - rhwp: https://github.com/edwardkim/rhwp
-- UNI candidate host: http://221.147.100.161:8000 (live binding OPEN)
+- UNI API host: http://10.20.10.101:8088 (실측 확인 2026-08-18, ADR-51) / 웹 UI: http://10.20.10.101:3101

@@ -49,3 +49,22 @@
     ]
   }
 }
+
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fd:*)",
+      "Bash(rm -rf /:*)"
+    ]
+  }

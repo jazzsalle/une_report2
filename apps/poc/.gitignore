@@ -1,0 +1,5 @@
+data/*.json
+data/*.db
+data/*.db-*
+data/files/
+data/*.log

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type JSX } from 'react';
 import { ApiClient } from '../api/client';
 import { ApiCallError, describeFailure } from '../api/errors';
 import { SliceApi } from '../api/slice';
-import { apiBaseUrl } from '../config';
+import { apiBaseUrl, defaultTenantId } from '../config';
 import { SituationBoard } from '../board/SituationBoard';
 import { EvaluationScreen } from '../evaluation/EvaluationScreen';
 import { JournalScreen } from '../journal/JournalScreen';
@@ -25,7 +25,6 @@ export function OpsWorkspace(): JSX.Element {
   const clientRef = useRef<ApiClient>(new ApiClient(apiBaseUrl()));
   const api = useMemo(() => new SliceApi(clientRef.current), []);
 
-  const [tenantId, setTenantId] = useState('');
   const [loginId, setLoginId] = useState('');
   const [who, setWho] = useState<string | null>(null);
   const [situationId, setSituationId] = useState('');
@@ -38,7 +37,7 @@ export function OpsWorkspace(): JSX.Element {
     setFailure(null);
     try {
       await api.exchange(
-        buildMockExternalToken({ tenantId: tenantId.trim(), loginId: loginId.trim() }),
+        buildMockExternalToken({ tenantId: defaultTenantId(), loginId: loginId.trim() }),
       );
       const me = await api.me();
       setWho(me.displayName ?? me.userId);
@@ -93,13 +92,6 @@ export function OpsWorkspace(): JSX.Element {
           <>
             <input
               style={field}
-              placeholder="기관 ID (UUID)"
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-              data-testid="ops-tenant-id"
-            />
-            <input
-              style={field}
               placeholder="로그인 ID"
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
@@ -107,7 +99,7 @@ export function OpsWorkspace(): JSX.Element {
             />
             <button
               onClick={() => void login()}
-              disabled={busy || !tenantId || !loginId}
+              disabled={busy || !loginId}
               data-testid="ops-login"
             >
               로그인

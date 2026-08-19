@@ -12,7 +12,9 @@ import type { CapabilityState } from './plan-feature-capabilities';
  *   UNE_ADAPTER_READY   실 어댑터 코드가 있으나 provider 미검증
  *   *_DEV/PROD_VERIFIED 실제 provider에 대고 성공했다
  *
- * **CC-410(2026-08-14)에서 셋이 승격됐다.** 실 UNI(`http://221.147.100.161:8000`)에
+ * **CC-410(2026-08-14)에서 셋이 승격됐다.** 실 UNI(`http://221.147.100.161:8000`
+ * — 2026-08-18에 `http://10.20.10.101:8088`으로 이전, ADR-51. 승격 근거가 된
+ * 측정은 옛 주소에서 이뤄졌으므로 그 자리를 고쳐 쓰지 않는다)에
  * 대고 업로드·검색·SOP 생성이 성공했고 응답을 픽스처로 고정했다. OB-13의 두
  * 미지수(multipart 파일 필드명 `file`, 로그인 토큰 필드명 `token`)도 실측으로
  * 닫혔다. `PROVIDER_DEV_VERIFIED`를 쓴다 — `T3Q_DEV_VERIFIED`를 쓰면 레지스트리가

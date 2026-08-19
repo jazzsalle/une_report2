@@ -73,7 +73,7 @@ T3Q owns LLM/RAG, TTS/STT, and external linkage APIs. Do not implement a duplica
 - ProcessGPT references: `https://github.com/uengine-oss/process-gpt`, `https://github.com/uengine-oss/process-gpt-office-mcp`, and `https://docs.process-gpt.io`.
 - Treat ProcessGPT as reference architecture and optional POC only. Do not replace UNE SOP, Task, Execution Log, Outbox, Journal Projection, or HWPX IR.
 - rhwp upstream is `https://github.com/edwardkim/rhwp`. Never track floating main; record tag/commit, archive SHA-256, license, SBOM, and patch manifest.
-- UNI candidate host is `http://221.147.100.161:8000`; do not guess base path or auth. Use backend adapter only and never use UNI in plan flow.
+- UNI API host is `http://10.20.10.101:8088` (relocated 2026-08-18, ADR-51; the former `221.147.100.161:8000` is dead). `http://10.20.10.101:3101` is the UNI **web UI**, not the API — never use it as an adapter base URL. Do not guess base path or auth. Use backend adapter only and never use UNI in plan flow.
 - T3Q current contract is `contracts/openapi/t3q-report-adapter-v0.8.5-une1.yaml`.
 - T3Q requested target contract is `contracts/openapi/t3q-plan-api-change-request-v1.yaml`.
 - Implement `LegacyT3qPlanAdapter` and `TargetV2T3qPlanAdapter` behind one `T3qPlanProvider` port.

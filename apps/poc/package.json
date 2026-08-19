@@ -1,0 +1,13 @@
+{
+  "name": "@une/poc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"pnpm --filter @une/poc-server dev\" \"pnpm --filter @une/poc-web dev\"",
+    "start": "start.cmd",
+    "stop": "stop.cmd"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
