@@ -1,46 +1,55 @@
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { post, type Plan } from '../api';
-import { Btn, C, Input, Modal, Select, useUser } from '../ui';
+import { useUser } from '../ui';
+import { Icon, KBtn, KField, KInput, KModal, KSelect } from '../krds';
 
-/** 상단바(SCR-CADM-101001) + LNB(SCR-CADM-301001) */
+/** 공통 헤더(GNB) + 계획서 LNB — KRDS 업무시스템형 골격(design_handoff_krds_uiux/poc-plan). 화면설계서 SCR-CADM-101001 / 301001 */
 export function PlanShell() {
   const [user, setUser, users] = useUser();
   const nav = useNavigate();
+  const { pathname } = useLocation();
   const [newOpen, setNewOpen] = useState(false);
   const [title, setTitle] = useState('');
   const create = async () => {
     const p = await post<Plan>('/plans', { title: title.trim(), createdBy: user?.name ?? '사용자' });
     setNewOpen(false); setTitle(''); nav(`/plan/${p.id}`);
   };
-  const navStyle = ({ isActive }: { isActive: boolean }) => ({ display: 'block', padding: '10px 14px', borderRadius: 8, textDecoration: 'none', color: isActive ? '#fff' : '#cbd5e1', background: isActive ? C.blue : 'transparent', fontSize: 13, fontWeight: 600, marginBottom: 4 });
+  // 문서 작업 화면(/plan/:id)은 자체 작업 콘솔 띠를 그리므로 LNB는 목록·템플릿 화면에서만
+  const showLnb = pathname === '/plan' || pathname === '/plan/templates';
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <aside style={{ width: 220, background: C.navy, color: '#fff', padding: 16, flexShrink: 0 }}>
-        <Link to="/" style={{ color: '#fff', textDecoration: 'none' }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 24 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: C.blue, display: 'grid', placeItems: 'center', fontWeight: 900 }}>계</div>
-            <div><div style={{ fontWeight: 800, fontSize: 14 }}>재난안전계획서</div><div style={{ fontSize: 11, color: '#94a3b8' }}>문서 생성 도구</div></div>
+    <div className="krds">
+      <header className="hdr">
+        <div className="wrap hdr-in">
+          <Link to="/" className="logo"><span className="logo-mark">UNE</span><strong className="logo-tit">재난안전 AI 문서 POC</strong></Link>
+          <nav className="gnb" aria-label="주요 메뉴"><Link to="/plan" aria-current="page">계획서 생성</Link><Link to="/sit">상황일지</Link></nav>
+          <div className="util">
+            <label htmlFor="user-sel" className="tiny">사용자</label>
+            <KSelect id="user-sel" value={user?.id ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); if (u) setUser(u); }} style={{ width: 220, height: 32, fontSize: 13 }}>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.dept}</option>)}
+            </KSelect>
           </div>
-        </Link>
-        <Btn kind="primary" onClick={() => setNewOpen(true)} style={{ width: '100%', marginBottom: 16 }}>+ 새 문서 생성</Btn>
-        <NavLink to="/plan" end style={navStyle}>문서 관리</NavLink>
-        <NavLink to="/plan/templates" style={navStyle}>HWPX 템플릿 · 스타일 분석</NavLink>
-        <div style={{ marginTop: 24, borderTop: '1px solid rgba(255,255,255,.15)', paddingTop: 12, fontSize: 11, color: '#94a3b8' }}>
-          <div style={{ marginBottom: 6 }}>사용자</div>
-          <Select value={user?.id ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); if (u) setUser(u); }} style={{ fontSize: 12, padding: '5px 8px' }}>{users.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.dept}</option>)}</Select>
         </div>
-        <div style={{ marginTop: 16, fontSize: 11, color: '#94a3b8' }}><Link to="/sit" style={{ color: '#93c5fd' }}>→ 상황일지 도구</Link></div>
-      </aside>
-      <main style={{ flex: 1, minWidth: 0 }}>
-        <Outlet />
-      </main>
+      </header>
+      {showLnb && (
+        <div className="band">
+          <div className="wrap band-in">
+            <nav className="lnb" aria-label="계획서 메뉴">
+              <NavLink to="/plan" end>문서 관리</NavLink>
+              <NavLink to="/plan/templates">HWPX 템플릿 · 스타일 분석</NavLink>
+            </nav>
+            <KBtn kind="primary" size="sm" style={{ marginLeft: 'auto' }} onClick={() => setNewOpen(true)}><Icon name="plus" /> 새 문서 생성</KBtn>
+          </div>
+        </div>
+      )}
+      <main><Outlet /></main>
       {newOpen && (
-        <Modal title="문서 저장" onClose={() => setNewOpen(false)}>
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>새 문서 이름을 입력하세요 (최대 20자). 저장 후 기준정보 입력으로 이동합니다.</div>
-          <Input autoFocus maxLength={20} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 2026 폭염 대비 계획서" onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) void create(); }} />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}><Btn onClick={() => setNewOpen(false)}>취소</Btn><Btn kind="primary" disabled={!title.trim()} onClick={() => void create()}>저장하기</Btn></div>
-        </Modal>
+        <KModal title="문서 저장" onClose={() => setNewOpen(false)} desc="새 문서 이름을 입력하세요 (최대 20자). 저장 후 기준정보 입력으로 이동합니다.">
+          <KField label="문서 명" required htmlFor="new-title">
+            <KInput id="new-title" autoFocus maxLength={20} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 2026 폭염 대비 계획서" onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) void create(); }} />
+          </KField>
+          <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={() => setNewOpen(false)}>취소</KBtn><KBtn kind="primary" size="sm" disabled={!title.trim()} onClick={() => void create()}>저장하기</KBtn></div>
+        </KModal>
       )}
     </div>
   );
