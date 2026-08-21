@@ -76,7 +76,7 @@ type SecStatus = '-' | '대기' | '진행중' | '취소대기' | '취소' | '완
 interface Section { tocId: string; status: SecStatus; markdown: string; userEdited: boolean; sources: unknown[]; history: { at: string; paraId: string; before: string; after: string; instruction: string }[]; origin?: string; provider?: string; references?: unknown[] }
 interface PlanRow extends Row { title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; linkedExercises: string[]; tocProvider?: string; tocError?: string }
 const plans = col<PlanRow>('plans');
-const planTemplates = col<Row & { name: string; context: PlanContext; createdBy: string }>('plan_templates');
+const planTemplates = col<Row & { name: string; context: PlanContext; createdBy: string; updatedBy?: string }>('plan_templates');
 const cancelFlags = new Map<string, boolean>();
 
 const planSummary = (p: PlanRow) => ({ id: p.id, title: p.title, hazardType: p.context?.hazardType ?? p.hazardType, managementPhase: p.context?.managementPhase ?? p.managementPhase, createdBy: p.createdBy, updatedBy: p.updatedBy, createdAt: p.createdAt, updatedAt: p.updatedAt, hasToc: p.toc.length > 0, drafted: Object.values(p.sections).filter((s) => s.status === '완료').length, total: p.toc.reduce((a, n) => a + 1 + n.children.length, 0), exported: !!p.export, linkedExercises: p.linkedExercises });
@@ -209,6 +209,16 @@ app.post('/api/plans/:id/import-hwpx', upload.single('file'), async (req, res) =
 });
 app.get('/api/plan-templates', (_req, res) => res.json(planTemplates.all()));
 app.post('/api/plan-templates', (req, res) => res.json(planTemplates.insert({ name: req.body.name, context: req.body.context, createdBy: req.body.createdBy ?? '사용자' })));
+app.put('/api/plan-templates/:id', (req, res) => {
+  const t = planTemplates.get(req.params.id); if (!t) return bad(res, 404, '없음');
+  const { name, context, updatedBy } = req.body as { name?: string; context?: PlanContext; updatedBy?: string };
+  const patch: Partial<typeof t> = {};
+  if (typeof name === 'string' && name.trim()) patch.name = name.trim().slice(0, 20);
+  if (context && typeof context === 'object') patch.context = context;
+  if (typeof updatedBy === 'string' && updatedBy) patch.updatedBy = updatedBy;
+  planTemplates.update(t.id, patch);
+  res.json(planTemplates.get(t.id));
+});
 app.delete('/api/plan-templates/:id', (req, res) => res.json({ ok: planTemplates.remove(req.params.id) }));
 
 // ── 훈련(상황일지) ────────────────────────────────────────────────────────
