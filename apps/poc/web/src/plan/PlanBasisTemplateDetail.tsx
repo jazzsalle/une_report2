@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { del, get, put, ago, type PlanContext, type PlanTemplate, type Template } from '../api';
 import { Toast, useToast, useUser } from '../ui';
 import { H1, Icon, KBadge, KBtn, KCard, KField, KInput, KModal, KTable } from '../krds';
+import { HazardIcon } from './HeroCards';
 import { ContextForm, contextValid } from './ContextForm';
 import { NewDocModal, type NewDocSource } from './NewDocModal';
 
@@ -46,7 +47,7 @@ export function PlanBasisTemplateDetail() {
         <div className="row" style={{ flexWrap: 'wrap' }}>
           <Link to="/plan/basis-templates" className="row tiny dim" style={{ gap: 2 }}><Icon name="back" size={16} /> 목록으로</Link>
           <H1 code="SCR-CADM-303001">{editing ? '기준정보 템플릿 편집' : tpl.name}</H1>
-          {!editing && <KBadge tone="light-primary">{tpl.context.hazardType}</KBadge>}
+          {!editing && <span className="row" style={{ gap: 6 }}><HazardIcon hazard={tpl.context.hazardType} size={28} /><KBadge tone="light-primary">{tpl.context.hazardType}</KBadge></span>}
           <div style={{ flex: 1 }} />
           {editing ? <>
             <KBtn size="sm" onClick={cancel} disabled={saving}>취소</KBtn>

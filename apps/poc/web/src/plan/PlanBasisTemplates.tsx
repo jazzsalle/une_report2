@@ -4,6 +4,7 @@ import { del, get, put, ago, HAZARDS, type PlanContext, type PlanTemplate, type 
 import { Toast, useToast, useUser } from '../ui';
 import { KBadge, KBtn, KCard, KField, KInput, KModal, KSelect, KTable, Pager, SortTh } from '../krds';
 import { NewDocModal, type NewDocSource } from './NewDocModal';
+import { HazardIcon } from './HeroCards';
 
 type SortKey = 'name' | 'hazardType' | 'createdBy' | 'updatedBy' | 'createdAt' | 'updatedAt';
 const PAGE_SIZES = [30, 50, 70, 100]; // 설계서 302002 ⑤ "N개 보기"
@@ -66,7 +67,7 @@ export function PlanBasisTemplates() {
             <input type="checkbox" aria-label={`${t.name} 선택`} checked={checked.has(t.id)} onChange={(e) => toggle(t.id, e.target.checked)} style={{ width: 18, height: 18 }} />,
             <Link to={`/plan/basis-templates/${t.id}`} style={{ fontWeight: 700 }}>{t.name}</Link>,
             <span className="dim">{t.context.subject || '-'}</span>,
-            <KBadge tone="light-primary">{t.context.hazardType}</KBadge>, t.context.managementPhase, t.context.audience ?? '-', hwpxName(t.context),
+            <span className="row" style={{ gap: 6, whiteSpace: 'nowrap' }}><HazardIcon hazard={t.context.hazardType} size={24} />{t.context.hazardType}</span>, t.context.managementPhase, t.context.audience ?? '-', hwpxName(t.context),
             t.createdBy, t.updatedBy ?? t.createdBy, <span className="num">{new Date(t.createdAt).toLocaleString('ko-KR')}</span>, <span className="num">{ago(t.updatedAt)}</span>,
             <span className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
               <KBtn size="xs" kind="secondary" onClick={() => setNewDoc({ id: t.id, name: t.name, context: t.context })}>새 문서</KBtn>

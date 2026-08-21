@@ -142,14 +142,15 @@
 /* 메인 히어로 (2차년도 홈 화면, Figma 2026-08-21) */
 .krds .hero{background:#fff url(/hero/bg.jpg) center top/cover no-repeat;position:relative}
 .krds .hero::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.6) 0%,rgba(255,255,255,.7) 55%,var(--surface) 100%)}
-.krds .hero-inner{position:relative;padding-top:56px;padding-bottom:40px}
+.krds .hero-inner{position:relative;padding-top:28px;padding-bottom:16px}
+.krds .hero-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .krds .hero-title{font-size:32px;line-height:1.38;font-weight:500;color:#444a57;letter-spacing:-.03em;margin:0}
-.krds .hero-tools{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:28px}
+.krds .hero-tools{display:flex;justify-content:flex-end;align-items:center;gap:8px}
 .krds .hero-arrow{width:36px;height:36px;border:1px solid var(--border);border-radius:6px;background:#fff;display:inline-flex;align-items:center;justify-content:center;color:#464c53;cursor:pointer}
 .krds .hero-arrow:hover{border-color:var(--primary);color:var(--primary)}
 .krds .hero-more{height:36px;padding:0 16px;border:1px solid var(--border);border-radius:6px;background:#fff;display:inline-flex;align-items:center;font-size:15px;color:#1e2124;text-decoration:none;margin-left:8px}
 .krds .hero-more:hover{border-color:var(--primary);color:var(--primary)}
-.krds .hero-rail{display:flex;gap:28px;overflow-x:auto;scroll-snap-type:x mandatory;padding:20px 4px 24px;scrollbar-width:none}
+.krds .hero-rail{display:flex;gap:28px;overflow-x:auto;scroll-snap-type:x mandatory;padding:16px 4px 20px;scrollbar-width:none}
 .krds .hero-rail::-webkit-scrollbar{display:none}
 .krds .hcard{position:relative;flex:0 0 260px;height:224px;border:0;border-radius:12px;background:#fff;box-shadow:0 4px 11px rgba(0,0,0,.11),0 0 3px rgba(0,0,0,.04);overflow:hidden;text-align:left;cursor:pointer;scroll-snap-align:start;padding:0;display:block;font:inherit;color:inherit;transition:transform .15s,box-shadow .15s}
 .krds .hcard:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(0,0,0,.14),0 0 3px rgba(0,0,0,.04)}
@@ -166,4 +167,4 @@
 .krds .hcard-new-ico{width:56px;height:56px;border-radius:12px;background:var(--info-bg);color:var(--primary);display:inline-flex;align-items:center;justify-content:center}
 .krds .hcard-new:hover{color:var(--primary)}
 .krds .hero-empty{align-self:center;font-size:15px;color:#464c53;margin:0;padding:0 8px}
-@media (max-width:900px){.krds .hero-title{font-size:24px}.krds .hero-inner{padding-top:32px}}
+@media (max-width:900px){.krds .hero-title{font-size:24px}.krds .hero-inner{padding-top:20px}}
