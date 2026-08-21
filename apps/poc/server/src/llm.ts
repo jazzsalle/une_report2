@@ -3,7 +3,7 @@
  * T3Q가 열리면 이 파일 안의 chatStream/chatText 호출만 바꾼다.
  */
 import { chatJson, chatStream, chatText, type StreamHandlers } from './uni.js';
-import { t3qToc, t3qContent, t3qContentToMarkdown, findT3qSection } from './t3q.js';
+import { t3qToc, t3qContent, t3qContentToMarkdown, t3qSymbolsFor, findT3qSection } from './t3q.js';
 
 export interface PlanContext {
   subject: string;
@@ -152,9 +152,9 @@ export async function draftSectionWithProvider(
       : [{ name: `${node.no}. ${node.title}`, children: [] }];
     let target = '';
     const refs: unknown[] = [];
-    await t3qContent(ctx, req, symbols.join(''), (s) => {
+    await t3qContent(ctx, req, t3qSymbolsFor(symbols, depth), (s) => {
       if (!findT3qSection(s.name, node)) return;
-      const md = normalizeDraft(t3qContentToMarkdown(s.content, symbols), depth);
+      const md = normalizeDraft(t3qContentToMarkdown(s.content, symbols, node.title), depth);
       target = target ? `${target}\n\n${md}` : md;
       refs.push(...(s.references ?? []));
       h.onToken(md);

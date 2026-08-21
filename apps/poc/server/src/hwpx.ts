@@ -90,7 +90,10 @@ export interface TemplateProfile {
   layout?: TemplateLayout;
   /** 견본 표 스타일. undefined = 예전 프로파일(다시 분석 필요), null = 템플릿에 쓸 만한 표가 없음 (2026-08-21 추가) */
   tableStyle?: TableStyle | null;
+  /** 분석 규칙 버전 — 값이 PROFILE_VERSION보다 낮으면 서버 기동 시 다시 분석 */
+  version?: number;
 }
+export const PROFILE_VERSION = 2; // 2: 꼬리 빈 표를 견본 구간에 포함 (2026-08-21)
 
 const BULLET_RE = /^\s*([□■○●◇◆ㅇo\-\-–—*·•▪▶►☞※]|\d+[.)]|[가-힣][.)]|\(\d+\)|[①-⑳])\s?/;
 
@@ -99,7 +102,16 @@ function detectBullet(text: string): string {
   return m ? m[1] : '';
 }
 /** "1." "가." "(1)" "①" 같은 번호형 기호인가 — 본문 제목이 이미 번호로 시작하면 중복해서 붙이지 않는다 */
-const isNumberingBullet = (b: string) => /^(\d+[.)]|[가-힣][.)]|\(\d+\)|[①-⑳])$/.test(b);
+/** 개요번호형 기호("1." "가." "(1)" "①") — 본문 텍스트가 이미 번호로 시작하면 기호를 또 붙이지 않는다(웹 ui.tsx와 같은 규칙) */
+export const isNumberingBullet = (b: string) => /^(\d+[.)]|[가-힣][.)]|\(\d+\)|[①-⑳])$/.test(b);
+const GANADA = '가나다라마바사아자차카타파하';
+/** 번호형 기호의 n번째 값: "가." → 나./다., "1)" → 2)/3), "(1)" → (2), "①" → ②  (웹 ui.tsx와 같은 규칙) */
+export function formatNumbering(b: string, n: number): string {
+  const m = b.match(/^(\()?(\d+|[가-힣]|[①-⑳])([.)])?$/); if (!m || n < 1) return b;
+  const [, open, core, close] = m;
+  const v = /\d/.test(core) ? String(n) : /[①-⑳]/.test(core) ? String.fromCharCode(0x2460 + Math.min(19, n - 1)) : (GANADA[(n - 1) % GANADA.length] ?? core);
+  return `${open ?? ''}${v}${close ?? ''}`;
+}
 
 /** 글자 속성이 없는 문단(빈 문단)은 null. fontSize는 1/100pt. */
 function charProps(doc: Doc, para: number) {
@@ -123,6 +135,17 @@ function tableCtrls(doc: Doc): { para: number; ctrl: number }[] {
 }
 function tableParasOf(doc: Doc): number[] {
   return [...new Set(tableCtrls(doc).map((c) => c.para))];
+}
+/** 문단 para의 표(들)에 글자가 하나도 없는가 */
+function isEmptyTable(doc: Doc, para: number): boolean {
+  for (const c of tableCtrls(doc).filter((x) => x.para === para)) {
+    for (let cell = 0; cell < 256; cell++) {
+      let len: number;
+      try { len = doc.getCellParagraphLength(0, c.para, c.ctrl, cell, 0); } catch { break; }
+      if (len > 0 && doc.getTextInCell(0, c.para, c.ctrl, cell, 0, 0, len).trim()) return false;
+    }
+  }
+  return true;
 }
 
 /** 견본 표(행·열 2 이상, 병합 없음)에서 머리행·첫 열·본문 셀 모양과 열 너비를 읽는다. 견본 구간 안의 표를 먼저 본다. */
@@ -261,6 +284,12 @@ export async function profileTemplate(bytes: Uint8Array): Promise<TemplateProfil
         if (nextTable != null && nextTable - p.idx <= 3) sampleEnd = Math.max(sampleEnd, nextTable);
       }
     }
+    // 견본 구간 바로 뒤(빈 문단 몇 개 건너)의 **빈 표**도 견본이다 — "AI 행정문서 템플릿"의 꼬리 빈 표가 내보낸 문서 끝에 남던 문제(2026-08-21)
+    for (const t of tableParas) {
+      if (t <= sampleEnd || t - sampleEnd > 6) continue;
+      const between = paragraphs.filter((p) => p.idx > sampleEnd && p.idx < t && p.text.trim());
+      if (!between.length && isEmptyTable(doc, t)) sampleEnd = t;
+    }
     layout = { sampleStart, sampleEnd, tableParas };
   }
   const tableStyle = readTableStyle(doc, layout, paragraphs);
@@ -278,7 +307,7 @@ export async function profileTemplate(bytes: Uint8Array): Promise<TemplateProfil
     styles, numbering, levels, bodyStyleId,
     bodyFontFamily: bodyCp?.fontFamily ?? null, bodyFontSizePt: bodyCp?.fontSizePt ?? null,
     bodyCharShapeId: bodyCp?.charShapeId ?? null, bodyParaShapeId: bodyPara ? paraShapeIdOf(doc, bodyPara.idx) : null,
-    paragraphs, fontsUsed: info.fontsUsed ?? [], pageCount: info.pageCount ?? 1, styleRuleText, layout, tableStyle,
+    paragraphs, fontsUsed: info.fontsUsed ?? [], pageCount: info.pageCount ?? 1, styleRuleText, layout, tableStyle, version: PROFILE_VERSION,
   };
 }
 
@@ -401,10 +430,14 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
     if (P.bodyCharShapeId != null) { try { doc.setCharShapeId(0, para, 0, len(para), P.bodyCharShapeId); } catch { /* ignore */ } }
     else if (P.bodyFontSizePt) { try { doc.applyCharFormat(0, para, 0, len(para), JSON.stringify({ fontSize: Math.round(P.bodyFontSizePt * 100) })); } catch { /* ignore */ } }
   };
-  const bulletText = (L: LevelProfile | null, text: string) => {
+  // 번호형 기호는 같은 수준의 형제끼리 가·나·다 / 1·2·3으로 센다. 더 깊은 수준의 번호는 새 항목이 나오면 처음부터.
+  const counters: number[] = [];
+  const bulletText = (L: LevelProfile | null, text: string, lv: number) => {
     const b = L?.bullet ?? '';
-    const skip = !b || text.startsWith(b) || (isNumberingBullet(b) && /^(\d|[가-힣][.)])/.test(text));
-    return `${L?.prefix ?? ''}${skip ? '' : `${b} `}${text}`;
+    for (let i = lv + 1; i < counters.length; i++) counters[i] = 0;
+    const skip = !b || text.startsWith(b) || (isNumberingBullet(b) && /^(\d|[가-힣][.)]|[①-⑳])/.test(text));
+    const mark = !skip && isNumberingBullet(b) ? formatNumbering(b, (counters[lv] = (counters[lv] ?? 0) + 1)) : b;
+    return `${L?.prefix ?? ''}${skip ? '' : `${mark} `}${text}`;
   };
   /** "**(소제목)** 문장" 관례 — 마크다운 굵게는 벗겨지므로 (소제목) 구간만 굵게 다시 건다 */
   const boldSubtitle = (para: number, raw: string) => {
@@ -496,12 +529,12 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
   for (const b of parseMarkdown(md)) {
     if (b.kind === 'heading') {
       headingLevel = b.level;
-      const p = insertAt(bulletText(levelFor(b.level), stripInlineMd(b.text)));
+      const p = insertAt(bulletText(levelFor(b.level), stripInlineMd(b.text), b.level));
       applyLevel(p, b.level);
     } else if (b.kind === 'bullet') {
       const lv = Math.min(P.levels.length, headingLevel + b.level);
       const L = levelFor(lv);
-      const p = insertAt(L ? bulletText(L, stripInlineMd(b.text)) : `- ${stripInlineMd(b.text)}`);
+      const p = insertAt(L ? bulletText(L, stripInlineMd(b.text), lv) : `- ${stripInlineMd(b.text)}`);
       applyLevel(p, lv);
       boldSubtitle(p, b.text);
     } else if (b.kind === 'para') {
@@ -551,15 +584,19 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
   return doc.exportHwpx();
 }
 
-/** HWPX → 페이지 HTML 배열 (미리보기). 별도 doc으로 연다. */
-export async function renderHwpxHtml(bytes: Uint8Array, maxPages = 20): Promise<{ pages: number; htmls: string[] }> {
+/**
+ * HWPX → 페이지 SVG 배열 (미리보기). 별도 doc으로 연다.
+ * 실측 2026-08-21: renderPageHtml은 제목 표가 겹치고 표가 빠지는 등 원본과 달랐고, renderPageSvg는
+ * 제목 표·기호·글꼴·표·하단 박스가 원본과 같았다(간략 보고 양식 1쪽 37ms, 123KB).
+ */
+export async function renderHwpxSvg(bytes: Uint8Array, maxPages = 20): Promise<{ pages: number; svgs: string[] }> {
   const R = await initRhwp();
   const doc = new R.HwpDocument(bytes);
   const viewer = new R.HwpViewer(doc);
   const pages = viewer.pageCount();
-  const htmls: string[] = [];
-  for (let i = 0; i < Math.min(pages, maxPages); i++) htmls.push(viewer.renderPageHtml(i));
-  return { pages, htmls };
+  const svgs: string[] = [];
+  for (let i = 0; i < Math.min(pages, maxPages); i++) svgs.push(viewer.renderPageSvg(i));
+  return { pages, svgs };
 }
 
 /** HWPX → 문단 텍스트 목록(재수입용). */

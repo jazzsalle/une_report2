@@ -7,8 +7,8 @@ import { join, resolve } from 'node:path';
 import { nanoid } from 'nanoid';
 import { col, FILES_DIR, type Row } from './store.js';
 import { uniStatus, listDocuments, chatStream } from './uni.js';
-import { t3qStatus } from './t3q.js';
-import { initRhwp, rhwpVersion, profileTemplate, buildHwpx, renderHwpxHtml, extractParagraphs, type TemplateProfile } from './hwpx.js';
+import { t3qStatus, t3qContentToMarkdown } from './t3q.js';
+import { initRhwp, rhwpVersion, profileTemplate, buildHwpx, renderHwpxSvg, extractParagraphs, PROFILE_VERSION, type TemplateProfile } from './hwpx.js';
 import * as llm from './llm.js';
 import type { PlanContext, TocNode, SopGraph } from './llm.js';
 
@@ -59,7 +59,7 @@ async function seedTemplates() {
 /** 프로파일 형식이 바뀐 뒤(글자모양 ID·표 스타일 추가) 등록된 적 없는 템플릿은 저장된 파일로 다시 분석한다 — 서버 시작 때 한 번 */
 async function refreshProfiles() {
   for (const t of templates.all()) {
-    const stale = t.profile.tableStyle === undefined || !t.profile.levels.some((l) => l.charShapeId != null);
+    const stale = t.profile.tableStyle === undefined || !t.profile.levels.some((l) => l.charShapeId != null) || (t.profile.version ?? 1) < PROFILE_VERSION;
     if (!stale) continue;
     try { templates.update(t.id, { profile: await profileTemplate(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath)))) }); console.log('템플릿 재분석:', t.name); }
     catch (e) { console.error('템플릿 재분석 실패:', t.name, (e as Error).message); }
@@ -77,7 +77,7 @@ app.post('/api/templates', upload.single('file'), async (req, res) => {
 });
 app.get('/api/templates/:id/preview', async (req, res) => {
   const t = templates.get(req.params.id); if (!t) return bad(res, 404, '없음');
-  const r = await renderHwpxHtml(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), 3);
+  const r = await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), 3);
   res.json(r);
 });
 app.delete('/api/templates/:id', (req, res) => { const t = templates.get(req.params.id); if (!t) return bad(res, 404, '없음'); if (t.builtin) return bad(res, 400, '내장 템플릿은 삭제 불가'); templates.remove(t.id); res.json({ ok: true }); });
@@ -103,6 +103,21 @@ function symbolsOf(p: PlanRow): string[] {
   const t = p.context?.templateId ? templates.get(p.context.templateId) : null;
   const syms = (t?.profile.levels ?? []).map((l) => l.bullet).filter(Boolean);
   return syms.length ? syms : ['□', 'ㅇ', '-', '*'];
+}
+/** 기동 시 1회: 옛 변환으로 저장된 T3Q 초안("- ○- 문장", 절 제목 반복)을 새 규칙으로 다시 정리한다. 멱등. */
+function cleanupT3qSections() {
+  let n = 0;
+  for (const p of plans.all()) {
+    const sections = { ...p.sections }; let changed = false;
+    for (const [id, s] of Object.entries(sections)) {
+      if (s.provider !== 't3q' || !s.markdown || s.userEdited) continue;
+      const node = p.toc.flatMap((c) => [c, ...c.children]).find((x) => x.id === id);
+      const md = t3qContentToMarkdown(s.markdown, symbolsOf(p), node?.title);
+      if (md !== s.markdown) { sections[id] = { ...s, markdown: md }; changed = true; n++; }
+    }
+    if (changed) plans.update(p.id, { sections });
+  }
+  if (n) console.log(`T3Q 초안 기호 정리: ${n}개 절`);
 }
 function styleRuleOf(p: PlanRow): string {
   const t = p.context?.templateId ? templates.get(p.context.templateId) : null;
@@ -203,21 +218,21 @@ app.post('/api/plans/:id/export', async (req, res) => {
     const { bytes, profile } = await templateFor(p);
     const out = await buildHwpx(bytes, profile, p.title, planMarkdown(p), { reportedAt: p.context?.reportedAt, reporter: p.updatedBy ?? p.createdBy });
     const fileName = `plan_${p.id}_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), out);
-    const r = await renderHwpxHtml(out, 1);
+    const r = await renderHwpxSvg(out, 1);
     plans.update(p.id, { export: { fileName, at: now(), pages: r.pages } });
     res.json({ fileName, url: `/api/files/${fileName}`, pages: r.pages });
   } catch (e) { bad(res, 500, `내보내기 실패: ${(e as Error).message}`); }
 });
 app.get('/api/plans/:id/export/preview', async (req, res) => {
   const p = plans.get(req.params.id); if (!p?.export) return bad(res, 404, '내보낸 파일 없음');
-  const r = await renderHwpxHtml(new Uint8Array(readFileSync(join(FILES_DIR, p.export.fileName))), 30); res.json(r);
+  const r = await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, p.export.fileName))), 30); res.json(r);
 });
 app.post('/api/plans/:id/import-hwpx', upload.single('file'), async (req, res) => {
   const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음'); if (!req.file) return bad(res, 400, 'file 필요');
   const bytes = new Uint8Array(req.file.buffer);
   const fileName = `plan_${p.id}_edited_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), bytes);
   const paras = await extractParagraphs(bytes);
-  const r = await renderHwpxHtml(bytes, 1);
+  const r = await renderHwpxSvg(bytes, 1);
   plans.update(p.id, { export: { fileName, at: now(), pages: r.pages } });
   res.json({ fileName, url: `/api/files/${fileName}`, paragraphs: paras.filter(Boolean).length });
 });
@@ -450,7 +465,7 @@ app.post('/api/exercises/:id/journal/export', async (req, res) => {
   journals.update(j.id, { export: { fileName, at: now() } });
   res.json({ fileName, url: `/api/files/${fileName}` });
 });
-app.get('/api/exercises/:id/journal/preview', async (req, res) => { const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!j?.export) return bad(res, 404, '내보낸 파일 없음'); res.json(await renderHwpxHtml(new Uint8Array(readFileSync(join(FILES_DIR, j.export.fileName))), 30)); });
+app.get('/api/exercises/:id/journal/preview', async (req, res) => { const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!j?.export) return bad(res, 404, '내보낸 파일 없음'); res.json(await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, j.export.fileName))), 30)); });
 
 // UNI 문서 목록(연계 데이터 화면·참조 데이터 선택)
 app.get('/api/uni/documents', async (req, res) => { try { res.json(await listDocuments(Number(req.query.page ?? 1), Number(req.query.size ?? 20))); } catch (e) { res.json({ documents: [], total: 0, error: (e as Error).message }); } });
@@ -487,5 +502,6 @@ const PORT = Number(process.env.POC_PORT ?? 3100);
 initRhwp().then(async () => {
   await seedTemplates();
   await refreshProfiles();
+  cleanupT3qSections();
   app.listen(PORT, '127.0.0.1', () => console.log(`poc-server :${PORT} | rhwp ${rhwpVersion()} | UNI ${uniStatus().baseUrl}${uniStatus().mock ? ' (MOCK)' : ''}`));
 }).catch((e) => { console.error('rhwp 초기화 실패', e); process.exit(1); });

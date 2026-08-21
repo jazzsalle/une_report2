@@ -7,7 +7,7 @@ import { Icon, KBadge, KBtn, KCard, KModal, KTable } from '../krds';
 export function PlanTemplates() {
   const [list, setList] = useState<Template[]>([]);
   const [sel, setSel] = useState<Template | null>(null);
-  const [preview, setPreview] = useState<{ pages: number; htmls: string[] } | null>(null);
+  const [preview, setPreview] = useState<{ pages: number; svgs: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [toast, show] = useToast();
@@ -71,9 +71,10 @@ export function PlanTemplates() {
         )}
       </div>
       {preview && sel && (
-        <KModal title={`원본 미리보기 — ${sel.name} (${preview.pages}쪽 중 ${preview.htmls.length}쪽)`} onClose={() => setPreview(null)} width={900}>
-          <div style={{ background: '#f4f5f6', padding: 16, display: 'grid', gap: 16, justifyItems: 'center', maxHeight: '75vh', overflow: 'auto' }}>
-            {preview.htmls.map((h, i) => <div key={i} style={{ background: '#fff', border: '1px solid #cdd1d5', transform: 'scale(.85)', transformOrigin: 'top center', marginBottom: -140 }} dangerouslySetInnerHTML={{ __html: h }} />)}
+        <KModal title={`원본 미리보기 — ${sel.name} (${preview.pages}쪽 중 ${preview.svgs.length}쪽)`} onClose={() => setPreview(null)} width={900}>
+          {/* rhwp renderPageSvg — 원본과 같은 쪽 모양(실측 2026-08-21). SVG는 CSS로 모달 폭에 맞춘다 */}
+          <div style={{ background: '#f4f5f6', padding: 16, display: 'grid', gap: 16, maxHeight: '75vh', overflow: 'auto' }}>
+            {preview.svgs.map((s, i) => <div key={i} className="hwp-page" dangerouslySetInnerHTML={{ __html: s }} />)}
           </div>
         </KModal>
       )}

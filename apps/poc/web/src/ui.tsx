@@ -130,10 +130,31 @@ const SUBTITLE_ONLY_RE = /^\*{0,2}\([^)]{1,30}\)\*{0,2}\s*$/;
  *  - 소제목만 있는 줄 뒤에 같은 깊이로 이어지는 줄들은 그 소제목의 하위.
  *  - 예전 변환의 "**(소제목)** 문장" 평문단도 1수준 항목으로.
  */
+const isNumberingBullet = (b: string) => /^(\d+[.)]|[가-힣][.)]|\(\d+\)|[①-⑳])$/.test(b);
+/** 번호형 기호 + 이미 번호로 시작하는 텍스트("1 제목", "1.1 제목", "나. 제목", "② 제목") → 기호 생략 */
+const withoutDupNumber = (b: string, text: string) => (b && isNumberingBullet(b) && /^(\d+(\.\d+)*[.)]?|[가-힣][.)]|[①-⑳])\s/.test(text) ? '' : b);
+const GANADA = '가나다라마바사아자차카타파하';
+/** 번호형 기호의 n번째 값: "가." → 나./다., "1)" → 2)/3), "(1)" → (2), "①" → ②  (서버 hwpx.ts와 같은 규칙) */
+function formatNumbering(b: string, n: number): string {
+  const m = b.match(/^(\()?(\d+|[가-힣]|[①-⑳])([.)])?$/); if (!m || n < 1) return b;
+  const [, open, core, close] = m;
+  const v = /\d/.test(core) ? String(n) : /[①-⑳]/.test(core) ? String.fromCharCode(0x2460 + Math.min(19, n - 1)) : (GANADA[(n - 1) % GANADA.length] ?? core);
+  return `${open ?? ''}${v}${close ?? ''}`;
+}
+
 export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaClick?: (id: string, text: string) => void; selectedId?: string | null; levelStyle?: (lv: number) => CSSProperties; bullets?: string[]; tableStyle?: MdTableStyle | null; baseLevel?: number } = {}): ReactNode[] {
-  const paras = md.replace(/\r/g, '').split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+  // 블록 첫 줄의 들여쓰기("  - 문장")가 항목 깊이를 정하므로 앞 공백은 남기고 뒤만 자른다
+  const paras = md.replace(/\r/g, '').split(/\n\s*\n/).map((s) => s.replace(/^\n+/, '').trimEnd()).filter((s) => s.trim());
   let headingLevel = opts.baseLevel ?? 0;
-  const bulletChar = (depth: number) => { const bs = opts.bullets ?? ['□', 'ㅇ', '-', '*']; return bs[Math.min(bs.length - 1, headingLevel + depth)] ?? '•'; };
+  // 개요번호형 기호("1." "가." "①")인데 텍스트가 이미 번호로 시작하면("1 감염병…", "나. 중대본…") 기호를 또 붙이지 않는다 — 서버 hwpx.ts bulletText와 같은 규칙
+  // 번호형 기호는 같은 수준의 형제끼리 가·나·다 / 1·2·3으로 센다(블록을 넘어 이어짐). 더 깊은 수준은 새 항목이 나오면 처음부터.
+  const counters: number[] = [];
+  const mark = (b: string, lv: number, text: string) => {
+    for (let i = lv + 1; i < counters.length; i++) counters[i] = 0;
+    const m = withoutDupNumber(b, text);
+    return m && isNumberingBullet(m) ? formatNumbering(m, (counters[lv] = (counters[lv] ?? 0) + 1)) : m;
+  };
+  const bulletChar = (depth: number, text = '') => { const bs = opts.bullets ?? ['□', 'ㅇ', '-', '*']; const lv = Math.min(bs.length - 1, headingLevel + depth); return mark(bs[lv] ?? '•', lv, text); };
   const inline = (s: string): ReactNode => {
     // T3Q 표 셀의 <br>은 줄바꿈으로
     const parts = s.replace(/<br\s*\/?>/gi, '\n').split(/(\*\*[^*]+\*\*)/g);
@@ -147,7 +168,7 @@ export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaCl
     const h = para.match(/^(#{1,6})\s+(.*)$/);
     if (h) {
       const lv = h[1].length; headingLevel = lv; const st = opts.levelStyle?.(lv) ?? { fontSize: 19 - lv * 1.5, fontWeight: 700 };
-      const b = opts.bullets?.[lv - 1];
+      const b = mark(opts.bullets?.[lv - 1] ?? '', lv - 1, h[2]);
       return <div key={id} data-para-id={id} onClick={onClick} style={{ ...wrap, ...st, marginTop: 10 }}>{b ? `${b} ` : ''}{inline(h[2])}</div>;
     }
     if (/^\s*\|/.test(para)) {
@@ -176,14 +197,14 @@ export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaCl
       });
       return (
         <div key={id} data-para-id={id} onClick={onClick} style={wrap}>
-          {items.map((it, i) => <div key={i} style={{ paddingLeft: 12 + it.depth * 16, fontSize: 15, lineHeight: 1.7 }}>{bulletChar(it.depth)} {inline(it.text)}</div>)}
+          {items.map((it, i) => <div key={i} style={{ paddingLeft: 12 + it.depth * 16, fontSize: 15, lineHeight: 1.7 }}>{bulletChar(it.depth, it.text)} {inline(it.text)}</div>)}
         </div>
       );
     }
     const flat = para.replace(/\n/g, ' ');
     if (SUBTITLE_RE.test(flat)) {
       // "**(소제목)** 문장" 평문단(예전 변환) → 제목 바로 아래 수준의 항목으로
-      return <div key={id} data-para-id={id} onClick={onClick} style={{ ...wrap, paddingLeft: 12, fontSize: 15, lineHeight: 1.8 }}>{bulletChar(0)} {inline(flat)}</div>;
+      return <div key={id} data-para-id={id} onClick={onClick} style={{ ...wrap, paddingLeft: 12, fontSize: 15, lineHeight: 1.8 }}>{bulletChar(0, flat)} {inline(flat)}</div>;
     }
     return <p key={id} data-para-id={id} onClick={onClick} style={{ ...wrap, fontSize: 15, lineHeight: 1.8, margin: '2px -8px' }}>{inline(flat)}</p>;
   });
