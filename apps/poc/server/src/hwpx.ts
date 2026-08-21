@@ -58,6 +58,22 @@ export interface TemplateLayout {
   sampleEnd: number;
   tableParas: number[];
 }
+/** 표 셀 한 종류(머리행/첫 열/본문)의 모양 — 견본 표에서 읽어 내보내기 표의 같은 자리에 그대로 쓴다 */
+export interface CellStyle {
+  fillType: string; fillColor: string; borderFillId: number; verticalAlign: number; height: number;
+  paddingLeft: number; paddingRight: number; paddingTop: number; paddingBottom: number;
+  charShapeId: number | null; paraShapeId: number | null;
+  font: { fontFamily: string | null; fontSizePt: number | null; bold: boolean };
+}
+export interface TableStyle {
+  table: { paddingLeft: number; paddingRight: number; paddingTop: number; paddingBottom: number; borderFillId: number; repeatHeader: boolean; cellSpacing: number };
+  header: CellStyle; firstCol: CellStyle; body: CellStyle;
+  /** 견본 표 머리행의 열 너비(HWPUNIT). 생성 표의 열 수가 다르면 첫 열 비율을 지키며 나머지를 균등 배분 */
+  colWidths: number[];
+  sampleParaIdx: number; rows: number; cols: number;
+  /** 표 바로 앞 "< 표 제목 >" 문단의 모양 (마크다운엔 캡션이 없어 아직 쓰지 않음) */
+  caption: { charShapeId: number | null; paraShapeId: number | null } | null;
+}
 export interface TemplateProfile {
   styles: { id: number; name: string }[];
   numbering: { id: number; levelFormats: string[]; startNumber: number }[];
@@ -72,6 +88,8 @@ export interface TemplateProfile {
   pageCount: number;
   styleRuleText: string;
   layout?: TemplateLayout;
+  /** 견본 표 스타일. undefined = 예전 프로파일(다시 분석 필요), null = 템플릿에 쓸 만한 표가 없음 (2026-08-21 추가) */
+  tableStyle?: TableStyle | null;
 }
 
 const BULLET_RE = /^\s*([□■○●◇◆ㅇo\-\-–—*·•▪▶►☞※]|\d+[.)]|[가-힣][.)]|\(\d+\)|[①-⑳])\s?/;
@@ -97,11 +115,65 @@ function charProps(doc: Doc, para: number) {
 function paraShapeIdOf(doc: Doc, para: number): number | null {
   try { const pp = JSON.parse(doc.getParaPropertiesAt(0, para)) as { paraShapeId?: number }; return pp.paraShapeId ?? null; } catch { return null; }
 }
-function tableParasOf(doc: Doc): number[] {
+function tableCtrls(doc: Doc): { para: number; ctrl: number }[] {
   try {
-    const ctrls = JSON.parse(doc.getControls()) as { userDesc: string; para: number; list?: number }[];
-    return [...new Set(ctrls.filter((c) => c.userDesc === '표' && (c.list ?? 0) === 0).map((c) => c.para))].sort((a, b) => a - b);
+    const ctrls = JSON.parse(doc.getControls()) as { userDesc: string; para: number; controlIndex: number; list?: number }[];
+    return ctrls.filter((c) => c.userDesc === '표' && (c.list ?? 0) === 0).map((c) => ({ para: c.para, ctrl: c.controlIndex })).sort((a, b) => a.para - b.para || a.ctrl - b.ctrl);
   } catch { return []; }
+}
+function tableParasOf(doc: Doc): number[] {
+  return [...new Set(tableCtrls(doc).map((c) => c.para))];
+}
+
+/** 견본 표(행·열 2 이상, 병합 없음)에서 머리행·첫 열·본문 셀 모양과 열 너비를 읽는다. 견본 구간 안의 표를 먼저 본다. */
+function readTableStyle(doc: Doc, layout: TemplateLayout | undefined, paragraphs: { idx: number; text: string }[]): TableStyle | null {
+  const all = tableCtrls(doc);
+  const inSample = layout ? all.filter((t) => t.para >= layout.sampleStart && t.para <= layout.sampleEnd) : [];
+  for (const t of [...inSample, ...all]) {
+    try {
+      const dims = JSON.parse(doc.getTableDimensions(0, t.para, t.ctrl)) as { rowCount: number; colCount: number };
+      if (dims.rowCount < 2 || dims.colCount < 2) continue;
+      const info = (r: number, c: number) => JSON.parse(doc.getCellInfo(0, t.para, t.ctrl, r * dims.colCount + c)) as { row: number; col: number; rowSpan: number; colSpan: number };
+      // 병합 셀이 있으면 index→(행,열) 대응이 어긋나므로 건너뛴다
+      const i01 = info(0, 1), i10 = info(1, 0);
+      if (i01.row !== 0 || i01.col !== 1 || i10.row !== 1 || i10.col !== 0 || i01.colSpan !== 1 || i10.rowSpan !== 1) continue;
+      const cell = (r: number, c: number): CellStyle => {
+        const idx = r * dims.colCount + c;
+        const p = JSON.parse(doc.getCellProperties(0, t.para, t.ctrl, idx)) as Record<string, number | string>;
+        let cp: { charShapeId?: number; fontFamily?: string; fontSize?: number; bold?: boolean } = {};
+        let ps: number | null = null;
+        try { cp = JSON.parse(doc.getCellCharPropertiesAt(0, t.para, t.ctrl, idx, 0, 0)); } catch { /* 빈 셀 */ }
+        try { ps = (JSON.parse(doc.getCellParaPropertiesAt(0, t.para, t.ctrl, idx, 0)) as { paraShapeId?: number }).paraShapeId ?? null; } catch { /* ignore */ }
+        return {
+          fillType: String(p.fillType ?? 'none'), fillColor: String(p.fillColor ?? '#ffffff'), borderFillId: Number(p.borderFillId ?? 0), verticalAlign: Number(p.verticalAlign ?? 1), height: Number(p.height ?? 0),
+          paddingLeft: Number(p.paddingLeft ?? 0), paddingRight: Number(p.paddingRight ?? 0), paddingTop: Number(p.paddingTop ?? 0), paddingBottom: Number(p.paddingBottom ?? 0),
+          charShapeId: cp.charShapeId ?? null, paraShapeId: ps,
+          font: { fontFamily: cp.fontFamily ?? null, fontSizePt: cp.fontSize ? cp.fontSize / 100 : null, bold: !!cp.bold },
+        };
+      };
+      const tp = JSON.parse(doc.getTableProperties(0, t.para, t.ctrl)) as Record<string, number | boolean>;
+      const colWidths = Array.from({ length: dims.colCount }, (_, c) => Number((JSON.parse(doc.getCellProperties(0, t.para, t.ctrl, c)) as { width?: number }).width ?? 0));
+      const prev = [...paragraphs].reverse().find((p) => p.idx < t.para && p.text.trim());
+      const caption = prev && /표\s*제목/.test(prev.text) ? { charShapeId: charProps(doc, prev.idx)?.charShapeId ?? null, paraShapeId: paraShapeIdOf(doc, prev.idx) } : null;
+      return {
+        table: { paddingLeft: Number(tp.paddingLeft ?? 0), paddingRight: Number(tp.paddingRight ?? 0), paddingTop: Number(tp.paddingTop ?? 0), paddingBottom: Number(tp.paddingBottom ?? 0), borderFillId: Number(tp.borderFillId ?? 0), repeatHeader: !!tp.repeatHeader, cellSpacing: Number(tp.cellSpacing ?? 0) },
+        header: cell(0, 1), firstCol: cell(1, 0), body: cell(1, Math.min(1, dims.colCount - 1)),
+        colWidths, sampleParaIdx: t.para, rows: dims.rowCount, cols: dims.colCount, caption,
+      };
+    } catch { /* 다음 표 */ }
+  }
+  return null;
+}
+
+/** 생성 표의 열 수에 맞춰 견본 열 너비를 배분 — 열 수가 같으면 그대로, 다르면 첫 열 비율을 지키고 나머지는 균등 */
+export function distributeWidths(sample: number[], cols: number): number[] {
+  const total = sample.reduce((a, b) => a + b, 0);
+  if (!total || !cols) return [];
+  if (sample.length === cols) return sample;
+  if (cols === 1) return [total];
+  const first = Math.round(total * (sample[0] / total));
+  const rest = Math.floor((total - first) / (cols - 1));
+  return [first, ...Array.from({ length: cols - 1 }, () => rest)];
 }
 
 export async function profileTemplate(bytes: Uint8Array): Promise<TemplateProfile> {
@@ -191,19 +263,22 @@ export async function profileTemplate(bytes: Uint8Array): Promise<TemplateProfil
     }
     layout = { sampleStart, sampleEnd, tableParas };
   }
+  const tableStyle = readTableStyle(doc, layout, paragraphs);
 
+  const fontText = (f: CellStyle['font']) => `${f.fontFamily ?? '기본 글꼴'} ${f.fontSizePt ?? '?'}pt${f.bold ? ' 굵게' : ''}`;
   const styleRuleText = [
     '문서 스타일 규칙(템플릿에서 추출):',
     ...levels.map((l) => `- ${l.level}수준: 문단 앞에 "${l.bullet || '(없음)'}" 기호, ${l.fontFamily ?? '기본 글꼴'} ${l.fontSizePt ?? '?'}pt${l.bold ? ' 굵게' : ''}${l.indentHu ? `, 들여쓰기 ${Math.round(l.indentHu / 100)}` : ''}`),
     `- 본문: ${bodyCp?.fontFamily ?? '기본 글꼴'} ${bodyCp?.fontSizePt ?? '?'}pt`,
     numbering[0]?.levelFormats?.length ? `- 개요번호 형식: ${numbering[0].levelFormats.slice(0, 4).join(' / ')}` : '',
+    tableStyle ? `- 표: 머리행 ${fontText(tableStyle.header.font)}${tableStyle.header.fillType !== 'none' ? ` 배경 ${tableStyle.header.fillColor}` : ''} / 본문 ${fontText(tableStyle.body.font)} (수치·담당·기한은 표로)` : '',
   ].filter(Boolean).join('\n');
 
   return {
     styles, numbering, levels, bodyStyleId,
     bodyFontFamily: bodyCp?.fontFamily ?? null, bodyFontSizePt: bodyCp?.fontSizePt ?? null,
     bodyCharShapeId: bodyCp?.charShapeId ?? null, bodyParaShapeId: bodyPara ? paraShapeIdOf(doc, bodyPara.idx) : null,
-    paragraphs, fontsUsed: info.fontsUsed ?? [], pageCount: info.pageCount ?? 1, styleRuleText, layout,
+    paragraphs, fontsUsed: info.fontsUsed ?? [], pageCount: info.pageCount ?? 1, styleRuleText, layout, tableStyle,
   };
 }
 
@@ -256,7 +331,8 @@ export function parseMarkdown(md: string): MdBlock[] {
 }
 
 function stripInlineMd(s: string): string {
-  return s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').replace(/`(.+?)`/g, '$1').replace(/\[(.+?)\]\(.+?\)/g, '$1');
+  // T3Q는 표 셀 줄바꿈을 <br>로 보낸다(실측) — 셀 안 문단 분리는 지원하지 않으므로 공백으로
+  return s.replace(/<br\s*\/?>/gi, ' ').replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').replace(/`(.+?)`/g, '$1').replace(/\[(.+?)\]\(.+?\)/g, '$1');
 }
 
 export interface BuildMeta { reportedAt?: string; reporter?: string }
@@ -276,8 +352,8 @@ const fmtKoDate = (iso?: string) => {
  */
 export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProfile, title: string, md: string, meta: BuildMeta = {}): Promise<Uint8Array> {
   const R = await initRhwp();
-  // 예전에 저장된 프로파일에는 글자모양 ID·견본 구간이 없다 → 템플릿에서 다시 읽는다
-  const P = profile.levels.some((l) => l.charShapeId != null) ? profile : await profileTemplate(templateBytes);
+  // 예전에 저장된 프로파일에는 글자모양 ID·견본 구간·표 스타일이 없다 → 템플릿에서 다시 읽는다
+  const P = profile.levels.some((l) => l.charShapeId != null) && profile.tableStyle !== undefined ? profile : await profileTemplate(templateBytes);
   const doc = new R.HwpDocument(templateBytes);
 
   const levelFor = (lv: number) => P.levels.find((l) => l.level === lv) ?? P.levels[Math.min(lv, P.levels.length) - 1] ?? null;
@@ -419,9 +495,27 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
         if (res.ok) {
           const tblPara = res.paraIdx ?? holder;
           const ctrl = res.controlIdx ?? 0;
-          b.rows.forEach((r, ri) => r.forEach((cell, ci) => {
-            try { doc.insertTextInCell(0, tblPara, ctrl, ri * cols + ci, 0, 0, stripInlineMd(cell)); } catch { /* 셀 실패 무시 */ }
-          }));
+          const ts = P.tableStyle ?? null;
+          const widths = ts ? distributeWidths(ts.colWidths, cols) : [];
+          if (ts) { try { doc.setTableProperties(0, tblPara, ctrl, JSON.stringify(ts.table)); } catch { /* ignore */ } }
+          for (let ri = 0; ri < rows; ri++) for (let ci = 0; ci < cols; ci++) {
+            const idx = ri * cols + ci;
+            const raw = b.rows[ri][ci] ?? '';
+            const text = stripInlineMd(raw);
+            try { if (text) doc.insertTextInCell(0, tblPara, ctrl, idx, 0, 0, text); } catch { /* 셀 실패 무시 */ }
+            const cellLen = () => { try { return doc.getCellParagraphLength(0, tblPara, ctrl, idx, 0); } catch { return text.length; } };
+            if (ts) {
+              // 머리행 / 첫 열 / 본문 — 견본 표의 같은 자리 모양을 입힌다
+              const st = ri === 0 ? ts.header : ci === 0 ? ts.firstCol : ts.body;
+              try { doc.setCellProperties(0, tblPara, ctrl, idx, JSON.stringify({ fillType: st.fillType, fillColor: st.fillColor, borderFillId: st.borderFillId, verticalAlign: st.verticalAlign, height: st.height, paddingLeft: st.paddingLeft, paddingRight: st.paddingRight, paddingTop: st.paddingTop, paddingBottom: st.paddingBottom, ...(widths[ci] ? { width: widths[ci] } : {}) })); } catch { /* ignore */ }
+              if (st.paraShapeId != null) { try { doc.setCellParaShapeId(0, tblPara, ctrl, idx, 0, st.paraShapeId); } catch { /* ignore */ } }
+              if (st.charShapeId != null && text) { try { doc.setCharShapeIdInCell(0, tblPara, ctrl, idx, 0, 0, cellLen(), st.charShapeId); } catch { /* ignore */ } }
+              const m = ri > 0 ? raw.match(/^\*\*(\([^)]{1,30}\))\*\*/) : null;
+              if (m) { try { doc.applyCharFormatInCell(0, tblPara, ctrl, idx, 0, 0, m[1].length, JSON.stringify({ bold: true })); } catch { /* ignore */ } }
+            } else if (P.bodyCharShapeId != null && text) {
+              try { doc.setCharShapeIdInCell(0, tblPara, ctrl, idx, 0, 0, cellLen(), P.bodyCharShapeId); } catch { /* ignore */ }
+            }
+          }
           ok = true;
         }
       } catch { /* fallthrough */ }

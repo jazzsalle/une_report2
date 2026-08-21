@@ -16,7 +16,7 @@ export function PlanShell() {
     setNewOpen(false); setTitle(''); nav(`/plan/${p.id}`);
   };
   // 문서 작업 화면(/plan/:id)은 자체 작업 콘솔 띠를 그리므로 LNB는 목록·템플릿 화면에서만
-  const showLnb = ['/plan', '/plan/templates', '/plan/basis-templates'].includes(pathname);
+  const showLnb = pathname === '/plan' || pathname === '/plan/templates' || pathname.startsWith('/plan/basis-templates');
   return (
     <div className="krds">
       <AppHeader active="plan" user={user} users={users} onUser={setUser} />

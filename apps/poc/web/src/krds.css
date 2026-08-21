@@ -80,6 +80,10 @@
 .krds .k-tbl.compact th,.krds .k-tbl.compact td{padding:8px 12px;font-size:14px}
 .krds .k-tbl tr.sel td{background:#eff5ff}
 .krds .k-tbl .empty{text-align:center;color:var(--subtle)}
+.krds .th-sort{background:none;border:none;padding:0;font:inherit;font-weight:700;color:inherit;cursor:pointer;white-space:nowrap}
+.krds .th-sort.on{color:#256ef4}
+.krds .th-sort span{font-size:11px;opacity:.7}
+.krds .pager{display:flex;align-items:center;gap:12px;padding:12px 0 0;flex-wrap:wrap}
 .krds .k-alert{display:flex;gap:10px;align-items:flex-start;padding:12px 16px;border-radius:8px;border:1px solid;font-size:15px;line-height:1.5}
 .krds .k-alert svg{flex-shrink:0;width:20px;height:20px;margin-top:2px}
 .krds .k-alert.success{background:var(--success-bg);border-color:var(--success-bd)}.krds .k-alert.success svg{color:var(--success)}

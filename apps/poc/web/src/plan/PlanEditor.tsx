@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { get, post, put, sse, pickSaveLocation, writeFileTo, ago, HAZARDS, type Plan, type PlanContext, type TocNode, type Template, type SecStatus, type Section } from '../api';
-import { Toast, renderMarkdown, useToast, useUser } from '../ui';
-import { H1, Icon, KAlert, KBadge, KBtn, KCard, KField, KInput, KModal, KSelect, KTable, KTextarea, KV, Pipeline, statusToTone, type PipeStep } from '../krds';
+import { get, post, put, sse, pickSaveLocation, writeFileTo, ago, type Plan, type PlanContext, type TocNode, type Template, type SecStatus } from '../api';
+import { Toast, renderMarkdown, useToast, useUser, type MdTableStyle } from '../ui';
+import { H1, Icon, KAlert, KBadge, KBtn, KCard, KField, KInput, KModal, KTable, KTextarea, KV, Pipeline, statusToTone, type PipeStep } from '../krds';
+import { ContextForm } from './ContextForm';
 
 type Step = 'context' | 'toc' | 'draft' | 'preview';
 const emptyCtx = (): PlanContext => ({ subject: '', hazardType: '폭염', managementPhase: '대비', audience: '지자체', templateId: null, tone: '공문서체' });
+/** 템플릿 견본 표 → 웹 미리보기 표 스타일(머리행 배경·글꼴). HWPX 내보내기와 같은 값 */
+const mdTableStyle = (tpl: Template | null): MdTableStyle | null => (tpl?.tableStyle ? { headerBg: tpl.tableStyle.header.fillType !== 'none' ? tpl.tableStyle.header.fillColor : null, headerBold: tpl.tableStyle.header.font.bold, fontFamily: tpl.tableStyle.body.font.fontFamily, fontSizePt: tpl.tableStyle.body.font.fontSizePt } : null);
 interface Health { uni: { baseUrl: string; mock: boolean; lastFailure: string | null }; t3q: { baseUrl: string; verifyTls: boolean; lastFailure: string | null }; rhwp: { version: string } }
 
 export function PlanEditor() {
@@ -91,10 +94,8 @@ function ContextStep({ plan, templates, health, onSaved, show, user }: { plan: P
   const [tplName, setTplName] = useState('');
   const [loadModal, setLoadModal] = useState(false);
   const [saved, setSaved] = useState<{ id: string; name: string; context: PlanContext; createdBy: string }[]>([]);
-  const set = (k: keyof PlanContext) => (e: { target: { value: string } }) => setC({ ...c, [k]: e.target.value });
   const valid = c.subject.trim() && c.hazardType && c.managementPhase && c.audience;
   const tpl = templates.find((t) => t.id === c.templateId) ?? null;
-  useEffect(() => { if (tpl && !c.outlineNumbering) setC((x) => ({ ...x, outlineNumbering: tpl.levels.map((l) => l.bullet).filter(Boolean).join(' ') })); }, [tpl?.id]);
   const save = async (goToc: boolean) => {
     setSaving(true);
     try { await put(`/plans/${plan.id}/context`, { ...c, updatedBy: user }); show('저장되었습니다'); await onSaved(goToc); }
@@ -112,53 +113,7 @@ function ContextStep({ plan, templates, health, onSaved, show, user }: { plan: P
         </div>
         {plan.toc.length > 0 && <KAlert kind="warning">이미 목차가 있습니다. 기준정보를 수정하고 다시 목차를 생성하면 기존 초안은 초기화됩니다.</KAlert>}
 
-        <KCard title="HWPX 문서 템플릿" desc="스타일 분석 결과를 목차·초안 생성 규칙과 내보내기에 적용합니다" right={<Link to="/plan/templates" className="tiny">템플릿 관리 →</Link>}>
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto' }}>
-            {templates.map((t) => (
-              <button type="button" key={t.id} className={`tpl-card${c.templateId === t.id ? ' sel' : ''}`} aria-pressed={c.templateId === t.id} onClick={() => setC({ ...c, templateId: t.id, outlineNumbering: t.levels.map((l) => l.bullet).filter(Boolean).join(' ') })}>
-                <strong>{t.name}</strong>
-                <span className="meta">{t.levels.map((l) => `${l.bullet}${l.fontSizePt}`).join(' · ')}</span>
-                <span className="meta">본문 {t.bodyFontFamily?.split(' ')[0] ?? '-'} {t.bodyFontSizePt}pt</span>
-              </button>
-            ))}
-            {!templates.length && <p className="card-desc">등록된 템플릿이 없습니다. <Link to="/plan/templates">템플릿 관리</Link>에서 HWPX를 업로드하세요.</p>}
-          </div>
-        </KCard>
-
-        <KCard title="문서 주제">
-          <KField label="문서 주제" required htmlFor="f-subject"><KInput id="f-subject" value={c.subject} onChange={set('subject')} placeholder="예: 2026년 여름철 폭염 대비 재난안전계획" /></KField>
-        </KCard>
-        <KCard title="배경 정보">
-          <div className="form-grid">
-            <KField label="재난유형" required htmlFor="f-hazard"><KSelect id="f-hazard" value={c.hazardType} onChange={set('hazardType')}>{HAZARDS.map((h) => <option key={h}>{h}</option>)}</KSelect></KField>
-            <KField label="재난관리단계" required htmlFor="f-phase"><KSelect id="f-phase" value={c.managementPhase} onChange={set('managementPhase')}><option>예방</option><option>대비</option></KSelect></KField>
-            <KField label="장소" htmlFor="f-place"><KInput id="f-place" value={c.place ?? ''} onChange={set('place')} placeholder="○○시" /></KField>
-            <KField label="재난발생일시" htmlFor="f-occ"><KInput id="f-occ" type="datetime-local" value={c.occurredAt ?? ''} onChange={set('occurredAt')} /></KField>
-            <KField label="보고일시" htmlFor="f-rep"><KInput id="f-rep" type="datetime-local" value={c.reportedAt ?? ''} onChange={set('reportedAt')} /></KField>
-          </div>
-        </KCard>
-        <KCard title="내용지침">
-          <div className="stack">
-            <KField label="출처" htmlFor="f-src"><KInput id="f-src" value={c.sources ?? ''} onChange={set('sources')} placeholder="재난 및 안전관리 기본법, 폭염 위기관리 표준매뉴얼" /></KField>
-            <KField label="필수 포함 요소" hint="쉼표로 구분" htmlFor="f-req"><KInput id="f-req" value={c.requiredElements ?? ''} onChange={set('requiredElements')} placeholder="취약계층 보호, 무더위쉼터 운영, 비상연락망" /></KField>
-            <KField label="작성 가이드" htmlFor="f-guide"><KTextarea id="f-guide" value={c.writingGuide ?? ''} onChange={set('writingGuide')} placeholder="담당 부서와 기한을 표로 정리, 수치는 최근 3년 자료" /></KField>
-          </div>
-        </KCard>
-        <KCard title="표현 규칙">
-          <div className="form-grid">
-            <KField label="문체" htmlFor="f-tone"><KSelect id="f-tone" value={c.tone ?? ''} onChange={set('tone')}><option value="">선택</option><option>공문서체</option><option>개조식</option><option>서술체</option></KSelect></KField>
-            <KField label="문장길이 제한" htmlFor="f-len"><KInput id="f-len" value={c.sentenceLimit ?? ''} onChange={set('sentenceLimit')} placeholder="60자 이내" /></KField>
-            <KField label="문단 개요번호 모양" htmlFor="f-outline" hint={tpl ? `템플릿 "${tpl.name}"에서 자동 채움` : '템플릿을 선택하면 자동으로 채워집니다'}><KInput id="f-outline" value={c.outlineNumbering ?? ''} onChange={set('outlineNumbering')} placeholder="□ ㅇ - *" /></KField>
-            <KField label="본문 문장 시작" htmlFor="f-start"><KInput id="f-start" value={c.bodyStart ?? ''} onChange={set('bodyStart')} placeholder="(소제목) 문장…" /></KField>
-          </div>
-        </KCard>
-        <KCard title="문장 작성 목적">
-          <div className="form-grid">
-            <KField label="업무 목적" htmlFor="f-purpose"><KInput id="f-purpose" value={c.purpose ?? ''} onChange={set('purpose')} placeholder="폭염 피해 최소화" /></KField>
-            <KField label="역할" htmlFor="f-role"><KInput id="f-role" value={c.role ?? ''} onChange={set('role')} placeholder="안전총괄과" /></KField>
-            <KField label="타깃 독자" required htmlFor="f-aud" hint="T3Q 열거값: 중앙정부 / 지자체 / 내부보고 / 대민"><KSelect id="f-aud" value={c.audience ?? ''} onChange={set('audience')}><option>중앙정부</option><option>지자체</option><option>내부보고</option><option>대민</option></KSelect></KField>
-          </div>
-        </KCard>
+        <ContextForm value={c} onChange={setC} templates={templates} />
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <KBtn kind="secondary" disabled={saving} onClick={() => void save(false)}>저장</KBtn>
           <KBtn kind="primary" disabled={!valid || saving} onClick={() => void save(true)}>저장하고 목차 생성으로 <Icon name="angle" /></KBtn>
@@ -346,6 +301,7 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
   const curRunning = !!current && running.has(current);
   const md = current ? (curRunning ? live[current] ?? '' : cur?.markdown ?? '') : '';
   const bullets = tpl?.levels.map((l) => l.bullet) ?? ['□', 'ㅇ', '-', '*'];
+  const tableStyle = mdTableStyle(tpl);
   const levelStyle = (lv: number): React.CSSProperties => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, fontFamily: L?.fontFamily ? `"${L.fontFamily}", inherit` : undefined, paddingLeft: L?.indentHu ? L.indentHu / 100 * 2 : 0 }; };
   const revise = async () => {
     if (!selPara || !instruction.trim()) return; setRevising(true);
@@ -398,7 +354,7 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
             </div>
             {editRaw !== null ? <KTextarea value={editRaw} onChange={(e) => setEditRaw(e.target.value)} style={{ minHeight: 480, fontFamily: 'ui-monospace, monospace', fontSize: 13 }} aria-label="마크다운 직접 편집" /> : (
               <div className="doc-body" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
-                {md ? renderMarkdown(md, { paraPrefix: current, onParaClick: curRunning ? undefined : (id, text) => setSelPara({ id, text }), selectedId: selPara?.id, levelStyle, bullets }) : <p className="dim">{curRunning ? 'T3Q가 이 절을 생성하는 중입니다… (절 전체가 한 번에 도착합니다)' : '내용이 없습니다'}</p>}
+                {md ? renderMarkdown(md, { paraPrefix: current, onParaClick: curRunning ? undefined : (id, text) => setSelPara({ id, text }), selectedId: selPara?.id, levelStyle, bullets, tableStyle }) : <p className="dim">{curRunning ? 'T3Q가 이 절을 생성하는 중입니다… (절 전체가 한 번에 도착합니다)' : '내용이 없습니다'}</p>}
                 {curRunning && <span style={{ display: 'inline-block', width: 8, height: 16, background: '#256ef4', animation: 'blink 1s infinite' }} aria-hidden="true" />}
               </div>
             )}
@@ -488,7 +444,7 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
           <div style={{ background: '#f4f5f6', padding: 32 }}>
             <article className="page" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
               <h2 style={{ textAlign: 'center', fontSize: 22, fontWeight: 700, marginBottom: 32 }}>{plan.title}</h2>
-              <div className="doc-body">{renderMarkdown(md, { bullets, levelStyle: (lv) => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, marginTop: 14 }; } })}</div>
+              <div className="doc-body">{renderMarkdown(md, { bullets, tableStyle: mdTableStyle(tpl), levelStyle: (lv) => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, marginTop: 14 }; } })}</div>
             </article>
           </div>
         </section>

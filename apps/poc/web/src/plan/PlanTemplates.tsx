@@ -49,6 +49,18 @@ export function PlanTemplates() {
                 <div><strong>쪽수</strong> {sel.pageCount} · <strong>스타일 정의</strong> {sel.styleCount}개 · <strong>사용 글꼴</strong> {sel.profile?.fontsUsed.length ?? 0}종</div>
                 {sel.profile?.numbering[0]?.levelFormats?.length ? <div style={{ gridColumn: '1 / -1' }}><strong>개요번호 형식</strong> <span className="num">{sel.profile.numbering[0].levelFormats.slice(0, 6).join('  ')}</span></div> : null}
               </div>
+              <h3 style={{ fontSize: 15, margin: '16px 0 8px' }}>표 스타일 (견본 표에서 인식)</h3>
+              {sel.tableStyle ? (
+                <div className="stack" style={{ gap: 10 }}>
+                  <KTable compact caption="견본 표의 셀 종류별 모양" head={['셀', '배경', '글꼴', '정렬·여백']} rows={([['머리행', sel.tableStyle.header], ['첫 열', sel.tableStyle.firstCol], ['본문', sel.tableStyle.body]] as const).map(([k, c]) => [
+                    <strong>{k}</strong>,
+                    <span className="row" style={{ gap: 6 }}><span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid #cdd1d5', background: c.fillType !== 'none' ? c.fillColor : '#fff' }} /><span className="num">{c.fillType !== 'none' ? c.fillColor : '없음'}</span></span>,
+                    `${c.font.fontFamily ?? '-'} ${c.font.fontSizePt ?? '?'}pt${c.font.bold ? ' 굵게' : ''}`,
+                    <span className="num">{c.verticalAlign === 1 ? '세로 가운데' : '세로 위'} · 여백 {Math.round(c.paddingLeft / 100)}/{Math.round(c.paddingTop / 100)}</span>,
+                  ])} />
+                  <p className="form-hint">견본 표 {sel.tableStyle.rows}×{sel.tableStyle.cols} · 열 너비 비율 {(() => { const t = sel.tableStyle!.colWidths.reduce((a, b) => a + b, 0) || 1; return sel.tableStyle!.colWidths.map((w) => Math.round((w / t) * 100)).join(' : '); })()}{sel.tableStyle.table.repeatHeader ? ' · 머리행 반복' : ''} — 내보내기 표와 웹 미리보기 표에 이 모양을 적용합니다. 생성 표의 열 수가 다르면 첫 열 비율을 지키고 나머지를 균등 배분합니다.</p>
+                </div>
+              ) : <p className="form-hint">템플릿에 행·열이 2개 이상인 표가 없어 표 스타일을 읽지 못했습니다. 내보내기 표는 기본 모양(흰 배경·균등 열)으로 만들어지고 글꼴만 본문을 따릅니다.</p>}
               <h3 style={{ fontSize: 15, margin: '16px 0 8px' }}>LLM에 전달되는 스타일 규칙</h3>
               <pre style={{ margin: 0, background: '#f4f5f6', border: '1px solid #cdd1d5', borderRadius: 8, padding: '12px 16px', fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{sel.styleRuleText}</pre>
             </KCard>

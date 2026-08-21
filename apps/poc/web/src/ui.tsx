@@ -120,11 +120,14 @@ export function useUser(): [User | null, (u: User) => void, User[]] {
 }
 
 /** 아주 작은 마크다운 → 요소 렌더러 (heading/불릿/표/문단/굵게). 문단마다 data-para-id를 붙인다. */
-export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaClick?: (id: string, text: string) => void; selectedId?: string | null; levelStyle?: (lv: number) => CSSProperties; bullets?: string[] } = {}): ReactNode[] {
+/** 표 미리보기용 — 템플릿 견본 표의 머리행 배경·글꼴 (HWPX 내보내기와 같은 값) */
+export interface MdTableStyle { headerBg?: string | null; headerBold?: boolean; fontFamily?: string | null; fontSizePt?: number | null }
+export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaClick?: (id: string, text: string) => void; selectedId?: string | null; levelStyle?: (lv: number) => CSSProperties; bullets?: string[]; tableStyle?: MdTableStyle | null } = {}): ReactNode[] {
   const paras = md.replace(/\r/g, '').split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
   const inline = (s: string): ReactNode => {
-    const parts = s.split(/(\*\*[^*]+\*\*)/g);
-    return parts.map((p, i) => (p.startsWith('**') && p.endsWith('**') ? <b key={i}>{p.slice(2, -2)}</b> : <span key={i}>{p}</span>));
+    // T3Q 표 셀의 <br>은 줄바꿈으로
+    const parts = s.replace(/<br\s*\/?>/gi, '\n').split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((p, i) => (p.startsWith('**') && p.endsWith('**') ? <b key={i}>{p.slice(2, -2)}</b> : <span key={i} style={{ whiteSpace: 'pre-line' }}>{p}</span>));
   };
   return paras.map((para, idx) => {
     const id = `${opts.paraPrefix ?? ''}#p${idx}`;
@@ -139,10 +142,12 @@ export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaCl
     }
     if (/^\s*\|/.test(para)) {
       const rows = para.split('\n').filter((l) => /^\s*\|/.test(l)).map((l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim())).filter((r) => !r.every((c) => /^:?-{2,}:?$/.test(c)));
+      const ts = opts.tableStyle;
+      const tableFont: CSSProperties = { fontFamily: ts?.fontFamily ? `"${ts.fontFamily}", inherit` : undefined, fontSize: ts?.fontSizePt ? Math.min(16, Math.max(12, ts.fontSizePt + 2)) : 14 };
       return (
         <div key={id} data-para-id={id} onClick={onClick} style={wrap}>
-          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14, margin: '6px 0' }}>
-            <tbody>{rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => ri === 0 ? <th key={ci} style={{ border: '1px solid #cdd1d5', padding: '6px 10px', background: '#f4f5f6', textAlign: 'left' }}>{inline(c)}</th> : <td key={ci} style={{ border: '1px solid #cdd1d5', padding: '6px 10px' }}>{inline(c)}</td>)}</tr>)}</tbody>
+          <table style={{ borderCollapse: 'collapse', width: '100%', margin: '6px 0', ...tableFont }}>
+            <tbody>{rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => ri === 0 ? <th key={ci} style={{ border: '1px solid #cdd1d5', padding: '6px 10px', background: ts?.headerBg ?? '#f4f5f6', textAlign: 'center', fontWeight: ts?.headerBold === false ? 400 : 700 }}>{inline(c)}</th> : <td key={ci} style={{ border: '1px solid #cdd1d5', padding: '6px 10px' }}>{inline(c)}</td>)}</tr>)}</tbody>
           </table>
         </div>
       );
