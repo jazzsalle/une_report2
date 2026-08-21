@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { del, get, ago, HAZARDS, type PlanSummary, type PlanTemplate } from '../api';
 import { Toast, useToast, useUser } from '../ui';
-import { Icon, KBadge, KBtn, KCard, KInput, KModal, KSelect, KTable } from '../krds';
+import { KBadge, KBtn, KCard, KInput, KModal, KSelect, KTable } from '../krds';
 import { EMPTY_DOC, NewDocModal, type NewDocSource } from './NewDocModal';
+import { HeroCards } from './HeroCards';
 
-/** 문서 관리 목록(SCR-CADM-302001) + 기준정보 템플릿 썸네일(SCR-CADM-201001) */
+/** 문서 관리 메인: 히어로 + 기준정보 템플릿 카드(2차년도 홈 화면) + 문서 목록(SCR-CADM-302001) */
 export function PlanList() {
   const [user] = useUser();
   const [plans, setPlans] = useState<PlanSummary[]>([]);
@@ -29,23 +30,10 @@ export function PlanList() {
     return <KBadge tone={tone}>{p.drafted}/{p.total} 초안{p.exported ? ' · 내보냄' : ''}</KBadge>;
   };
   return (
-    <div className="wrap" style={{ paddingTop: 24, paddingBottom: 24 }}>
-      <h1 className="sr-only">문서 관리</h1>
+    <>
+    <HeroCards userName={user?.name} tpls={tpls} onNew={() => setFromTpl(EMPTY_DOC)} onPick={(t) => setFromTpl({ id: t.id, name: t.name, context: t.context })} />
+    <div className="wrap" style={{ paddingTop: 8, paddingBottom: 24 }}>
       <div className="stack" style={{ gap: 24 }}>
-        <KCard title="기준정보 템플릿" desc="선택한 템플릿의 기준정보로 새 문서를 시작합니다 · 최근 저장 순" right={<Link to="/plan/basis-templates" className="tiny">전체 목록 ({tpls.length}) →</Link>}>
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
-            <button type="button" className="tpl-new" onClick={() => setFromTpl(EMPTY_DOC)}><Icon name="plus" size={20} />빈 문서</button>
-            {tpls.map((t) => (
-              <button type="button" key={t.id} className="tpl-card" style={{ minWidth: 240 }} onClick={() => setFromTpl({ id: t.id, name: t.name, context: t.context })}>
-                <span className="row" style={{ justifyContent: 'space-between' }}><KBadge tone="light-primary">{t.context.hazardType}</KBadge><KBadge>{t.context.managementPhase}</KBadge></span>
-                <strong>{t.name}</strong>
-                <span className="meta">{t.createdBy} · {ago(t.updatedAt)}</span>
-              </button>
-            ))}
-            {!tpls.length && <p className="card-desc" style={{ alignSelf: 'center', padding: '0 8px' }}>저장된 기준정보 템플릿이 없습니다. 기준정보 입력 화면에서 "템플릿 등록하기"로 만들 수 있습니다.</p>}
-          </div>
-        </KCard>
-
         <KCard title={<>문서 전체 목록 <span className="dim" style={{ fontWeight: 400, fontSize: 15 }}>({filtered.length}/{plans.length})</span></>} right={
           <div className="row">
             <KInput className="search" placeholder="문서 명 검색" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 220 }} aria-label="문서 명 검색" />
@@ -82,5 +70,6 @@ export function PlanList() {
       )}
       <Toast msg={toast} />
     </div>
+    </>
   );
 }
