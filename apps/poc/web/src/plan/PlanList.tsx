@@ -1,35 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { del, get, post, ago, HAZARDS, type PlanSummary, type PlanContext } from '../api';
+import { Link } from 'react-router-dom';
+import { del, get, ago, HAZARDS, type PlanSummary, type PlanTemplate } from '../api';
 import { Toast, useToast, useUser } from '../ui';
-import { Icon, KBadge, KBtn, KCard, KField, KInput, KModal, KSelect, KTable } from '../krds';
-
-interface PlanTpl { id: string; name: string; context: PlanContext; createdBy: string; updatedAt: string }
+import { Icon, KBadge, KBtn, KCard, KInput, KModal, KSelect, KTable } from '../krds';
+import { EMPTY_DOC, NewDocModal, type NewDocSource } from './NewDocModal';
 
 /** 문서 관리 목록(SCR-CADM-302001) + 기준정보 템플릿 썸네일(SCR-CADM-201001) */
 export function PlanList() {
   const [user] = useUser();
-  const nav = useNavigate();
   const [plans, setPlans] = useState<PlanSummary[]>([]);
-  const [tpls, setTpls] = useState<PlanTpl[]>([]);
+  const [tpls, setTpls] = useState<PlanTemplate[]>([]);
   const [q, setQ] = useState('');
   const [hazard, setHazard] = useState('');
   const [phase, setPhase] = useState('');
   const [mine, setMine] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [confirmDel, setConfirmDel] = useState(false);
-  const [fromTpl, setFromTpl] = useState<PlanTpl | null>(null);
-  const [title, setTitle] = useState('');
+  const [fromTpl, setFromTpl] = useState<NewDocSource | null>(null);
   const [toast, show] = useToast();
-  const load = () => { get<PlanSummary[]>('/plans').then(setPlans); get<PlanTpl[]>('/plan-templates').then(setTpls); };
+  const load = () => { get<PlanSummary[]>('/plans').then(setPlans); get<PlanTemplate[]>('/plan-templates').then((l) => setTpls([...l].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))); };
   useEffect(load, []);
   const filtered = plans.filter((p) => (!q || p.title.includes(q)) && (!hazard || p.hazardType === hazard) && (!phase || p.managementPhase === phase) && (!mine || p.createdBy === user?.name));
-  const createFromTpl = async () => {
-    if (!fromTpl) return;
-    const p = await post<{ id: string }>('/plans', { title: title.trim(), createdBy: user?.name });
-    await fetch(`/api/plans/${p.id}/context`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fromTpl.context) });
-    setFromTpl(null); nav(`/plan/${p.id}`);
-  };
   const removeChecked = async () => { for (const id of checked) await del(`/plans/${id}`); setChecked(new Set()); setConfirmDel(false); show('삭제되었습니다'); load(); };
   const toggle = (id: string, on: boolean) => { const s = new Set(checked); on ? s.add(id) : s.delete(id); setChecked(s); };
   const progress = (p: PlanSummary) => {
@@ -41,11 +32,11 @@ export function PlanList() {
     <div className="wrap" style={{ paddingTop: 24, paddingBottom: 24 }}>
       <h1 className="sr-only">문서 관리</h1>
       <div className="stack" style={{ gap: 24 }}>
-        <KCard title="기준정보 템플릿" desc="선택한 템플릿의 기준정보로 새 문서를 시작합니다 · 최근 저장 순">
+        <KCard title="기준정보 템플릿" desc="선택한 템플릿의 기준정보로 새 문서를 시작합니다 · 최근 저장 순" right={<Link to="/plan/basis-templates" className="tiny">전체 목록 ({tpls.length}) →</Link>}>
           <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
-            <button type="button" className="tpl-new" onClick={() => { setFromTpl({ id: '', name: '빈 문서', context: { subject: '', hazardType: '폭염', managementPhase: '대비', audience: '지자체', templateId: null }, createdBy: '', updatedAt: '' }); setTitle(''); }}><Icon name="plus" size={20} />빈 문서</button>
+            <button type="button" className="tpl-new" onClick={() => setFromTpl(EMPTY_DOC)}><Icon name="plus" size={20} />빈 문서</button>
             {tpls.map((t) => (
-              <button type="button" key={t.id} className="tpl-card" style={{ minWidth: 240 }} onClick={() => { setFromTpl(t); setTitle(''); }}>
+              <button type="button" key={t.id} className="tpl-card" style={{ minWidth: 240 }} onClick={() => setFromTpl({ id: t.id, name: t.name, context: t.context })}>
                 <span className="row" style={{ justifyContent: 'space-between' }}><KBadge tone="light-primary">{t.context.hazardType}</KBadge><KBadge>{t.context.managementPhase}</KBadge></span>
                 <strong>{t.name}</strong>
                 <span className="meta">{t.createdBy} · {ago(t.updatedAt)}</span>
@@ -82,14 +73,7 @@ export function PlanList() {
         </KCard>
       </div>
 
-      {fromTpl && (
-        <KModal title="문서 저장" onClose={() => setFromTpl(null)} desc={<>{fromTpl.id ? `템플릿 "${fromTpl.name}"의 기준정보로 시작합니다.` : '빈 문서로 시작합니다.'} 문서 명을 입력하세요 (최대 20자).</>}>
-          <KField label="문서 명" required htmlFor="tpl-title" hint="저장 후 기준정보 입력 화면으로 이동합니다.">
-            <KInput id="tpl-title" autoFocus maxLength={20} value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) void createFromTpl(); }} />
-          </KField>
-          <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={() => setFromTpl(null)}>취소</KBtn><KBtn kind="primary" size="sm" disabled={!title.trim()} onClick={() => void createFromTpl()}>저장하기</KBtn></div>
-        </KModal>
-      )}
+      {fromTpl && <NewDocModal source={fromTpl} onClose={() => setFromTpl(null)} />}
       {confirmDel && (
         <KModal title="삭제하기" onClose={() => setConfirmDel(false)}>
           <p style={{ fontSize: 15 }}>선택한 문서 {checked.size}개를 삭제합니다. 되돌릴 수 없습니다.</p>

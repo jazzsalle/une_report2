@@ -5,6 +5,7 @@ import { Home } from './Home';
 import { PlanShell } from './plan/PlanShell';
 import { PlanList } from './plan/PlanList';
 import { PlanTemplates } from './plan/PlanTemplates';
+import { PlanBasisTemplates } from './plan/PlanBasisTemplates';
 import { PlanEditor } from './plan/PlanEditor';
 import { PlanRhwpEditor } from './plan/PlanRhwpEditor';
 import { SitShell } from './sit/SitShell';
@@ -31,6 +32,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/plan" element={<PlanShell />}>
           <Route index element={<PlanList />} />
           <Route path="templates" element={<PlanTemplates />} />
+          <Route path="basis-templates" element={<PlanBasisTemplates />} />
           <Route path=":id" element={<PlanEditor />} />
           <Route path=":id/editor" element={<PlanRhwpEditor />} />
         </Route>
