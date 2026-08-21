@@ -90,7 +90,7 @@ const plans = col<PlanRow>('plans');
 const planTemplates = col<Row & { name: string; context: PlanContext; createdBy: string; updatedBy?: string }>('plan_templates');
 const cancelFlags = new Map<string, boolean>();
 
-const planSummary = (p: PlanRow) => ({ id: p.id, title: p.title, hazardType: p.context?.hazardType ?? p.hazardType, managementPhase: p.context?.managementPhase ?? p.managementPhase, createdBy: p.createdBy, updatedBy: p.updatedBy, createdAt: p.createdAt, updatedAt: p.updatedAt, hasToc: p.toc.length > 0, drafted: Object.values(p.sections).filter((s) => s.status === '완료').length, total: p.toc.reduce((a, n) => a + 1 + n.children.length, 0), exported: !!p.export, linkedExercises: p.linkedExercises });
+const planSummary = (p: PlanRow) => ({ id: p.id, title: p.title, hazardType: p.context?.hazardType ?? p.hazardType, managementPhase: p.context?.managementPhase ?? p.managementPhase, createdBy: p.createdBy, updatedBy: p.updatedBy, createdAt: p.createdAt, updatedAt: p.updatedAt, hasToc: p.toc.length > 0, drafted: draftableIds(p.toc).filter((id) => p.sections[id]?.status === '완료').length, total: draftableIds(p.toc).length, exported: !!p.export, linkedExercises: p.linkedExercises });
 app.get('/api/plans', (_req, res) => res.json(plans.all().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(planSummary)));
 app.post('/api/plans', (req, res) => { const { title, createdBy } = req.body ?? {}; if (!title) return bad(res, 400, 'title 필요'); res.json(plans.insert({ title, createdBy: createdBy ?? '사용자', context: null, toc: [], sections: {}, linkedExercises: [] })); });
 app.get('/api/plans/:id', (req, res) => { const p = plans.get(req.params.id); return p ? res.json(p) : bad(res, 404, '없음'); });
@@ -180,11 +180,14 @@ app.post('/api/plans/:id/revert', (req, res) => {
   res.json({ ok: true, markdown: paras.join('\n\n') });
 });
 
+/** 초안을 만드는 목차 항목 — 하위 목차가 있는 장은 제목만 두고 본문을 만들지 않는다(장·절 내용이 겹치던 문제, 2026-08-21). 평평한 목차면 장이 곧 본문 단위 */
+export const draftable = (n: TocNode) => n.children.length === 0;
+export const draftableIds = (toc: TocNode[]) => toc.flatMap((n) => (draftable(n) ? [n.id] : n.children.map((c) => c.id)));
 export function planMarkdown(p: PlanRow): string {
   const out: string[] = [];
   for (const n of p.toc) {
     out.push(`# ${n.no} ${n.title}`);
-    if (p.sections[n.id]?.markdown) out.push(p.sections[n.id].markdown);
+    if (draftable(n) && p.sections[n.id]?.markdown) out.push(p.sections[n.id].markdown);
     for (const c of n.children) { out.push(`## ${c.no} ${c.title}`); if (p.sections[c.id]?.markdown) out.push(p.sections[c.id].markdown); }
   }
   return out.join('\n\n');

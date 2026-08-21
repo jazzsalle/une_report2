@@ -122,8 +122,18 @@ export function useUser(): [User | null, (u: User) => void, User[]] {
 /** 아주 작은 마크다운 → 요소 렌더러 (heading/불릿/표/문단/굵게). 문단마다 data-para-id를 붙인다. */
 /** 표 미리보기용 — 템플릿 견본 표의 머리행 배경·글꼴 (HWPX 내보내기와 같은 값) */
 export interface MdTableStyle { headerBg?: string | null; headerBold?: boolean; fontFamily?: string | null; fontSizePt?: number | null }
-export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaClick?: (id: string, text: string) => void; selectedId?: string | null; levelStyle?: (lv: number) => CSSProperties; bullets?: string[]; tableStyle?: MdTableStyle | null } = {}): ReactNode[] {
+const SUBTITLE_RE = /^\*{0,2}\([^)]{1,30}\)\*{0,2}/;
+const SUBTITLE_ONLY_RE = /^\*{0,2}\([^)]{1,30}\)\*{0,2}\s*$/;
+/**
+ * 항목 기호 규칙(서버 hwpx.ts와 동일, 2026-08-21):
+ *  - 항목의 수준은 바로 위 제목에 상대적 — 장(□) 아래 항목은 ㅇ, 절(ㅇ) 아래는 -, 그 아래는 *. 절 하나만 렌더할 때는 `baseLevel`(그 절의 깊이)을 준다.
+ *  - 소제목만 있는 줄 뒤에 같은 깊이로 이어지는 줄들은 그 소제목의 하위.
+ *  - 예전 변환의 "**(소제목)** 문장" 평문단도 1수준 항목으로.
+ */
+export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaClick?: (id: string, text: string) => void; selectedId?: string | null; levelStyle?: (lv: number) => CSSProperties; bullets?: string[]; tableStyle?: MdTableStyle | null; baseLevel?: number } = {}): ReactNode[] {
   const paras = md.replace(/\r/g, '').split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+  let headingLevel = opts.baseLevel ?? 0;
+  const bulletChar = (depth: number) => { const bs = opts.bullets ?? ['□', 'ㅇ', '-', '*']; return bs[Math.min(bs.length - 1, headingLevel + depth)] ?? '•'; };
   const inline = (s: string): ReactNode => {
     // T3Q 표 셀의 <br>은 줄바꿈으로
     const parts = s.replace(/<br\s*\/?>/gi, '\n').split(/(\*\*[^*]+\*\*)/g);
@@ -136,7 +146,7 @@ export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaCl
     const onClick = opts.onParaClick ? () => opts.onParaClick!(id, para) : undefined;
     const h = para.match(/^(#{1,6})\s+(.*)$/);
     if (h) {
-      const lv = h[1].length; const st = opts.levelStyle?.(lv) ?? { fontSize: 19 - lv * 1.5, fontWeight: 700 };
+      const lv = h[1].length; headingLevel = lv; const st = opts.levelStyle?.(lv) ?? { fontSize: 19 - lv * 1.5, fontWeight: 700 };
       const b = opts.bullets?.[lv - 1];
       return <div key={id} data-para-id={id} onClick={onClick} style={{ ...wrap, ...st, marginTop: 10 }}>{b ? `${b} ` : ''}{inline(h[2])}</div>;
     }
@@ -153,13 +163,28 @@ export function renderMarkdown(md: string, opts: { paraPrefix?: string; onParaCl
       );
     }
     if (/^\s*([-*•·ㅇ□■○●]|\d+[.)])\s/.test(para)) {
-      const items = para.split('\n').map((l) => l.match(/^(\s*)([-*•·ㅇ□■○●]|\d+[.)])\s+(.*)$/)).filter(Boolean) as RegExpMatchArray[];
+      const raw = para.split('\n').map((l) => l.match(/^(\s*)([-*•·ㅇ□■○●]|\d+[.)])\s+(.*)$/)).filter(Boolean) as RegExpMatchArray[];
+      // 소제목만 있는 줄 아래로 같은 깊이 줄들을 한 단계 내린다
+      let parent: number | null = null;
+      const items = raw.map((m) => {
+        let depth = Math.floor(m[1].replace(/\t/g, '  ').length / 2); const text = m[3];
+        if (SUBTITLE_ONLY_RE.test(text)) parent = depth;
+        else if (parent != null && depth <= parent && SUBTITLE_RE.test(text)) parent = null; // 소제목으로 시작하는 형제 항목에서 중첩 끝
+        else if (parent != null && depth === parent) depth += 1;
+        else if (parent != null && depth < parent) parent = null;
+        return { depth, text };
+      });
       return (
         <div key={id} data-para-id={id} onClick={onClick} style={wrap}>
-          {items.map((m, i) => { const depth = Math.floor(m[1].replace(/\t/g, '  ').length / 2); const b = opts.bullets?.[Math.min((opts.bullets?.length ?? 1) - 1, depth + 1)] ?? '•'; return <div key={i} style={{ paddingLeft: 12 + depth * 16, fontSize: 15, lineHeight: 1.7 }}>{b} {inline(m[3])}</div>; })}
+          {items.map((it, i) => <div key={i} style={{ paddingLeft: 12 + it.depth * 16, fontSize: 15, lineHeight: 1.7 }}>{bulletChar(it.depth)} {inline(it.text)}</div>)}
         </div>
       );
     }
-    return <p key={id} data-para-id={id} onClick={onClick} style={{ ...wrap, fontSize: 15, lineHeight: 1.8, margin: '2px -8px' }}>{inline(para.replace(/\n/g, ' '))}</p>;
+    const flat = para.replace(/\n/g, ' ');
+    if (SUBTITLE_RE.test(flat)) {
+      // "**(소제목)** 문장" 평문단(예전 변환) → 제목 바로 아래 수준의 항목으로
+      return <div key={id} data-para-id={id} onClick={onClick} style={{ ...wrap, paddingLeft: 12, fontSize: 15, lineHeight: 1.8 }}>{bulletChar(0)} {inline(flat)}</div>;
+    }
+    return <p key={id} data-para-id={id} onClick={onClick} style={{ ...wrap, fontSize: 15, lineHeight: 1.8, margin: '2px -8px' }}>{inline(flat)}</p>;
   });
 }

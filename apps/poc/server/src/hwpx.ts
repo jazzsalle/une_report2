@@ -324,10 +324,32 @@ export function parseMarkdown(md: string): MdBlock[] {
       buf.push(lines[i].trim());
       i++;
     }
-    if (buf.length) blocks.push({ kind: 'para', level: 0, text: buf.join(' ') });
-    else i++;
+    if (buf.length) {
+      const text = buf.join(' ');
+      // 예전 변환으로 저장된 "**(소제목)** 문장" 평문단도 1수준 항목으로 취급 — 재생성 없이 기호가 붙는다
+      blocks.push(SUBTITLE_RE.test(text) ? { kind: 'bullet', level: 1, text } : { kind: 'para', level: 0, text });
+    } else i++;
   }
-  return blocks;
+  return nestUnderSubtitles(blocks);
+}
+
+/** "(소제목)" 또는 "**(소제목)**" 로 시작하는가 */
+export const SUBTITLE_RE = /^\*{0,2}\([^)]{1,30}\)\*{0,2}/;
+/** 소제목만 있는 줄("ㅇ (위험평가 체계 구축)")인가 — AI 문단 수정이 여러 줄로 풀어 쓴 결과에서 나온다 */
+export const SUBTITLE_ONLY_RE = /^\*{0,2}\([^)]{1,30}\)\*{0,2}\s*$/;
+
+/** 소제목만 있는 항목 뒤에 같은 깊이로 이어지는 항목들은 그 소제목의 하위(한 단계 아래)로 본다. 다음 소제목만 있는 항목이나 다른 블록에서 끝난다. */
+export function nestUnderSubtitles(blocks: MdBlock[]): MdBlock[] {
+  let parentLevel: number | null = null;
+  return blocks.map((b) => {
+    if (b.kind !== 'bullet') { parentLevel = null; return b; }
+    if (SUBTITLE_ONLY_RE.test(b.text)) { parentLevel = b.level; return b; }
+    // 소제목으로 시작하는 형제 항목("(해외 동향) 문장")이 나오면 중첩이 끝난다
+    if (parentLevel != null && b.level <= parentLevel && SUBTITLE_RE.test(b.text)) { parentLevel = null; return b; }
+    if (parentLevel != null && b.level === parentLevel) return { ...b, level: b.level + 1 };
+    if (parentLevel != null && b.level < parentLevel) parentLevel = null;
+    return b;
+  });
 }
 
 function stripInlineMd(s: string): string {
@@ -469,12 +491,15 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
     try { doc.applyParaFormat(0, p, JSON.stringify({ alignment: 'center', marginLeft: 0, spacingBefore: 0, spacingAfter: 800 })); } catch { /* ignore */ }
   }
 
+  // 항목의 수준은 바로 위 제목에 상대적 — 장(□) 아래 항목은 ㅇ, 절(ㅇ) 아래 항목은 -, 그 아래는 * (2026-08-21)
+  let headingLevel = 1;
   for (const b of parseMarkdown(md)) {
     if (b.kind === 'heading') {
+      headingLevel = b.level;
       const p = insertAt(bulletText(levelFor(b.level), stripInlineMd(b.text)));
       applyLevel(p, b.level);
     } else if (b.kind === 'bullet') {
-      const lv = Math.min(P.levels.length, Math.max(2, b.level + 1));
+      const lv = Math.min(P.levels.length, headingLevel + b.level);
       const L = levelFor(lv);
       const p = insertAt(L ? bulletText(L, stripInlineMd(b.text)) : `- ${stripInlineMd(b.text)}`);
       applyLevel(p, lv);
