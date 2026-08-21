@@ -161,6 +161,32 @@ export function Pipeline({ steps, current, onSelect }: { steps: PipeStep[]; curr
   );
 }
 
+/** 정렬 가능한 표 머리글 — 누르면 오름/내림 전환, 현재 정렬 열에 화살표 */
+export function SortTh({ label, active, dir, onClick }: { label: string; active: boolean; dir: 'asc' | 'desc'; onClick: () => void }) {
+  return <button type="button" className={`th-sort${active ? ' on' : ''}`} onClick={onClick} aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>{label}<span aria-hidden="true">{active ? (dir === 'asc' ? ' ▲' : ' ▼') : ' ↕'}</span></button>;
+}
+
+/** 페이지 바: "총 N건 중 a–b" + 이전/번호/다음 (설계서 302002 ⑧). 데이터는 호출 쪽에서 slice */
+export function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const cur = Math.min(page, pages);
+  const from = total ? (cur - 1) * pageSize + 1 : 0, to = Math.min(total, cur * pageSize);
+  const nums: number[] = [];
+  for (let p = Math.max(1, cur - 2); p <= Math.min(pages, cur + 2); p++) nums.push(p);
+  return (
+    <nav className="pager" aria-label="페이지">
+      <span className="tiny dim num">총 {total}건 중 {from}–{to}</span>
+      <div className="row" style={{ gap: 4, marginLeft: 'auto' }}>
+        <KBtn size="xs" disabled={cur <= 1} onClick={() => onPage(cur - 1)}>이전</KBtn>
+        {nums[0] > 1 && <span className="dim">…</span>}
+        {nums.map((p) => <KBtn key={p} size="xs" kind={p === cur ? 'primary' : 'tertiary'} onClick={() => onPage(p)} ariaLabel={`${p}쪽`}>{p}</KBtn>)}
+        {nums[nums.length - 1] < pages && <span className="dim">…</span>}
+        <KBtn size="xs" disabled={cur >= pages} onClick={() => onPage(cur + 1)}>다음</KBtn>
+      </div>
+    </nav>
+  );
+}
+
 /** 화면 제목 + 화면설계서 코드 */
 export function H1({ children, code }: { children: ReactNode; code?: string }) {
   return <h1 className="h1">{children}{code && <span className="code">{code}</span>}</h1>;

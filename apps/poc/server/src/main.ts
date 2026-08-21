@@ -220,6 +220,7 @@ app.post('/api/plans/:id/import-hwpx', upload.single('file'), async (req, res) =
 });
 app.get('/api/plan-templates', (_req, res) => res.json(planTemplates.all()));
 app.post('/api/plan-templates', (req, res) => res.json(planTemplates.insert({ name: req.body.name, context: req.body.context, createdBy: req.body.createdBy ?? '사용자' })));
+app.get('/api/plan-templates/:id', (req, res) => { const t = planTemplates.get(req.params.id); return t ? res.json(t) : bad(res, 404, '없음'); });
 app.put('/api/plan-templates/:id', (req, res) => {
   const t = planTemplates.get(req.params.id); if (!t) return bad(res, 404, '없음');
   const { name, context, updatedBy } = req.body as { name?: string; context?: PlanContext; updatedBy?: string };
