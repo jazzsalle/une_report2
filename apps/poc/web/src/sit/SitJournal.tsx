@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { get, post, put, fmtDate, type Exercise, type Journal, type Task, type PlanSummary } from '../api';
+import { get, post, put, fmtDate, pickSaveLocation, writeFileTo, type Exercise, type Journal, type Task, type PlanSummary } from '../api';
 import { Btn, C, Card, Chip, Modal, Select, Textarea, Toast, renderMarkdown, useToast } from '../ui';
 
 export function SitJournal() {
@@ -23,7 +23,24 @@ export function SitJournal() {
   const polish = async (key: string) => { setBusy(true); try { await post(`/exercises/${id}/journal/polish`, { sectionKey: key }); await load(); show('문장을 다듬었습니다'); } finally { setBusy(false); } };
   const saveEdit = async () => { if (!j || edit === null) return; const sections = j.sections.map((s) => (s.key === cur ? { ...s, markdown: edit, reviewed: true } : s)); await put(`/exercises/${id}/journal`, { sections }); setEdit(null); await load(); show('저장되었습니다'); };
   const markReviewed = async () => { if (!j) return; const sections = j.sections.map((s) => ({ ...s, reviewed: true })); await put(`/exercises/${id}/journal`, { sections }); await load(); show('검토 완료'); };
-  const exportHwpx = async () => { setBusy(true); try { const r = await post<{ fileName: string; url: string }>(`/exercises/${id}/journal/export`, {}); await load(); show('HWPX 생성 완료'); setPreview(await get(`/exercises/${id}/journal/preview`)); } catch (e) { show((e as Error).message); } finally { setBusy(false); } };
+  // 저장 위치 창은 클릭 직후에만 열린다 — 서버 생성을 기다린 뒤 열면 브라우저가 거부하므로 먼저 묻는다 (계획서 PlanEditor와 동일).
+  const exportHwpx = async () => {
+    const handle = await pickSaveLocation(`${ex?.title ?? '훈련'}_상황일지.hwpx`);
+    setBusy(true);
+    try {
+      const r = await post<{ fileName: string; url: string }>(`/exercises/${id}/journal/export`, {}); await load();
+      if (handle === 'cancelled') show('HWPX 생성 완료 · 저장은 취소됨 — [최근 파일 다운로드]로 받을 수 있습니다');
+      else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, r.fileName); show(how === 'saved' ? `저장했습니다: ${r.fileName}` : 'HWPX 생성 완료 · 브라우저 다운로드 폴더에 저장'); }
+      setPreview(await get(`/exercises/${id}/journal/preview`));
+    } catch (e) { show((e as Error).message); } finally { setBusy(false); }
+  };
+  const download = async () => {
+    if (!j?.export) return;
+    const handle = await pickSaveLocation(j.export.fileName);
+    if (handle === 'cancelled') return;
+    try { const how = await writeFileTo(handle, `/api/files/${j.export.fileName}`, j.export.fileName); show(how === 'saved' ? `저장했습니다: ${j.export.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); }
+    catch (e) { show((e as Error).message); }
+  };
   const feedback = async () => { if (!linkPlan) return; const r = await post<{ tocId: string; title: string }>('/link/exercise-to-plan', { exerciseId: id, planId: linkPlan }); show(`계획서 "${r.title}" 절에 훈련 환류 반영`); await load(); };
   if (!ex) return <div style={{ padding: 24 }}>불러오는 중…</div>;
   const sec = j?.sections.find((s) => s.key === cur);
@@ -64,7 +81,7 @@ export function SitJournal() {
         <Card title="검토 필요 알림" style={{ background: C.orangeBg, border: '1px solid #fcd34d' }}><div style={{ fontSize: 12.5, lineHeight: 1.9 }}>· 미확인 담당자 <b>{unacked}</b>명<br />· 지연 임무 <b>{delayed}</b>건<br />· AI 생성 문장 검토 필요 <b>{aiNeed}</b>건</div></Card>
         <Card title="내보내기">
           <Btn kind="dark" style={{ width: '100%', marginBottom: 6 }} disabled={!j || busy} onClick={() => void exportHwpx()}>HWPX 다운로드 (상황보고 템플릿)</Btn>
-          {j?.export && <a href={`/api/files/${j.export.fileName}`} download><Btn style={{ width: '100%', marginBottom: 6 }}>최근 파일 다운로드</Btn></a>}
+          {j?.export && <Btn style={{ width: '100%', marginBottom: 6 }} onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다">최근 파일 다운로드</Btn>}
           {j?.export && <Btn style={{ width: '100%', marginBottom: 6 }} disabled={busy} onClick={async () => { setBusy(true); try { setPreview(await get(`/exercises/${id}/journal/preview`)); } finally { setBusy(false); } }}>{busy ? '렌더 중…' : 'rhwp 렌더 미리보기'}</Btn>}
           <Btn style={{ width: '100%' }} disabled title="후속 범위">DOCX / PDF (후속)</Btn>
         </Card>
