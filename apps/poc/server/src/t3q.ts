@@ -6,6 +6,7 @@
  */
 import { Agent, fetch as undiciFetch } from 'undici';
 import type { PlanContext, TocNode } from './llm.js';
+import { isNumberingBullet } from './hwpx.js';
 
 const BASE = (process.env.T3Q_API_BASE_URL ?? 'https://plf.mois-disaster.t3q.ai').replace(/\/+$/, '');
 const MODEL = process.env.T3Q_MODEL_ID ?? 'ae894';
@@ -100,23 +101,105 @@ export async function t3qContent(ctx: PlanContext, sections: T3qSection[], parag
   return out;
 }
 
-/** T3Q 본문의 "□ㅇ-* (소제목) 문장…" 관례를 마크다운으로: 기호 접두는 떼고 (소제목)은 굵게. */
-export function t3qContentToMarkdown(content: string, symbols: string[]): string {
-  const sym = symbols.filter(Boolean);
-  const joined = sym.join('');
-  // 실측 2026-08-21: T3Q는 줄마다 요청한 기호 문자열("□ㅇ-*")을 통째로 앞에 붙여 돌려주며 줄 사이 위계가 없다.
-  // 그래서 각 줄을 2수준 항목("- ")으로 만든다 → 웹 렌더·HWPX 모두 템플릿의 2수준 기호(ㅇ)와 글자모양을 입힌다.
-  // (예전처럼 기호만 벗기면 평문단이 되어 내보낸 HWPX에 기호가 하나도 남지 않았다.)
-  return content.split('\n').map((line) => {
-    let l = line;
-    if (joined && l.startsWith(joined)) l = l.slice(joined.length).trim();
-    for (const s of sym) if (l.startsWith(s + ' ') || l.startsWith(s)) { l = l.slice(s.length).trim(); break; }
-    l = l.trim();
-    if (!l || /^[|#]/.test(l) || /^\s*([-*•·]|\d+[.)])\s/.test(l)) return l;
+/**
+ * T3Q에 보낼 paragraphSymbol: 요청한 절의 **아래** 수준 기호만, 개요번호형("1." "가." "①")은 빼고 **콤마로 구분**한다.
+ * 실측 2026-08-21 (같은 절에 세 표기를 동시에 보내 비교):
+ *   "□○-", "□ ○ -"  → 줄마다 "□○- (소제목) 문장" 통째 기호, 위계 없음
+ *   "□, ○, -"        → "□ 문장" / "  ○ 문장" / "    - 문장" 3단 위계로 돌아옴  ← 채택
+ * "1.가.□○-"처럼 번호까지 이어 보내면 소제목에 가나다 순번을 스스로 매기고 문장엔 나머지 기호를 통째로 붙였다.
+ */
+export function t3qSymbolsFor(symbols: string[], depth: number): string {
+  const plain = (arr: string[]) => arr.filter((s) => s && !isNumberingBullet(s));
+  const below = plain(symbols.slice(Math.max(0, depth)));
+  const pick = below.length ? below : plain(symbols);
+  return (pick.length ? pick : ['□', 'ㅇ', '-', '*']).join(', ');
+}
+
+/** 기호 문자(템플릿 기호 + 흔한 변형). '*'는 "**(소제목)**" 굵게 표시와 겹치므로 뒤에 '*'나 '('가 오면 기호로 안 본다 */
+const SYM_RUN_RE = /^(?:[□■○●◇◆ㅇ•·\-–—]|\*(?![*(]))+\s*/;
+/** "가. 제목" / "1) 제목" / "① 제목" — T3Q가 스스로 매긴 소제목 순번 */
+const SUBHEAD_RE = /^([가-힣]|\d{1,2}|[①-⑳])[.)]\s+\S/;
+const normTitle = (s: string) => s.replace(/^[\d.\s]+/, '').replace(/\s+/g, '').trim();
+
+/**
+ * T3Q 본문 → 마크다운 항목. 실측 2026-08-21(문서 "테스트도도도", AI 행정문서 템플릿):
+ *   콤마 구분 요청("□, ○, -")이면 "□ 문장" / "  ○ 문장" / "    - 문장" 위계로 온다 → 줄 앞 기호 하나가 곧 수준.
+ *   그 밖의 응답(예전 요청 형식):
+ *   "1. 감염병 위기 관리 체계 및 기본 방향"   ← 절 제목을 첫 줄에 반복 → 버림
+ *   "가. 중앙재난안전대책본부의 총괄 역할"     ← 소제목(T3Q가 순번을 매김) → 깊이 0, 그 아래 문장은 깊이 1
+ *   "□○- (소제목) 문장…"                    ← 요청 기호가 통째로 붙음 → 남지 않을 때까지 벗김
+ * 결과는 "- " 항목 + 2칸 들여쓰기. 웹·HWPX가 제목 기준 상대 수준으로 템플릿 기호를 입힌다.
+ * 저장된 변환 결과에 다시 돌려도 같은 결과(멱등) — 기동 시 옛 저장본 정리에 쓴다. 들여쓴 "- " 줄은 들여쓰기를 깊이로 본다.
+ */
+export function t3qContentToMarkdown(content: string, symbols: string[], sectionTitle?: string): string {
+  const ordered = symbols.filter((s) => s && !isNumberingBullet(s)); // 요청 순서 = 수준 순서
+  const sym = ordered.filter((s) => !SYM_RUN_RE.test(s)).sort((a, b) => b.length - a.length);
+  /** 줄이 요청 기호 **하나**로만 시작하면 그 기호의 순서가 수준 ("□ 문장" → 0, "○ 문장" → 1). 기호가 붙어 있으면("□○-") null */
+  const symDepth = (t: string): { depth: number; rest: string } | null => {
+    for (const s of [...ordered].sort((a, b) => b.length - a.length)) {
+      if (s === '-' || !(t.startsWith(s + ' ') || t === s)) continue;
+      const rest = t.slice(s.length).trimStart();
+      if (!SYM_RUN_RE.test(rest) || rest.startsWith('**(')) return { depth: ordered.indexOf(s), rest };
+    }
+    return null;
+  };
+  const stripLead = (s: string) => {
+    let l = s.trimStart();
+    for (let guard = 0; guard < 12; guard++) {
+      let hit = false;
+      // "3.나.□○- 문장"처럼 번호 뒤에 곧바로 기호가 붙어 있으면 T3Q가 요청 기호열을 통째로 붙인 것 — 번호까지 벗긴다
+      const glued = l.match(/^(?:\d+[.)]\s*)?(?:[가-힣][.)]\s*)?(?=[□■○●◇◆ㅇ•·\-–—*])/);
+      if (glued && glued[0]) { l = l.slice(glued[0].length); hit = true; }
+      for (const x of sym) if (l.startsWith(x)) { l = l.slice(x.length).trimStart(); hit = true; }
+      const m = l.match(SYM_RUN_RE); if (m) { l = l.slice(m[0].length); hit = true; }
+      if (!hit) break;
+    }
+    return l.trim();
+  };
+  const title = sectionTitle ? normTitle(sectionTitle) : '';
+  type Item = { kind: 'item'; sub: boolean; text: string; depth: number | null; src: 'sym' | 'indent' | null };
+  type Row = { kind: 'blank' } | { kind: 'raw'; text: string } | Item;
+  const rows: Row[] = [];
+  let hasSub = false;
+  for (const line of content.split('\n')) {
+    const t = line.trim();
+    if (!t) { rows.push({ kind: 'blank' }); continue; }
+    if (/^[|#]/.test(t)) { rows.push({ kind: 'raw', text: t }); continue; }
+    // 수준 판정: (a) 요청 기호 하나로 시작 → 기호 순서  (b) 들여쓴 "- " 줄(이전 변환 결과·T3Q 3수준) → 들여쓰기/2  (c) 그 외 null → 소제목 규칙
+    let depth: number | null = null; let src: Item['src'] = null;
+    const sd = symDepth(t);
+    const indent = line.match(/^(\s+)-\s/);
+    if (sd) { depth = sd.depth; src = 'sym'; }
+    else if (indent) { depth = Math.floor(indent[1].replace(/\t/g, '  ').length / 2); src = 'indent'; }
+    let l = stripLead(sd ? sd.rest : t);
+    if (!l) continue;
+    if (title && normTitle(l) === title) continue; // 절 제목 반복
+    l = l.replace(/^\*\*(\([^)]{1,30}\))\*\*\s*/, '$1 ').trim(); // 저장본의 "**(소제목)**"은 굵게 표시를 벗겨 같은 길로
     const m = l.match(/^\(([^)]{1,30})\)\s*(.*)$/);
-    if (m) l = `**(${m[1]})** ${m[2]}`;
-    return `- ${l}`;
-  }).join('\n');
+    // 소제목 줄: "가. 제목"(T3Q가 순번을 매긴 경우) 또는 "(소제목)"만 있는 줄(기호만 보낸 경우, 실측 2026-08-21 두 번째 응답)
+    const sub = depth == null && ((SUBHEAD_RE.test(l) && !/[.!?]$/.test(l) && l.length <= 60) || (!!m && !m[2].trim()));
+    if (sub) hasSub = true;
+    if (m) l = `**(${m[1]})**${m[2].trim() ? ` ${m[2].trim()}` : ''}`;
+    rows.push({ kind: 'item', sub, text: l, depth, src });
+  }
+  // 기호로 정한 수준은 가장 위 기호를 0으로 맞춘다(절 아래 수준만 요청했으므로 "ㅇ, -, *"면 ㅇ가 0)
+  const symDepths = rows.filter((r): r is Item => r.kind === 'item' && r.src === 'sym').map((r) => r.depth as number);
+  const minSym = symDepths.length ? Math.min(...symDepths) : 0;
+  // 옛 변환이 "가."를 이미 벗긴 저장본: 첫 항목이 제목꼴이고 다음 소제목이 "나."면 첫 항목도 소제목으로 본다
+  if (hasSub) {
+    const items = rows.filter((r): r is Item => r.kind === 'item' && r.depth == null);
+    const firstSub = items.find((r) => r.sub);
+    const first = items[0];
+    if (first && !first.sub && firstSub && /^(나[.)]|2[.)]|②)/.test(firstSub.text) && !/[.!?]$/.test(first.text) && first.text.length <= 60 && !first.text.startsWith('**')) first.sub = true;
+  }
+  let under = false;
+  return rows.map((r) => {
+    if (r.kind === 'blank') return '';
+    if (r.kind === 'raw') return r.text;
+    if (r.depth != null) return `${'  '.repeat(Math.max(0, r.src === 'sym' ? r.depth - minSym : r.depth))}- ${r.text}`;
+    if (r.sub) { under = true; return `- ${r.text}`; }
+    return `${hasSub && under ? '  ' : ''}- ${r.text}`;
+  }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /** T3Q가 돌려준 섹션 이름이 우리 목차 노드와 같은 항목인지 (번호 또는 제목 일치). */

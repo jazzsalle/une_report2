@@ -168,3 +168,7 @@
 .krds .hcard-new:hover{color:var(--primary)}
 .krds .hero-empty{align-self:center;font-size:15px;color:#464c53;margin:0;padding:0 8px}
 @media (max-width:900px){.krds .hero-title{font-size:24px}.krds .hero-inner{padding-top:20px}}
+
+/* HWPX 원본 미리보기(rhwp SVG) — 쪽 하나가 모달 폭에 맞게 줄어든다 */
+.krds .hwp-page{background:#fff;border:1px solid #cdd1d5;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.krds .hwp-page svg{width:100%;height:auto;display:block}
