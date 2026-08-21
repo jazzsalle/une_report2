@@ -23,17 +23,19 @@ export function HazardIcon({ hazard, size = 48 }: { hazard?: string; size?: numb
   return <img src={`/hero/${s.icon}.svg`} width={size} height={size} alt="" style={{ borderRadius: 8, display: 'block' }} />;
 }
 
-export function HeroCards({ userName, tpls, onNew, onPick }: { userName?: string; tpls: PlanTemplate[]; onNew: () => void; onPick: (t: PlanTemplate) => void }) {
+export function HeroCards({ tpls, onNew, onPick }: { tpls: PlanTemplate[]; onNew: () => void; onPick: (t: PlanTemplate) => void }) {
   const rail = useRef<HTMLDivElement>(null);
   const step = (dir: 1 | -1) => rail.current?.scrollBy({ left: dir * 288 * 3, behavior: 'smooth' });
   return (
     <section className="hero" aria-labelledby="hero-title">
       <div className="wrap hero-inner">
-        <h1 id="hero-title" className="hero-title">{userName ? `${userName}님,` : '안녕하세요,'}<br />필요한 문서를 지금 바로 생성해보세요!</h1>
-        <div className="hero-tools">
-          <button type="button" className="hero-arrow" onClick={() => step(-1)} aria-label="이전 템플릿"><Icon name="back" size={18} /></button>
-          <button type="button" className="hero-arrow" onClick={() => step(1)} aria-label="다음 템플릿"><Icon name="angle" size={18} /></button>
-          <Link to="/plan/basis-templates" className="hero-more">더보기</Link>
+        <div className="hero-head">
+          <h1 id="hero-title" className="hero-title">필요한 문서를 지금 바로 생성해보세요!</h1>
+          <div className="hero-tools">
+            <button type="button" className="hero-arrow" onClick={() => step(-1)} aria-label="이전 템플릿"><Icon name="back" size={18} /></button>
+            <button type="button" className="hero-arrow" onClick={() => step(1)} aria-label="다음 템플릿"><Icon name="angle" size={18} /></button>
+            <Link to="/plan/basis-templates" className="hero-more">더보기</Link>
+          </div>
         </div>
         <div className="hero-rail" ref={rail}>
           <button type="button" className="hcard hcard-new" onClick={onNew}>
