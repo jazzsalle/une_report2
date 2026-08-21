@@ -49,13 +49,13 @@ export function SitJournal() {
       <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 8 }}>
         <b style={{ fontSize: 16 }}>상황일지 검토 및 내보내기</b>{j && <Chip tone="purple">검토 중 · 초안</Chip>}
         <div style={{ flex: 1 }} />
-        <Btn small onClick={() => void generate()} disabled={busy}>{busy ? '생성 중…' : j ? '초안 재생성' : '✦ AI 상황일지 초안 생성'}</Btn>
-        <Btn small disabled={!sec || busy || sec.kind !== 'narrative'} onClick={() => void polish(cur)}>✦ AI로 문장 다듬기</Btn>
+        <Btn small onClick={() => void generate()} disabled={busy}>{busy ? '생성 중…' : j ? '초안 재생성' : 'AI 상황일지 초안 생성'}</Btn>
+        <Btn small disabled={!sec || busy || sec.kind !== 'narrative'} onClick={() => void polish(cur)}>AI로 문장 다듬기</Btn>
         <Btn small disabled={!j} onClick={() => void markReviewed()}>검토 완료</Btn>
         <Btn small kind="primary" disabled={!j || busy} onClick={() => void exportHwpx()}>최종본 저장 · HWPX</Btn>
       </div>
       <Card title="문서 목차" style={{ overflow: 'auto' }}>
-        {(j?.sections ?? []).map((s) => <div key={s.key} onClick={() => { setCur(s.key); setEdit(null); }} style={{ padding: '8px 10px', borderRadius: 8, background: cur === s.key ? C.blueLight : 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: cur === s.key ? 700 : 500, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>{s.title}</span>{s.aiGenerated && !s.reviewed && <span title="AI 생성 · 검토 필요" style={{ color: C.purple }}>✦</span>}</div>)}
+        {(j?.sections ?? []).map((s) => <div key={s.key} onClick={() => { setCur(s.key); setEdit(null); }} style={{ padding: '8px 10px', borderRadius: 8, background: cur === s.key ? C.blueLight : 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: cur === s.key ? 700 : 500, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>{s.title}</span>{s.aiGenerated && !s.reviewed && <Chip tone="purple">AI</Chip>}</div>)}
         {!j && <div style={{ color: C.muted, fontSize: 12 }}>초안을 생성하면 목차가 표시됩니다.</div>}
       </Card>
       <Card style={{ overflow: 'auto', background: '#fff' }}>
@@ -67,7 +67,7 @@ export function SitJournal() {
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}><h2 style={{ fontSize: 16, margin: 0 }}>{sec.title}</h2>{sec.kind === 'fact' ? <Chip tone="green">사실 투영</Chip> : <Chip tone="purple">AI 생성{sec.reviewed ? ' · 검토됨' : ' · 검토 필요'}</Chip>}<div style={{ flex: 1 }} />{edit === null ? <Btn small onClick={() => setEdit(sec.markdown)}>편집</Btn> : <><Btn small kind="primary" onClick={() => void saveEdit()}>저장</Btn><Btn small onClick={() => setEdit(null)}>취소</Btn></>}</div>
                 {edit !== null ? <Textarea value={edit} onChange={(e) => setEdit(e.target.value)} style={{ minHeight: 300, fontFamily: 'ui-monospace, monospace', fontSize: 12.5 }} /> : (
-                  <div style={{ background: sec.aiGenerated && !sec.reviewed ? '#faf5ff' : 'transparent', borderLeft: sec.aiGenerated && !sec.reviewed ? `3px solid ${C.purple}` : 'none', padding: sec.aiGenerated && !sec.reviewed ? '4px 10px' : 0 }}>{renderMarkdown(sec.markdown)}</div>
+                  <div style={{ background: sec.aiGenerated && !sec.reviewed ? '#eff5ff' : 'transparent', borderRadius: 8, padding: sec.aiGenerated && !sec.reviewed ? '8px 14px' : 0 }}>{renderMarkdown(sec.markdown)}</div>
                 )}
               </>
             )}
@@ -76,9 +76,9 @@ export function SitJournal() {
       </Card>
       <div style={{ overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Card title="자동 기록 원천">{origins.map(([k, v]) => <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '4px 0' }}><span>{k}</span><b>{v}건</b></div>)}</Card>
-        <Card title="검토 필요 알림" style={{ background: C.orangeBg, border: '1px solid #fcd34d' }}><div style={{ fontSize: 12.5, lineHeight: 1.9 }}>· 미확인 담당자 <b>{unacked}</b>명<br />· 지연 임무 <b>{delayed}</b>건<br />· AI 생성 문장 검토 필요 <b>{aiNeed}</b>건</div></Card>
+        <Card title="검토 필요 알림" style={{ background: C.orangeBg, border: '1px solid #ffe0a3' }}><div style={{ fontSize: 12.5, lineHeight: 1.9 }}>· 미확인 담당자 <b>{unacked}</b>명<br />· 지연 임무 <b>{delayed}</b>건<br />· AI 생성 문장 검토 필요 <b>{aiNeed}</b>건</div></Card>
         <Card title="내보내기">
-          <Btn kind="dark" style={{ width: '100%', marginBottom: 6 }} disabled={!j || busy} onClick={() => void exportHwpx()}>HWPX 다운로드 (상황보고 템플릿)</Btn>
+          <Btn kind="primary" style={{ width: '100%', marginBottom: 6 }} disabled={!j || busy} onClick={() => void exportHwpx()}>HWPX 다운로드 (상황보고 템플릿)</Btn>
           {j?.export && <Btn style={{ width: '100%', marginBottom: 6 }} onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다">최근 파일 다운로드</Btn>}
           <Btn style={{ width: '100%' }} disabled title="후속 범위">DOCX / PDF (후속)</Btn>
         </Card>

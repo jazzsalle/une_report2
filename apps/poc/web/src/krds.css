@@ -53,7 +53,12 @@
 .krds .k-btn.text{background:transparent;color:#256ef4;border-color:transparent;padding:0 8px}
 .krds .k-btn.icon{width:32px;height:32px;padding:0;border-radius:6px;background:transparent;border-color:transparent;color:#464c53}
 .krds .k-btn.icon:hover:not([disabled]){background:#f4f5f6}
+.krds .k-btn.dark{background:#1e2124;color:#fff;border-color:#1e2124}
+.krds .k-btn.warn{color:#9d5b00;border-color:#9d5b00}
 .krds .k-btn[disabled]{opacity:.4;cursor:not-allowed}
+.krds a.k-btn{text-decoration:none}
+.krds .bg-ai{background:#eff5ff;color:#0b50d0;box-shadow:inset 0 0 0 1px #c2d6ff}
+.krds .lnb .lnb-disabled{display:flex;align-items:center;padding:0 16px;font-size:15px;color:#8a949e;cursor:not-allowed;white-space:nowrap}
 .krds .k-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:100px;font-size:13px;font-weight:700;line-height:1.6;white-space:nowrap}
 .krds .bg-success{background:#228738;color:#fff}.krds .bg-light-success{background:#eef7f0;color:#228738}
 .krds .bg-primary{background:#256ef4;color:#fff}.krds .bg-light-primary{background:#eff5ff;color:#256ef4}

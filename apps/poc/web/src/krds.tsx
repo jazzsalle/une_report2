@@ -1,6 +1,29 @@
-/** 계획서 도구 전용 KRDS 컴포넌트. 스타일은 krds.css(.krds 범위) — 상황일지 화면의 ui.tsx와 독립. */
+/** KRDS 컴포넌트. 스타일은 krds.css(.krds 범위). 계획서 화면은 이 K* 부품을 직접 쓰고, 상황일지는 ui.tsx(같은 CSS 클래스를 입힌 예전 부품)를 쓴다. */
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import type { User } from './api';
 import './krds.css';
+
+/** 공통 헤더: 로고 + GNB(계획서 생성 / 상황일지) + 사용자 선택(인증 대체) */
+export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 'sit'; user: User | null; users: User[]; onUser: (u: User) => void }) {
+  return (
+    <header className="hdr">
+      <div className="wrap hdr-in">
+        <Link to="/" className="logo"><span className="logo-mark">UNE</span><strong className="logo-tit">재난안전 AI 문서 POC</strong></Link>
+        <nav className="gnb" aria-label="주요 메뉴">
+          <Link to="/plan" aria-current={active === 'plan' ? 'page' : undefined}>계획서 생성</Link>
+          <Link to="/sit" aria-current={active === 'sit' ? 'page' : undefined}>상황일지</Link>
+        </nav>
+        <div className="util">
+          <label htmlFor="user-sel" className="tiny">사용자</label>
+          <select id="user-sel" className="k-select" value={user?.id ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); if (u) onUser(u); }} style={{ width: 220, height: 32, fontSize: 13 }}>
+            {users.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.dept}</option>)}
+          </select>
+        </div>
+      </div>
+    </header>
+  );
+}
 
 // ── 아이콘 (KRDS 킷 SVG 대체, 20px 그리드 stroke 기반) ──
 const PATHS: Record<string, ReactNode> = {

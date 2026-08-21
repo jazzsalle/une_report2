@@ -20,7 +20,7 @@ import { font } from './ui';
 
 document.body.style.margin = '0';
 document.body.style.fontFamily = font;
-document.body.style.background = '#f5f7fb';
+document.body.style.background = '#f4f5f6';
 document.body.style.color = '#1f2933';
 
 createRoot(document.getElementById('root')!).render(

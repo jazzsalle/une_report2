@@ -82,8 +82,8 @@ export function SitNew() {
         </Card>
       </div>
       {/* 챗봇 */}
-      <Card title={<span>✦ AI 챗봇 질의 <Chip tone="navy">유니 RAG</Chip></span>} right={<span style={{ fontSize: 11, color: C.muted }}>답변마다 참고 문서·근거가 표시됩니다</span>} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div ref={chatBox} style={{ flex: 1, overflow: 'auto', background: '#f8fafc', borderRadius: 8, padding: 12, minHeight: 320 }}>
+      <Card title={<span>AI 챗봇 질의 <Chip tone="purple">유니</Chip></span>} right={<span style={{ fontSize: 11, color: C.muted }}>답변마다 참고 문서·근거가 표시됩니다</span>} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div ref={chatBox} style={{ flex: 1, overflow: 'auto', background: '#f4f5f6', borderRadius: 8, padding: 12, minHeight: 320 }}>
           {!chat.length && (
             <div style={{ color: C.muted, fontSize: 13 }}>
               <div style={{ marginBottom: 10 }}>훈련상황에 대해 자연어로 물어보세요. 기본정보(재난유형·단계·시나리오)가 질의 맥락으로 함께 전달됩니다.</div>
@@ -101,7 +101,7 @@ export function SitNew() {
                   <div style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>참고 문서 · 근거 {m.sources.length}건</div>
                   {m.sources.slice(0, 5).map((s, j) => (
                     <details key={j} style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 12 }}>
-                      <summary style={{ cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontWeight: 700, flex: 1 }}>📄 {s.filename}</span>{s.score ? <Chip tone="blue">{Math.round(s.score * 100)}%</Chip> : null}</summary>
+                      <summary style={{ cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontWeight: 700, flex: 1 }}>{s.filename}</span>{s.score ? <Chip tone="blue">{Math.round(s.score * 100)}%</Chip> : null}</summary>
                       <div style={{ marginTop: 6, color: C.muted, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{s.text}</div>
                     </details>
                   ))}
@@ -126,10 +126,10 @@ export function SitNew() {
           <div style={{ fontSize: 12, marginBottom: 8 }}><b>생성 예정 SOP</b> <Chip tone="purple">AI 생성</Chip><div style={{ color: C.muted, marginTop: 2 }}>8~12개 임무 · 판단분기 {options.includes('판단분기 포함') ? '포함' : '제외'} · 현장확인 {options.includes('현장 확인 요청 포함') ? '포함' : '제외'}</div></div>
           <div style={{ fontSize: 12, marginBottom: 8 }}><b>전파 메시지</b> <Chip tone="purple">AI 생성</Chip><div style={{ color: C.muted, marginTop: 2 }}>임무별 템플릿 · 담당자 수신 확인 요청 포함</div></div>
           <div style={{ fontSize: 12 }}><b>상황일지 초안</b> <Chip tone="purple">AI 생성</Chip><div style={{ color: C.muted, marginTop: 2 }}>최초상황 · 주요 조치 · 현장확인 · 향후계획 구성</div></div>
-          <div style={{ marginTop: 10, padding: 8, background: '#f8fafc', borderRadius: 8, fontSize: 11, color: C.muted, border: `1px dashed ${C.border}` }}>AI 생성 결과는 초안이며, 최종 확정과 전파는 담당자 검토 후 수행됩니다.</div>
+          <div style={{ marginTop: 10, padding: 8, background: '#f4f5f6', borderRadius: 8, fontSize: 11, color: C.muted, border: `1px dashed ${C.border}` }}>AI 생성 결과는 초안이며, 최종 확정과 전파는 담당자 검토 후 수행됩니다.</div>
         </Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <Btn kind="primary" disabled={busy} onClick={() => void create()}>{busy ? '생성 중…' : '✦ AI 생성 시작 (SOP)'}</Btn>
+          <Btn kind="primary" disabled={busy} onClick={() => void create()}>{busy ? '생성 중…' : 'AI 생성 시작 (SOP)'}</Btn>
           <Btn onClick={() => show(f.title && f.hazardType && f.alertLevel ? '필수 항목 확인 완료 · 모순 없음' : '필수 항목이 비어 있습니다')}>AI 기준정보 검증</Btn>
           <Btn onClick={() => { localStorage.setItem('poc.sit.draft', JSON.stringify({ f, chat, options })); show('임시저장되었습니다'); }}>임시저장</Btn>
         </div>
