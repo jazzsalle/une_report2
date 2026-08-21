@@ -61,6 +61,9 @@ export interface PlanContext { subject: string; hazardType: string; managementPh
 /** 기준정보 템플릿(기준정보 입력값 저장본) — HWPX 문서 템플릿(Template)과 다른 것 */
 export interface PlanTemplate { id: string; name: string; context: PlanContext; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string }
 export interface TocNode { id: string; no: string; title: string; children: TocNode[] }
+/** 초안을 만드는 목차 항목 — 하위 목차가 있는 장은 제목만(서버 main.ts와 같은 규칙) */
+export const draftable = (n: TocNode) => n.children.length === 0;
+export const draftableIds = (toc: TocNode[]) => toc.flatMap((n) => (draftable(n) ? [n.id] : n.children.map((c) => c.id)));
 export type SecStatus = '-' | '대기' | '진행중' | '취소대기' | '취소' | '완료' | '오류';
 export interface Section { tocId: string; status: SecStatus; markdown: string; userEdited: boolean; sources: { filename: string; score: number; text: string }[]; history: { at: string; paraId: string; before: string; after: string; instruction: string }[]; origin?: string; provider?: string; references?: unknown[] }
 export interface Plan { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; linkedExercises: string[] }

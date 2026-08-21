@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { get, post, put, sse, pickSaveLocation, writeFileTo, ago, type Plan, type PlanContext, type TocNode, type Template, type SecStatus } from '../api';
+import { get, post, put, sse, pickSaveLocation, writeFileTo, ago, draftable, draftableIds, type Plan, type PlanContext, type TocNode, type Template, type SecStatus } from '../api';
 import { Toast, renderMarkdown, useToast, useUser, type MdTableStyle } from '../ui';
 import { H1, Icon, KAlert, KBadge, KBtn, KCard, KField, KInput, KModal, KTable, KTextarea, KV, Pipeline, statusToTone, type PipeStep } from '../krds';
 import { ContextForm } from './ContextForm';
@@ -24,8 +24,9 @@ export function PlanEditor() {
   useEffect(() => { void reload().then((p) => { if (p.toc.length) setStep(Object.keys(p.sections).length ? 'draft' : 'toc'); }); get<Template[]>('/templates').then(setTemplates); get<Health>('/health').then(setHealth).catch(() => setHealth(null)); }, [id, reload]);
   if (!plan) return <div className="wrap" style={{ padding: 24 }}>불러오는 중…</div>;
   const tpl = templates.find((t) => t.id === plan.context?.templateId) ?? null;
-  const total = plan.toc.reduce((a, n) => a + 1 + n.children.length, 0);
-  const done = Object.values(plan.sections).filter((s) => s.status === '완료').length;
+  // 본문 단위 = 하위 목차가 없는 항목(장에 절이 있으면 절만). 서버 planSummary와 같은 규칙
+  const total = draftableIds(plan.toc).length;
+  const done = draftableIds(plan.toc).filter((id) => plan.sections[id]?.status === '완료').length;
   // 작업 단계 칩 — 자유 이동 허용, 선행조건 미충족은 비활성 + 사유(title)
   const steps: PipeStep[] = [
     { key: 'context', label: '기준정보', done: !!plan.context },
@@ -187,7 +188,8 @@ function TocStep({ plan, tpl, reload, show, onDraft }: { plan: Plan; tpl: Templa
           <KInput autoFocus value={renaming.title} onChange={(e) => setRenaming({ ...renaming, title: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') rename(); if (e.key === 'Escape') setRenaming(null); }} style={{ width: 360 }} aria-label="목차 명" />
           <KBtn size="xs" kind="primary" onClick={rename}>저장</KBtn><KBtn size="xs" onClick={() => setRenaming(null)}>취소</KBtn>
         </> : <span style={{ flex: 1, fontSize: depth ? 15 : 17, fontWeight: depth ? 400 : 700 }}>{n.title}</span>}
-        {sec && <KBadge tone={statusToTone(sec.status)}>{sec.status}</KBadge>}
+        {!draftable(n) && <KBadge tone="light-gray" title="하위 목차가 있어 제목만 씁니다">제목</KBadge>}
+        {sec && draftable(n) && <KBadge tone={statusToTone(sec.status)}>{sec.status}</KBadge>}
         {editing && renaming?.id !== n.id && (
           <span className="row" style={{ gap: 2 }} onClick={(e) => e.stopPropagation()}>
             <KBtn kind="icon" ariaLabel="이름 수정" title="이름 수정" onClick={() => setRenaming({ id: n.id, title: n.title })}><Icon name="edit" size={16} /></KBtn>
@@ -246,8 +248,12 @@ function TocStep({ plan, tpl, reload, show, onDraft }: { plan: Plan; tpl: Templa
 
 // ── 3. 초안 (SCR-CADM-402005/402003) + 챗봇 문단 수정 ─────────────────────
 function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | null; reload: () => Promise<Plan>; show: (m: string) => void }) {
-  const flat = useMemo(() => plan.toc.flatMap((n) => [{ node: n, depth: 1 }, ...n.children.map((c) => ({ node: c, depth: 2 }))]), [plan.toc]);
-  const [current, setCurrent] = useState<string | null>(flat.find((f) => plan.sections[f.node.id]?.status === '완료')?.node.id ?? null);
+  // eligible = 본문을 만드는 항목. 하위 목차가 있는 장은 제목만(장·절 내용 중복 방지, 2026-08-21)
+  const flat = useMemo(() => plan.toc.flatMap((n) => [{ node: n, depth: 1, eligible: draftable(n) }, ...n.children.map((c) => ({ node: c, depth: 2, eligible: true }))]), [plan.toc]);
+  const eligible = useMemo(() => flat.filter((f) => f.eligible), [flat]);
+  const [current, setCurrent] = useState<string | null>(eligible.find((f) => plan.sections[f.node.id]?.status === '완료')?.node.id ?? null);
+  // 사용자가 체크해 고른 절 — 일괄 생성 대신 필요한 절만 생성한다
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [live, setLive] = useState<Record<string, string>>({});
   // 동시에 생성 중인 절들. T3Q는 절 하나를 통째로 15~20초 뒤에 돌려주므로 순차로 돌리면 11절에 3~4분 — 3절씩 병렬로 돌린다(2026-08-21).
   const [running, setRunning] = useState<Set<string>>(new Set());
@@ -286,9 +292,11 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
     for (const id of ids) finishers.current.get(id)?.();
   };
   const CONCURRENCY = 3;
-  const draftAll = async () => {
-    setAutoAll(true); autoAllRef.current = true;
-    const queue = flat.filter((f) => plan.sections[f.node.id]?.status !== '완료').map((f) => f.node.id);
+  /** 체크한 절들을 동시 3절씩 생성. 이미 완료된 절은 강제 재생성(사용자 수정 보호는 서버가 판단) */
+  const draftPicked = async () => {
+    const queue = eligible.filter((f) => picked.has(f.node.id) && !running.has(f.node.id)).map((f) => f.node.id);
+    if (!queue.length) return;
+    setAutoAll(true); autoAllRef.current = true; setPicked(new Set());
     let next = 0;
     const worker = async () => { while (autoAllRef.current && next < queue.length) { const id = queue[next++]; await draftOne(id); } };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
@@ -310,30 +318,40 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
   };
   const revert = async () => { if (!selPara) return; await post(`/plans/${plan.id}/revert`, { paraId: selPara.id }); await reload(); show('원문으로 되돌렸습니다'); setSelPara(null); };
   const saveRaw = async () => { if (!current || editRaw === null) return; await put(`/plans/${plan.id}/sections/${current}`, { markdown: editRaw, userEdited: true }); setEditRaw(null); await reload(); show('저장되었습니다'); };
-  const doneCount = flat.filter((f) => plan.sections[f.node.id]?.status === '완료').length;
+  const doneCount = eligible.filter((f) => plan.sections[f.node.id]?.status === '완료').length;
   const runningNos = flat.filter((f) => running.has(f.node.id)).map((f) => f.node.no);
+  const currentDepth = flat.find((f) => f.node.id === current)?.depth ?? 1;
+  const togglePick = (id: string, on: boolean) => setPicked((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
+  const pickAllRemaining = () => setPicked(new Set(eligible.filter((f) => plan.sections[f.node.id]?.status !== '완료').map((f) => f.node.id)));
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr) 340px', height: '100%', background: '#fff' }}>
       {/* 목차 영역 */}
       <section style={{ borderRight: '1px solid #cdd1d5', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div className="row" style={{ padding: 12, borderBottom: '1px solid #cdd1d5' }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>목차 <span className="num">{doneCount}/{flat.length}</span></h2>
-          {running.size ? <KBtn size="xs" kind="danger" onClick={() => void cancel()}><Icon name="stop" /> 생성 취소{running.size > 1 ? ` (${running.size}절)` : ''}</KBtn> : <KBtn size="xs" kind="primary" onClick={() => void draftAll()} disabled={doneCount === flat.length}><Icon name="play" /> {doneCount ? '나머지 초안 작성' : '초안 작성하기'}</KBtn>}
+        <div className="row" style={{ padding: 12, borderBottom: '1px solid #cdd1d5', flexWrap: 'wrap', gap: 6 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>목차 <span className="num">{doneCount}/{eligible.length}</span></h2>
+          {running.size ? <KBtn size="xs" kind="danger" onClick={() => void cancel()}><Icon name="stop" /> 생성 취소{running.size > 1 ? ` (${running.size}절)` : ''}</KBtn>
+            : <KBtn size="xs" kind="primary" onClick={() => void draftPicked()} disabled={!picked.size} title="체크한 절을 동시 3절씩 생성합니다"><Icon name="play" /> 선택 절 생성{picked.size ? ` (${picked.size})` : ''}</KBtn>}
+          <div className="row" style={{ width: '100%', gap: 8 }}>
+            <button type="button" className="k-btn text xs" style={{ padding: 0, height: 'auto' }} onClick={pickAllRemaining} disabled={!!running.size}>미작성 절 모두 선택</button>
+            <button type="button" className="k-btn text xs" style={{ padding: 0, height: 'auto' }} onClick={() => setPicked(new Set())} disabled={!picked.size}>선택 해제</button>
+          </div>
         </div>
         <ol style={{ listStyle: 'none', padding: 0, overflow: 'auto', flex: 1 }}>
-          {flat.map(({ node, depth }) => { const st = status(node.id); const sec = plan.sections[node.id]; const clickable = st === '완료' || running.has(node.id); return (
-            <li key={node.id} className={`draft-row${current === node.id ? ' cur' : ''}`} onClick={() => clickable && setCurrent(node.id)} style={{ paddingLeft: 12 + (depth - 1) * 18, cursor: clickable ? 'pointer' : 'default', opacity: clickable ? 1 : 0.6 }}>
+          {flat.map(({ node, depth, eligible: ok }) => { const st = status(node.id); const sec = plan.sections[node.id]; const clickable = ok && (st === '완료' || running.has(node.id)); return (
+            <li key={node.id} className={`draft-row${current === node.id ? ' cur' : ''}`} onClick={() => clickable && setCurrent(node.id)} style={{ paddingLeft: 12 + (depth - 1) * 18, cursor: clickable ? 'pointer' : 'default', opacity: ok && !clickable ? 0.6 : 1 }}>
+              {ok ? <input type="checkbox" aria-label={`${node.no} ${node.title} 선택`} checked={picked.has(node.id)} disabled={running.has(node.id)} onChange={(e) => togglePick(node.id, e.target.checked)} onClick={(e) => e.stopPropagation()} style={{ width: 16, height: 16, flexShrink: 0 }} /> : <span style={{ width: 16, flexShrink: 0 }} />}
               <span className="no">{node.no}</span>
               <span style={{ flex: 1, fontSize: depth === 1 ? 15 : 14, fontWeight: depth === 1 ? 700 : 400 }}>{node.title}</span>
-              {sec?.userEdited && <span title="사용자 수정 · 재생성 보호" style={{ display: 'inline-flex', color: '#464c53' }}><Icon name="lock" size={16} /></span>}
-              <KBadge tone={statusToTone(st)}>{st}</KBadge>
+              {!ok && <KBadge tone="light-gray" title="하위 목차가 있어 제목만 씁니다 — 본문은 아래 절에서">제목</KBadge>}
+              {ok && sec?.userEdited && <span title="사용자 수정 · 재생성 보호" style={{ display: 'inline-flex', color: '#464c53' }}><Icon name="lock" size={16} /></span>}
+              {ok && <KBadge tone={statusToTone(st)}>{st}</KBadge>}
               {/* 일괄 생성이 돌아가는 동안에는 행별 생성 버튼을 숨긴다 (개별 생성 중에는 다른 절도 추가로 시작할 수 있다) */}
-              {!autoAll && !running.has(node.id) && <span onClick={(e) => e.stopPropagation()}><KBtn kind="icon" style={{ width: 28, height: 28 }} ariaLabel={st === '완료' ? (sec?.userEdited ? '강제 재생성' : '이 절 다시 생성') : '이 절 생성'} title={st === '완료' ? (sec?.userEdited ? '강제 재생성' : '이 절 다시 생성') : '이 절 생성'} onClick={() => void draftOne(node.id, !!sec?.userEdited)}><Icon name={st === '완료' ? 'refresh' : 'play'} size={16} /></KBtn></span>}
+              {ok && !autoAll && !running.has(node.id) && <span onClick={(e) => e.stopPropagation()}><KBtn kind="icon" style={{ width: 28, height: 28 }} ariaLabel={st === '완료' ? (sec?.userEdited ? '강제 재생성' : '이 절 다시 생성') : '이 절 생성'} title={st === '완료' ? (sec?.userEdited ? '강제 재생성' : '이 절 다시 생성') : '이 절 생성'} onClick={() => void draftOne(node.id, !!sec?.userEdited)}><Icon name={st === '완료' ? 'refresh' : 'play'} size={16} /></KBtn></span>}
             </li>); })}
         </ol>
         <div style={{ padding: 12, borderTop: '1px solid #f1f3f5' }}>
-          <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={flat.length} aria-valuenow={doneCount} aria-label="초안 생성 진행"><span style={{ width: flat.length ? `${Math.round(doneCount / flat.length * 100)}%` : '0%' }} /></div>
-          <p className="form-hint" style={{ marginTop: 6 }}>{flat.length}절 중 {doneCount}절 완료{runningNos.length ? ` · ${runningNos.join(', ')} 생성 중 (동시 ${runningNos.length}절 · T3Q RPT-002, 절당 약 15~20초)` : ''}</p>
+          <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={eligible.length} aria-valuenow={doneCount} aria-label="초안 생성 진행"><span style={{ width: eligible.length ? `${Math.round(doneCount / eligible.length * 100)}%` : '0%' }} /></div>
+          <p className="form-hint" style={{ marginTop: 6 }}>{eligible.length}절 중 {doneCount}절 완료{runningNos.length ? ` · ${runningNos.join(', ')} 생성 중 (동시 ${runningNos.length}절 · T3Q RPT-002, 절당 약 15~20초)` : ''}{flat.length > eligible.length ? ' · 하위 목차가 있는 장은 제목만' : ''}</p>
         </div>
       </section>
 
@@ -341,7 +359,7 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
       <section style={{ overflow: 'auto', padding: '24px 32px', minHeight: 0 }}>
         <h1 className="sr-only">초안</h1>
         {!current ? (
-          <p className="card-desc" style={{ padding: 40, textAlign: 'center' }}>왼쪽 목차에서 [초안 작성하기]를 누르세요. 초안이 하나라도 완성되면 여기서 확인할 수 있습니다.<br /><span className="tiny">T3Q RPT-002가 절 단위로 본문을 생성합니다 (절당 약 15~20초).</span></p>
+          <p className="card-desc" style={{ padding: 40, textAlign: 'center' }}>왼쪽 목차에서 생성할 절을 체크하고 [선택 절 생성]을 누르거나, 절 오른쪽의 ▶로 하나씩 생성하세요. 초안이 하나라도 완성되면 여기서 확인할 수 있습니다.<br /><span className="tiny">T3Q RPT-002가 절 단위로 본문을 생성합니다 (절당 약 15~20초, 동시 3절). 하위 목차가 있는 장은 제목만 쓰고 본문은 절에서 만듭니다.</span></p>
         ) : (
           <>
             <div className="row" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
@@ -354,7 +372,7 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
             </div>
             {editRaw !== null ? <KTextarea value={editRaw} onChange={(e) => setEditRaw(e.target.value)} style={{ minHeight: 480, fontFamily: 'ui-monospace, monospace', fontSize: 13 }} aria-label="마크다운 직접 편집" /> : (
               <div className="doc-body" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
-                {md ? renderMarkdown(md, { paraPrefix: current, onParaClick: curRunning ? undefined : (id, text) => setSelPara({ id, text }), selectedId: selPara?.id, levelStyle, bullets, tableStyle }) : <p className="dim">{curRunning ? 'T3Q가 이 절을 생성하는 중입니다… (절 전체가 한 번에 도착합니다)' : '내용이 없습니다'}</p>}
+                {md ? renderMarkdown(md, { paraPrefix: current, onParaClick: curRunning ? undefined : (id, text) => setSelPara({ id, text }), selectedId: selPara?.id, levelStyle, bullets, tableStyle, baseLevel: currentDepth }) : <p className="dim">{curRunning ? 'T3Q가 이 절을 생성하는 중입니다… (절 전체가 한 번에 도착합니다)' : '내용이 없습니다'}</p>}
                 {curRunning && <span style={{ display: 'inline-block', width: 8, height: 16, background: '#256ef4', animation: 'blink 1s infinite' }} aria-hidden="true" />}
               </div>
             )}
@@ -404,7 +422,8 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
 function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | null; reload: () => Promise<Plan>; show: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
   const bullets = tpl?.levels.map((l) => l.bullet) ?? ['□', 'ㅇ', '-', '*'];
-  const md = plan.toc.map((n) => [`# ${n.no} ${n.title}`, plan.sections[n.id]?.markdown ?? '', ...n.children.flatMap((c) => [`## ${c.no} ${c.title}`, plan.sections[c.id]?.markdown ?? ''])].filter(Boolean).join('\n\n')).join('\n\n');
+  // 서버 planMarkdown과 같은 규칙: 하위 목차가 있는 장은 제목만
+  const md = plan.toc.map((n) => [`# ${n.no} ${n.title}`, draftable(n) ? plan.sections[n.id]?.markdown ?? '' : '', ...n.children.flatMap((c) => [`## ${c.no} ${c.title}`, plan.sections[c.id]?.markdown ?? ''])].filter(Boolean).join('\n\n')).join('\n\n');
   const exportHwpx = async () => {
     // 저장 위치 창은 클릭 직후에만 열린다 — 서버 생성(10초+)을 기다린 뒤 열면 브라우저가 거부하므로 먼저 묻는다.
     const handle = await pickSaveLocation(`${plan.title}.hwpx`);
