@@ -46,3 +46,6 @@ tmp/
 
 # Design canvas bundle (2MB+, regenerated from build.mjs + seed-canvas)
 design_handoff_krds_uiux/poc-plan/une-plan-krds.html
+
+# Figma source (tens of MB) — keep local only
+*.fig

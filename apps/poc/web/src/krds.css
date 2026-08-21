@@ -138,3 +138,32 @@
 .krds .hist{background:#fff;border:1px solid #cdd1d5;border-radius:6px;padding:10px;font-size:13px}
 .krds .sel-para{background:#eff5ff;border:1px solid #256ef4;border-radius:8px;padding:12px;font-size:13px;line-height:1.6;max-height:140px;overflow:auto;white-space:pre-wrap}
 @media print{.krds .hdr,.krds .band,.krds .rail,.krds .no-print{display:none !important}}
+
+/* 메인 히어로 (2차년도 홈 화면, Figma 2026-08-21) */
+.krds .hero{background:#fff url(/hero/bg.jpg) center top/cover no-repeat;position:relative}
+.krds .hero::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.6) 0%,rgba(255,255,255,.7) 55%,var(--surface) 100%)}
+.krds .hero-inner{position:relative;padding-top:56px;padding-bottom:40px}
+.krds .hero-title{font-size:32px;line-height:1.38;font-weight:500;color:#444a57;letter-spacing:-.03em;margin:0}
+.krds .hero-tools{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:28px}
+.krds .hero-arrow{width:36px;height:36px;border:1px solid var(--border);border-radius:6px;background:#fff;display:inline-flex;align-items:center;justify-content:center;color:#464c53;cursor:pointer}
+.krds .hero-arrow:hover{border-color:var(--primary);color:var(--primary)}
+.krds .hero-more{height:36px;padding:0 16px;border:1px solid var(--border);border-radius:6px;background:#fff;display:inline-flex;align-items:center;font-size:15px;color:#1e2124;text-decoration:none;margin-left:8px}
+.krds .hero-more:hover{border-color:var(--primary);color:var(--primary)}
+.krds .hero-rail{display:flex;gap:28px;overflow-x:auto;scroll-snap-type:x mandatory;padding:20px 4px 24px;scrollbar-width:none}
+.krds .hero-rail::-webkit-scrollbar{display:none}
+.krds .hcard{position:relative;flex:0 0 260px;height:224px;border:0;border-radius:12px;background:#fff;box-shadow:0 4px 11px rgba(0,0,0,.11),0 0 3px rgba(0,0,0,.04);overflow:hidden;text-align:left;cursor:pointer;scroll-snap-align:start;padding:0;display:block;font:inherit;color:inherit;transition:transform .15s,box-shadow .15s}
+.krds .hcard:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(0,0,0,.14),0 0 3px rgba(0,0,0,.04)}
+.krds .hcard:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.krds .hcard-band{position:absolute;left:0;top:0;right:0;height:64px;padding:20px 16px 0;display:block}
+.krds .hcard-badge{display:inline-flex;align-items:center;height:24px;padding:0 12px;border-radius:4px;color:#fff;font-size:12px;font-weight:500;letter-spacing:-.02em;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.krds .hcard-ico{position:absolute;right:16px;top:32px;width:48px;height:48px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.krds .hcard-title{position:absolute;left:16px;top:88px;width:228px;font-size:18px;line-height:1.6;font-weight:500;color:#313644;letter-spacing:-.03em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.krds .hcard-row{position:absolute;left:16px;right:16px;top:164px;display:flex;justify-content:space-between;font-size:12px;line-height:20px;color:#888c94}
+.krds .hcard-phase{display:inline-flex;align-items:center;gap:6px;color:#444a57}
+.krds .hcard-phase i{width:4px;height:4px;border-radius:50%;background:#37b44a;display:inline-block}
+.krds .hcard-foot{position:absolute;left:0;right:0;bottom:0;height:32px;padding:0 16px;border-top:1px solid #ebebed;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#888c94}
+.krds .hcard-new{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-size:14px;color:#464c53}
+.krds .hcard-new-ico{width:56px;height:56px;border-radius:12px;background:var(--info-bg);color:var(--primary);display:inline-flex;align-items:center;justify-content:center}
+.krds .hcard-new:hover{color:var(--primary)}
+.krds .hero-empty{align-self:center;font-size:15px;color:#464c53;margin:0;padding:0 8px}
+@media (max-width:900px){.krds .hero-title{font-size:24px}.krds .hero-inner{padding-top:32px}}
