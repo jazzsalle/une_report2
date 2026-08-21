@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { get, post, put, sse, HAZARDS, type Plan, type PlanContext, type TocNode, type Template, type SecStatus, type Section } from '../api';
+import { get, post, put, sse, pickSaveLocation, writeFileTo, HAZARDS, type Plan, type PlanContext, type TocNode, type Template, type SecStatus, type Section } from '../api';
 import { Btn, C, Card, Chip, Field, Input, Modal, Select, Textarea, Toast, renderMarkdown, statusTone, useToast, useUser } from '../ui';
 
 type Step = 'context' | 'toc' | 'draft' | 'preview';
@@ -315,9 +315,23 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
   const bullets = tpl?.levels.map((l) => l.bullet) ?? ['□', 'ㅇ', '-', '*'];
   const md = plan.toc.map((n) => [`# ${n.no} ${n.title}`, plan.sections[n.id]?.markdown ?? '', ...n.children.flatMap((c) => [`## ${c.no} ${c.title}`, plan.sections[c.id]?.markdown ?? ''])].filter(Boolean).join('\n\n')).join('\n\n');
   const exportHwpx = async () => {
+    // 저장 위치 창은 클릭 직후에만 열린다 — 서버 생성(10초+)을 기다린 뒤 열면 브라우저가 거부하므로 먼저 묻는다.
+    const handle = await pickSaveLocation(`${plan.title}.hwpx`);
     setBusy(true);
-    try { const r = await post<{ fileName: string; url: string; pages: number }>(`/plans/${plan.id}/export`, {}); await reload(); show(`HWPX 생성 완료 (${r.pages}쪽)`); setTab('hwpx'); setPages(await get(`/plans/${plan.id}/export/preview`)); }
+    try {
+      const r = await post<{ fileName: string; url: string; pages: number }>(`/plans/${plan.id}/export`, {}); await reload();
+      if (handle === 'cancelled') show(`HWPX 생성 완료 (${r.pages}쪽) · 저장은 취소됨 — [다운로드]로 받을 수 있습니다`);
+      else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, r.fileName); show(how === 'saved' ? `저장했습니다: ${r.fileName} (${r.pages}쪽)` : `HWPX 생성 완료 (${r.pages}쪽) · 브라우저 다운로드 폴더에 저장`); }
+      setTab('hwpx'); setPages(await get(`/plans/${plan.id}/export/preview`));
+    }
     catch (e) { show((e as Error).message); } finally { setBusy(false); }
+  };
+  const download = async () => {
+    if (!plan.export) return;
+    const handle = await pickSaveLocation(plan.export.fileName);
+    if (handle === 'cancelled') return;
+    try { const how = await writeFileTo(handle, `/api/files/${plan.export.fileName}`, plan.export.fileName); show(how === 'saved' ? `저장했습니다: ${plan.export.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); }
+    catch (e) { show((e as Error).message); }
   };
   useEffect(() => { if (tab === 'hwpx' && plan.export && !pages) get<{ pages: number; htmls: string[] }>(`/plans/${plan.id}/export/preview`).then(setPages).catch(() => {}); }, [tab, plan.export]);
   return (
@@ -328,7 +342,7 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
         <div style={{ flex: 1 }} />
         {tpl && <Chip>템플릿 {tpl.name}</Chip>}
         <Btn kind="primary" disabled={busy} onClick={() => void exportHwpx()}>{busy ? 'HWPX 생성 중…' : plan.export ? 'HWPX 다시 내보내기' : 'HWPX 내보내기'}</Btn>
-        {plan.export && <a href={`/api/files/${plan.export.fileName}`} download><Btn>다운로드 ({plan.export.pages}쪽)</Btn></a>}
+        {plan.export && <Btn onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다">다운로드 ({plan.export.pages}쪽)</Btn>}
         {plan.export && <Link to={`/plan/${plan.id}/editor`}><Btn kind="dark">rhwp 에디터에서 열기</Btn></Link>}
         <Btn onClick={() => window.print()}>인쇄</Btn>
       </div>

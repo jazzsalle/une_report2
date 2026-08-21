@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { get, api, type Plan } from '../api';
+import { get, api, pickSaveLocation, writeFileTo, type Plan } from '../api';
 import { Btn, C, Chip, Toast, useToast } from '../ui';
 
 /**
@@ -41,6 +41,13 @@ export function PlanRhwpEditor() {
       show(`서버에 저장됨: ${r.fileName} (${r.paragraphs}문단)`);
     } catch (e) { show((e as Error).message); }
   };
+  const download = async () => {
+    if (!plan?.export) return;
+    const handle = await pickSaveLocation(plan.export.fileName);
+    if (handle === 'cancelled') return;
+    try { const how = await writeFileTo(handle, `/api/files/${plan.export.fileName}`, plan.export.fileName); show(how === 'saved' ? `저장했습니다: ${plan.export.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); }
+    catch (e) { show((e as Error).message); }
+  };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 20px', background: '#fff', borderBottom: `1px solid ${C.border}` }}>
@@ -49,7 +56,7 @@ export function PlanRhwpEditor() {
         <span style={{ fontSize: 12, color: C.muted }}>{status}</span>
         <div style={{ flex: 1 }} />
         <Btn kind="primary" disabled={!ready} onClick={() => void saveBack()}>편집본 서버에 저장 (HWPX)</Btn>
-        {plan?.export && <a href={`/api/files/${plan.export.fileName}`} download><Btn>원본 다운로드</Btn></a>}
+        {plan?.export && <Btn onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다">원본 다운로드</Btn>}
       </div>
       <div ref={boxRef} style={{ flex: 1, minHeight: 0 }} />
       <Toast msg={toast} />

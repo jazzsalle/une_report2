@@ -26,6 +26,30 @@ export function sse(path: string, handlers: Record<string, (data: unknown) => vo
   return close;
 }
 
+// ── 파일 저장: "다른 이름으로 저장" 창 (File System Access API) ──
+type SaveHandle = { createWritable(): Promise<{ write(d: Blob): Promise<void>; close(): Promise<void> }> };
+type PickerWindow = Window & { showSaveFilePicker?: (o: { suggestedName?: string; types?: { description: string; accept: Record<string, string[]> }[] }) => Promise<SaveHandle> };
+
+/** 저장 위치 창을 띄울 수 있는가 — Chrome/Edge이면서 보안 컨텍스트(localhost 또는 https)일 때만. http://10.x.x.x 접속에서는 false. */
+export const canPickSaveLocation = () => typeof (window as PickerWindow).showSaveFilePicker === 'function';
+
+/** 저장 위치 창. 브라우저가 "사용자 클릭 직후"에만 허용하므로 긴 await 전에 먼저 호출할 것. 미지원이면 null, 사용자가 취소하면 'cancelled'. */
+export async function pickSaveLocation(suggestedName: string): Promise<SaveHandle | 'cancelled' | null> {
+  const w = window as PickerWindow;
+  if (typeof w.showSaveFilePicker !== 'function') return null;
+  try { return await w.showSaveFilePicker({ suggestedName, types: [{ description: 'HWPX 문서', accept: { 'application/octet-stream': ['.hwpx'] } }] }); }
+  catch (e) { if ((e as DOMException).name === 'AbortError') return 'cancelled'; throw e; }
+}
+
+/** 서버 파일을 고른 위치에 써 넣는다. 핸들이 null(미지원)이면 브라우저 기본 다운로드로 폴백. */
+export async function writeFileTo(handle: SaveHandle | null, url: string, fileName: string): Promise<'saved' | 'downloaded'> {
+  if (!handle) { const a = document.createElement('a'); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove(); return 'downloaded'; }
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`파일을 읽지 못했습니다 (HTTP ${r.status})`);
+  const w = await handle.createWritable(); await w.write(await r.blob()); await w.close();
+  return 'saved';
+}
+
 // ── 타입 (서버와 동일) ──
 export interface User { id: string; name: string; dept: string; role: string }
 export interface Level { level: number; styleId: number | null; styleName: string | null; bullet: string; fontFamily: string | null; fontSizePt: number | null; bold: boolean; indentHu: number; sampleText: string }
