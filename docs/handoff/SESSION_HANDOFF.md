@@ -1,53 +1,52 @@
 # Session Handoff
 
-- 일시: 2026-08-19 (회사 PC, 열 번째 세션 — **전면 재구축**)
-- 브랜치: `feature/CC-410` (커밋 `448eab9` = POC 추가, 그 다음 커밋 = 구 구현 제거)
-- 상태: **POC 동작. 개발팀 인계 가능.**
+- 일시: 2026-08-21 (회사 PC, 열한 번째 세션 — 2026-08-20~21 이틀치)
+- 브랜치: `feature/CC-410`, **main과 동일**(PR #32~#41 모두 머지, 마지막 `f1178f2`). 작업 트리 깨끗함.
+- 상태: **POC 동작. 개발팀 인계 가능.** 서버는 이 PC에서 숨김 프로세스로 떠 있음(:3100 API, :5300 웹; `http://10.20.20.46:5300/`).
 
-## 무슨 일이 있었나
+## 이번 세션에 한 일 (PR 순)
 
-사용자가 기존 구현(NestJS+Postgres+RLS+Outbox, ADR 51개)이 의도에서 벗어났다고 판단하고 **전부 새로 만들라**고 결정했다(00:00). 보안·DB·Docker·Supabase 전부 빼고 로컬 POC. 08:00 마감은 넘겼으나(권한 프롬프트로 여러 번 중단) 오후에 전 흐름 동작을 확인했다.
-
-구 코드는 `git` 이력에만 있다. 복구하려면 `git checkout 448eab9 -- services packages ...`.
-
-## 지금 있는 것 — `apps/poc/`
-
-`pnpm dev` 한 줄 → 서버 :3100 + 웹 :5300. 상세는 `apps/poc/README.md`.
-
-| 축 | 동작 확인 (브라우저 + API) |
+| PR | 내용 |
 |---|---|
-| 템플릿 스타일 분석 | 6종 HWPX → 개요 4~5수준·기호·글꼴·크기·굵기 프로파일 화면 |
-| 계획서 | 기준정보 → **T3Q 목차**(17초, 5장 21절) → **T3Q 초안**(절당 17초, 근거 10건) → 문단 클릭 → **유니 수정**(🔒·이력·복원) → HWPX 내보내기 → rhwp 재로드 뷰 |
-| 상황일지 | 훈련상황 생성 + **유니 챗봇 질의**(7단계 절차, 근거 문서 인용, "근거 없음" 구분) → **유니 SOP**(uni-sop-2 매핑, END 합성) → 캔버스 → 임무 8건 전파 → 모바일 수신확인·완료보고 → 상황판(지연 자동판정) → 일지 8절(사실 5 + AI 3) → HWPX 7쪽 |
-| 연동 | 계획서→훈련 프리필(LINK-01), 훈련 결과→계획서 "개선" 절 삽입(LINK-02), 계획서 목록 훈련 배지(LINK-03) |
-| 폴백 | 유니·T3Q 실패 시 `server/src/mock/*` 재생, 홈에 연동 상태 표시 |
+| #32~#34 | KRDS 디자인 시안(`design_handoff_krds_uiux/poc-plan/`) → 계획서·상황일지·홈·모바일 화면에 적용(`web/src/krds.{css,tsx}`, `ui.tsx` 재스킨). HWPX 다운로드·내보내기는 "다른 이름으로 저장" 창(`showSaveFilePicker`, https/localhost만; 아니면 일반 다운로드) |
+| #35 | HWPX 내보내기 충실도: 템플릿 견본 구간만 교체, 제목 표 칸 교체, 수준별 charShapeId/paraShapeId 복사(글꼴은 `applyCharFormat`으로 안 바뀜), 깨지던 rhwp 재로드 뷰 제거 |
+| #36 | 템플릿 **표 스타일** 분석·적용(머리행/첫 열/본문 셀 모양·열 너비) |
+| #37 | 기준정보 템플릿 목록 페이지(`/plan/basis-templates`: 정렬·N개 보기·페이지·이름 변경·삭제) + 상세/편집 페이지, `PUT /api/plan-templates/:id` |
+| #38 | 초안: 체크한 절만 동시 3절 생성, 하위 목차 있는 장은 제목만(`draftable`), 항목 기호는 제목 깊이에 **상대적** |
+| #39 | 계획서 메인에 2차년도 홈 화면 구도 — **Figma `.fig`를 직접 해독**해 배경 이미지·재난유형 아이콘 10종(벡터→SVG) 추출(`web/public/hero/`, `HeroCards.tsx`) |
+| #40 | 히어로 여백 축소, 문서 목록 정렬·30/50/70/100개·페이지 바, 기준정보 템플릿에 재난유형 아이콘 |
+| #41 | **T3Q 기호 문제 해결**(아래) + 원본 미리보기 HTML→**SVG**, 템플릿 꼬리 빈 표 제거(프로파일 version 2) |
 
-## 이번 세션에 실측으로 알아낸 것 (코드 주석에도 있음)
+## 실측으로 알아낸 것 (코드 주석에도 `실측 2026-08-21`로 있음)
 
-- **T3Q가 살아 있다.** `T3Q_VERIFY_TLS=0` 필요. `targetAudiences` 열거 4개. content는 섹션 단위 SSE.
-- **유니 `/chat/json` 형식이 CC-410 때와 다르다** — `{"__compn__": {...}}` 래핑 + `__status__` + `[DONE]`. 매퍼가 둘 다 받게 고쳤고 mock도 갱신.
-- **유니 로그인 429** — 짧은 시간에 반복 로그인하면 막힌다. 토큰 재사용으로 해결.
-- rhwp: `insertParagraph(0, count)`가 끝에 추가. 새 문단은 직전 문단 paraShape(정렬) 상속. 문단 0의 표·그림·머리말은 `deleteText`로 안 지워짐 → `deleteControlAt`. `HwpViewer` 만든 뒤 같은 doc export하면 null pointer.
-- `tsx watch`·배경 실행이 Windows에서 조용히 죽는다 → `start.cmd`(`start /min cmd /c`)로 분리. `pnpm dev`(concurrently)는 정상.
-- Vite `--host` 없이 띄우면 IPv6만 바인딩돼 `127.0.0.1`로 안 열린다.
+- **T3Q `paragraphSymbol`은 콤마로 구분해 보내야 한다.** `"□○-"`·`"□ ○ -"`는 줄마다 `□○- (소제목) 문장` 통째 기호(위계 없음), **`"□, ○, -"`** 는 `□ 문장`/`  ○ 문장`/`    - 문장` 3단 위계. 번호형(`1.` `가.`)을 섞어 보내면 T3Q가 가나다 순번을 스스로 매긴다. 요청은 절 아래 수준의 비번호 기호만(`t3qSymbolsFor`), 변환은 `t3qContentToMarkdown`(예전 응답 형식도 정리, 멱등, 서버 기동 시 옛 저장본 1회 정리).
+- 번호형 기호(`가.` `1.` `①`)는 웹·HWPX가 형제끼리 **가·나·다 자동 매김**(`formatNumbering`, 양쪽 동일 구현). 텍스트가 이미 번호면 생략.
+- rhwp `renderPageSvg`는 원본과 같게 나오고 `renderPageHtml`은 제목 표·표가 깨진다 → 미리보기는 전부 SVG(`renderHwpxSvg`). 한글→PDF 스냅샷 불필요. 단, SVG 렌더에서 쪽 경계에 걸친 표의 아랫줄이 비어 보일 수 있음(파일 안 셀 텍스트는 정상 — 확인함).
+- rhwp `applyCharFormat fontFamily` 무시 → `setCharShapeId` 복사. 표 셀 API(`insertTextInCell`/`setCellProperties`/`setTableProperties`/`getTableDimensions`/`getCellInfo`) 모두 동작·저장됨.
+- Figma `.fig` = zip(`canvas.fig` + images/). `canvas.fig`는 zstd 청크 + kiwi 스키마 → Node `zlib.zstdDecompressSync` + `kiwi-schema`로 해독. 벡터는 `u8 명령 + float32` 블롭 → SVG path. (메모리 `figma-fig-decode`)
+- multer 파일명은 latin1 → `Buffer.from(name,'latin1').toString('utf8')`. Git Bash `curl -d`에 한글 넣으면 깨짐 → 항상 UTF-8 파일로 `--data-binary @file`.
+- 서버는 Claude Code 도구로 띄우면 호출이 끝날 때 죽는다 → PowerShell WMI `Win32_Process.Create`(숨김 창) + exit 로그 래퍼(`data/server-exit.log`). 원인 미상으로 가끔 더 죽기도 함 — 재기동 전 `data/server.log` 먼저 읽을 것. (메모리 `poc-server-detached-launch`)
+
+## 운영 규칙 (사용자 결정)
+
+- `bypassPermissions` 같은 권한 우회 설정은 **절대 커밋하지 않는다**. 디자인 폴더는 디자인이 끝난 뒤에만 올린다.
+- 푸시는 Claude가 하고, **PR 생성·머지는 사용자가 `! gh pr create --fill --base main` / `! gh pr merge N --merge`** 로 한다(`!` 앞에 공백이 있으면 실행되지 않음).
+- `*.fig`는 gitignore. 변환된 에셋만 `web/public/hero/`.
 
 ## 남은 것 / 다음 세션
 
-1. **상황일지 기능정의서 v1.1 docx**를 개발팀에 전달 (사용자 확인 후).
-2. SOP 생성 60~80초 동안 `__status__`(searching/reranking/generating) 프레임을 화면에 흘리면 체감이 낫다.
-3. 계획서 "나머지 초안 작성"은 절당 17초 × 21절 ≈ 6분 — 데모 전에 미리 생성해 둘 것.
-4. 일지 HWPX는 상황보고 템플릿(5수준 □○-○※)으로 나간다. 다른 템플릿을 고르는 UI는 없다(코드에서 `templates.where(/상황보고/)`).
-5. `@rhwp/editor`는 외부 studio라 인터넷 없는 환경에선 "에디터 로드 실패"가 뜬다 — 의도된 안내.
-6. 유니 `UNI_PASSWORD` 교체는 여전히 권고(422 에코 결함, CC-410 때부터).
-7. 데모 데이터: `apps/poc/data/*.json`에 계획서 5건·훈련 3건이 남아 있다. 깨끗이 시작하려면 `data/*.json` 삭제 후 재기동(템플릿은 자동 재등록).
+1. 상황일지(`/sit`) 메인에도 히어로 구도를 적용할지 결정. 문서 목록 재난유형 열에 아이콘 붙이기는 `HazardIcon`으로 바로 가능.
+2. 기준정보 템플릿 샘플 5개("(샘플)")는 데모용 — 필요 없으면 목록에서 삭제.
+3. 데모 전 초안 미리 생성(절당 15~20초, 동시 3절). T3Q가 429를 내면 `PlanEditor.tsx`의 `CONCURRENCY`를 낮출 것.
+4. 상황일지 기능정의서 v1.1 docx 개발팀 전달(사용자 확인 후). SOP 생성 중 `__status__` 표시, 일지 템플릿 선택 UI는 예전부터 남은 항목.
+5. 유니 `UNI_PASSWORD` 교체 권고 유지. 유니 타임아웃은 간헐적(10.20.10.101:8088) — 반복되면 `uni.ts` 타임아웃 조정.
 
 ## 환경 재개
 
 ```bash
 git checkout feature/CC-410 && git pull
 pnpm install
-pnpm dev            # 서버 :3100 + 웹 :5300
-# 또는 apps\poc\start.cmd / stop.cmd
+pnpm dev            # 서버 :3100 + 웹 :5300 (수동 실행이 가장 안정적)
 ```
 
-`infrastructure/.env`에 `UNI_BASE_URL=http://10.20.10.101:8088`, `UNI_USERNAME`, `UNI_PASSWORD`, `T3Q_VERIFY_TLS=0`. 집 PC엔 이 파일이 없으니 다시 채울 것.
+`infrastructure/.env`에 `UNI_BASE_URL=http://10.20.10.101:8088`, `UNI_USERNAME`, `UNI_PASSWORD`, `T3Q_VERIFY_TLS=0`. 집 PC엔 이 파일이 없으니 다시 채울 것. 템플릿 프로파일은 기동 시 `version`이 낮으면 자동 재분석, T3Q 옛 저장본도 기동 시 자동 정리된다.
