@@ -16,9 +16,9 @@ export function Mobile() {
   useEffect(() => { void load(); const t = setInterval(() => void load(), 4000); return () => clearInterval(t); }, [assigneeId]);
   const ack = async () => { if (!cur) return; await post(`/m/${assigneeId}/tasks/${cur.id}/ack`); await load(); };
   const report = async () => { if (!cur) return; const r = await post<Task & { receiptNo: string }>(`/m/${assigneeId}/tasks/${cur.id}/report`, { result, memo }); setReceipt({ no: r.receiptNo, at: r.reportedAt ?? new Date().toISOString() }); setMemo(''); await load(); };
-  const phone: React.CSSProperties = { width: 390, minHeight: 760, background: '#f8fafc', borderRadius: 36, border: '10px solid #0f172a', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.3)' };
+  const phone: React.CSSProperties = { width: 390, minHeight: 760, background: '#f4f5f6', borderRadius: 36, border: '10px solid #1e2124', overflow: 'hidden', display: 'flex', flexDirection: 'column' };
   return (
-    <div style={{ minHeight: '100vh', background: '#e2e8f0', display: 'flex', gap: 32, justifyContent: 'center', alignItems: 'flex-start', padding: 32 }}>
+    <div className="krds" style={{ minHeight: '100vh', background: '#f4f5f6', display: 'flex', gap: 32, justifyContent: 'center', alignItems: 'flex-start', padding: 32 }}>
       <div style={phone}>
         <div style={{ background: C.navy, color: '#fff', padding: '10px 18px 14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#cbd5e1' }}><span>{new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</span><span>LTE ▮▮▮</span></div>
@@ -39,7 +39,7 @@ export function Mobile() {
             <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 10 }}>
               <div style={{ fontSize: 16, fontWeight: 800 }}>{cur.title}</div>
               <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.9, marginTop: 6 }}>재난유형 <b style={{ color: C.text }}>{cur.exercise?.hazardType}</b><br />위치 <b style={{ color: C.text }}>{cur.exercise?.location || '-'}</b><br />담당부서 <b style={{ color: C.text }}>{cur.dept}</b><br />완료기한 <b style={{ color: C.orange }}>{fmtTime(cur.due)}</b> &nbsp; <Chip tone={statusTone(cur.status)}>{cur.status}</Chip></div>
-              {cur.message && <div style={{ marginTop: 8, fontSize: 12, background: '#f1f5f9', padding: 8, borderRadius: 8, whiteSpace: 'pre-wrap' }}>{cur.message}</div>}
+              {cur.message && <div style={{ marginTop: 8, fontSize: 12, background: '#f4f5f6', padding: 8, borderRadius: 8, whiteSpace: 'pre-wrap' }}>{cur.message}</div>}
             </div>
             <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>수행 지시사항</div>
@@ -48,7 +48,7 @@ export function Mobile() {
             <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>현장 보고</div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>{(['완료', '수행중', '미완료', '지원요청'] as const).map((r) => <Btn key={r} small kind={result === r ? 'primary' : 'default'} onClick={() => setResult(r)} style={{ flex: 1 }}>{r}</Btn>)}</div>
-              <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="📷 사진 첨부 · 메모 입력" style={{ minHeight: 60 }} />
+              <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="사진 첨부 · 메모 입력" style={{ minHeight: 60 }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 6 }}><span>위치 자동 첨부</span><span style={{ color: C.green, fontWeight: 700 }}>켜짐 ●</span></div>
             </div>
             <Btn kind="primary" style={{ width: '100%', padding: 14, fontSize: 15, marginBottom: 8 }} onClick={() => void ack()} disabled={!!cur.ackedAt}>{cur.ackedAt ? `수신 확인됨 (${fmtTime(cur.ackedAt)})` : '수신 확인'}</Btn>

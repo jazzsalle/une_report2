@@ -8,11 +8,11 @@ export function Home() {
   const [health, setHealth] = useState<{ uni: { baseUrl: string; mock: boolean; lastFailure: string | null }; t3q: { baseUrl: string; verifyTls: boolean; lastFailure: string | null }; rhwp: { version: string } } | null>(null);
   useEffect(() => { get<typeof health>('/health').then(setHealth).catch(() => setHealth(null)); }, []);
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '48px 24px' }}>
+    <div className="krds" style={{ minHeight: '100vh' }}><div style={{ maxWidth: 1000, margin: '0 auto', padding: '48px 24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 32 }}>
         <div>
           <div style={{ fontSize: 13, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>UNE · 재난관리 업무지원 서비스 POC</div>
-          <h1 style={{ margin: '6px 0 0', fontSize: 30, color: C.navy }}>재난안전 AI 문서 플랫폼</h1>
+          <h1 style={{ margin: '6px 0 0', fontSize: 30, color: C.text, display: 'flex', alignItems: 'center', gap: 12 }}><span className="logo-mark" style={{ width: 40, height: 40, fontSize: 16 }}>UNE</span>재난안전 AI 문서 플랫폼</h1>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ fontSize: 12, color: C.muted }}>사용자</span>
@@ -50,7 +50,7 @@ export function Home() {
           </div>
         ) : <span style={{ color: C.red, fontSize: 13 }}>서버(:3100)에 연결할 수 없습니다. `pnpm --filter @une/poc dev`로 기동하세요.</span>}
       </Card>
-      <div style={{ marginTop: 20, fontSize: 12, color: C.muted }}>모바일 현장 담당자 화면: {users.slice(0, 5).map((u) => <Link key={u.id} to={`/m/${u.id}`} style={{ marginRight: 10 }}>{u.name}</Link>)}</div>
-    </div>
+      <div style={{ marginTop: 20, fontSize: 13, color: C.muted }}>모바일 현장 담당자 화면: {users.slice(0, 5).map((u) => <Link key={u.id} to={`/m/${u.id}`} style={{ marginRight: 10 }}>{u.name}</Link>)}</div>
+    </div></div>
   );
 }

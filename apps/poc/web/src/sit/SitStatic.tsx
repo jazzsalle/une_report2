@@ -9,7 +9,7 @@ export function SitStatic({ kind }: { kind: 'data' | 'settings' }) {
   useEffect(() => { if (kind === 'data') get<typeof docs>('/uni/documents?page=1&size=15').then(setDocs).catch(() => setDocs({ documents: [], total: 0, error: '조회 실패' })); get<typeof health>('/health').then(setHealth); }, [kind]);
   if (kind === 'data') return (
     <div style={{ padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><b style={{ fontSize: 16 }}>연계 데이터 조회</b><Chip tone="navy">T3Q AI·RAG 연계</Chip><span style={{ fontSize: 12, color: C.muted }}>SOP·상황일지 생성에 활용되는 연계 데이터 현황입니다.</span><div style={{ flex: 1 }} /><Btn small onClick={() => get<typeof docs>('/uni/documents?page=1&size=15').then(setDocs)}>↻ 동기화</Btn></div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><b style={{ fontSize: 16 }}>연계 데이터 조회</b><Chip tone="blue">T3Q AI·RAG 연계</Chip><span style={{ fontSize: 12, color: C.muted }}>SOP·상황일지 생성에 활용되는 연계 데이터 현황입니다.</span><div style={{ flex: 1 }} /><Btn small onClick={() => get<typeof docs>('/uni/documents?page=1&size=15').then(setDocs)}>동기화</Btn></div>
       <Card>
         <Table head={['데이터 유형', '문서/데이터명', '출처', '최근 수신', '활용처', '상태']} rows={[
           ['위기관리매뉴얼', '풍수해 위기관리 표준매뉴얼 (2026 개정)', 'T3Q AI 플랫폼', '06-15 08:40', 'SOP 생성 근거', <Chip tone="green">정상</Chip>],

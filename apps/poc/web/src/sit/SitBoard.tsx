@@ -25,21 +25,21 @@ export function SitBoard() {
   const close = async () => { await post(`/exercises/${id}/close`, {}); show('훈련이 종료되었습니다'); await load(); };
   return (
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, height: '100%', boxSizing: 'border-box', overflow: 'auto' }}>
-      <div style={{ background: C.navy, color: '#fff', borderRadius: 10, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 22, fontSize: 13 }}>
-        <b style={{ fontSize: 16 }}>전자 상황판</b>
-        <span>{ex.hazardType} · {ex.location || '위치 미지정'}</span>
-        <span>현재 단계 <b style={{ color: '#fbbf24' }}>{ex.alertLevel}</b></span>
-        <span>경과시간 <b>{elapsed}</b></span>
-        <span>진행 임무 <b style={{ color: '#93c5fd' }}>{board.inProgress + board.dispatched}건</b></span>
-        <span>지연 임무 <b style={{ color: '#fca5a5' }}>{board.delayed}건</b></span>
+      <div className="card" style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 24, fontSize: 14 }}>
+        <h1 style={{ fontSize: 19, fontWeight: 700 }}>전자 상황판</h1>
+        <span className="dim">{ex.hazardType} · {ex.location || '위치 미지정'}</span>
+        {([['현재 단계', ex.alertLevel, C.orange], ['경과시간', elapsed, C.text], ['진행 임무', `${board.inProgress + board.dispatched}건`, C.blue], ['지연 임무', `${board.delayed}건`, board.delayed ? C.red : C.text]] as [string, string, string][]).map(([k, v, color]) => (
+          <span key={k} style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}><span style={{ fontSize: 13, color: C.muted }}>{k}</span><b className="num" style={{ fontSize: 20, color }}>{v}</b></span>
+        ))}
         <div style={{ flex: 1 }} />
-        <span style={{ color: '#cbd5e1' }}>마지막 업데이트 {board.lastEventAt ? new Date(board.lastEventAt).toLocaleTimeString('ko-KR', { hour12: false }) : '-'}</span>
+        <span className="tiny" style={{ color: C.green, fontWeight: 700 }}>실시간 · 3초마다 갱신</span>
+        <span className="tiny dim num">마지막 업데이트 {board.lastEventAt ? new Date(board.lastEventAt).toLocaleTimeString('ko-KR', { hour12: false }) : '-'}</span>
         {ex.status !== 'CLOSED' && <Btn small kind="danger" onClick={() => void close()}>훈련 종료</Btn>}
       </div>
-      <div style={{ fontSize: 12, color: C.muted }}>SOP 실행, 임무 전파, 수신 확인, 완료 보고 이력이 시간순으로 누적됩니다. (3초마다 갱신)</div>
+      <div style={{ fontSize: 13, color: C.muted }}>SOP 실행, 임무 전파, 수신 확인, 완료 보고 이력이 시간순으로 누적됩니다. 집계는 서버 사실원장에서 접은 값이며 화면에서 다시 계산하지 않습니다.</div>
       <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 280px', gap: 12, flex: 1, minHeight: 0 }}>
         <Card title="단계별 타임라인">
-          {PHASES.map((p, i) => { const t = board.timeline.find((x) => x.kind === p)?.at; return <div key={p} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 14, opacity: t ? 1 : 0.4 }}><div style={{ width: 12, height: 12, borderRadius: 6, marginTop: 3, background: t ? ['#1f2b4d', '#2563eb', '#7c3aed', '#0ea5e9', '#f59e0b', '#16a34a', '#6b7280', '#1f2b4d'][i] : '#cbd5e1' }} /><div><div style={{ fontSize: 13, fontWeight: 700 }}>{p}</div><div style={{ fontSize: 11, color: C.muted }}>{t ? fmtTime(t) : '—'}</div></div></div>; })}
+          {PHASES.map((p, i) => { const t = board.timeline.find((x) => x.kind === p)?.at; return <div key={p} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 14, opacity: t ? 1 : 0.4 }}><div style={{ width: 12, height: 12, borderRadius: 6, marginTop: 3, background: t ? ['#1e2124', '#256ef4', '#0b50d0', '#256ef4', '#9d5b00', '#228738', '#464c53', '#1e2124'][i] : '#cdd1d5' }} /><div><div style={{ fontSize: 13, fontWeight: 700 }}>{p}</div><div style={{ fontSize: 11, color: C.muted }}>{t ? fmtTime(t) : '—'}</div></div></div>; })}
         </Card>
         <Card title="시간별 상황내역" right={<div style={{ display: 'flex', gap: 6 }}><Select value={fk} onChange={(e) => setFk(e.target.value)} style={{ width: 110, padding: '4px 6px', fontSize: 12 }}><option value="">구분 전체</option>{Object.keys(KIND_TONE).map((k) => <option key={k}>{k}</option>)}</Select><Select value={fd} onChange={(e) => setFd(e.target.value)} style={{ width: 120, padding: '4px 6px', fontSize: 12 }}><option value="">부서 전체</option>{depts.map((d) => <option key={d}>{d}</option>)}</Select><Select value={fs} onChange={(e) => setFs(e.target.value)} style={{ width: 100, padding: '4px 6px', fontSize: 12 }}><option value="">상태 전체</option>{[...new Set(events.map((e) => e.status).filter(Boolean))].map((s) => <option key={s}>{s}</option>)}</Select></div>} style={{ overflow: 'auto' }}>
           <Table small head={['시간', '구분', '상황내용', '담당부서/담당자', '상태', '근거/출처']} rows={shown.map((e) => [<b>{fmtTime(e.at)}</b>, <Chip tone={KIND_TONE[e.kind] ?? 'gray'}>{e.kind}</Chip>, e.content, `${e.dept ?? '-'}${e.actor ? ' / ' + e.actor : ''}`, e.status ? <Chip tone={statusTone(e.status)}>{e.status}</Chip> : '-', <span style={{ color: C.muted }}>{e.source}</span>])} />
@@ -49,11 +49,11 @@ export function SitBoard() {
           <Card title="현재 진행 임무">
             {board.active.length ? board.active.map((t) => <div key={t.id} style={{ padding: 8, border: `1px solid ${t.status === '지연' ? C.orange : C.border}`, background: t.status === '지연' ? C.orangeBg : '#fff', borderRadius: 8, marginBottom: 6 }}><div style={{ fontSize: 13, fontWeight: 700 }}>{t.title}</div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 3 }}><Chip tone={statusTone(t.status)}>{t.status}</Chip><span style={{ color: t.status === '지연' ? C.orange : C.muted }}>기한 {fmtTime(t.due)}</span></div></div>) : <div style={{ color: C.muted, fontSize: 12 }}>진행 중인 임무가 없습니다.</div>}
           </Card>
-          {board.delayed > 0 && <Card style={{ background: C.redBg, border: `1px solid #fca5a5` }} pad={12}><div style={{ fontWeight: 800, color: C.red, fontSize: 13 }}>⚠ 지연 알림</div><div style={{ fontSize: 12, marginTop: 4 }}>{board.active.filter((t) => t.status === '지연').map((t) => <div key={t.id}>{t.title} 임무가 완료기한을 초과했습니다. 담당자 재확인이 필요합니다.</div>)}</div></Card>}
+          {board.delayed > 0 && <Card style={{ background: C.redBg, border: `1px solid #f4c2b8` }} pad={12}><div style={{ fontWeight: 700, color: C.red, fontSize: 14 }}>지연 알림</div><div style={{ fontSize: 12, marginTop: 4 }}>{board.active.filter((t) => t.status === '지연').map((t) => <div key={t.id}>{t.title} 임무가 완료기한을 초과했습니다. 담당자 재확인이 필요합니다.</div>)}</div></Card>}
         </div>
       </div>
-      <Card title={<span>✦ AI 상황일지 초안 생성 <Chip tone="purple">AI 생성</Chip></span>} right={<div style={{ display: 'flex', gap: 6 }}><Link to={`/sit/${id}/journal?review=1`}><Btn small>검토 필요 항목만 보기</Btn></Link><Link to={`/sit/${id}/journal?generate=1`}><Btn small kind="dark">오늘 전체 내역으로 초안 생성</Btn></Link></div>}>
-        <div style={{ fontSize: 13, color: C.text, background: '#f8fafc', padding: 10, borderRadius: 8, fontStyle: 'italic' }}>"{events.filter((e) => e.kind !== 'AI분석').slice(0, 3).map((e) => `${fmtTime(e.at)} ${e.content}`).join(', ')}{events.length > 3 ? ' …' : ''}"</div>
+      <Card title={<span>AI 상황일지 초안 생성 <Chip tone="purple">AI 생성</Chip></span>} right={<div style={{ display: 'flex', gap: 6 }}><Link to={`/sit/${id}/journal?review=1`}><Btn small>검토 필요 항목만 보기</Btn></Link><Link to={`/sit/${id}/journal?generate=1`}><Btn small kind="primary">오늘 전체 내역으로 초안 생성</Btn></Link></div>}>
+        <div style={{ fontSize: 14, color: C.text, background: '#f4f5f6', padding: 10, borderRadius: 8 }}>"{events.filter((e) => e.kind !== 'AI분석').slice(0, 3).map((e) => `${fmtTime(e.at)} ${e.content}`).join(', ')}{events.length > 3 ? ' …' : ''}"</div>
       </Card>
       <Toast msg={toast} />
     </div>

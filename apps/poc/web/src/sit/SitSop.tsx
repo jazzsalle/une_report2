@@ -4,13 +4,13 @@ import { get, post, put, type Exercise, type Sop, type SopGraph, type SopNode, t
 import { Btn, C, Card, Chip, Field, Input, Modal, Select, Textarea, Toast, useToast } from '../ui';
 
 const TYPES: { type: NodeType; label: string; icon: string; bg: string; fg: string }[] = [
-  { type: 'START', label: '시작', icon: '▶', bg: C.navy, fg: '#fff' },
-  { type: 'TASK', label: '프로세스/임무', icon: '☐', bg: '#fff', fg: C.text },
-  { type: 'DECISION', label: '판단', icon: '◇', bg: '#fef3c7', fg: '#92400e' },
-  { type: 'DISPATCH', label: '상황전파', icon: '📣', bg: '#ede9fe', fg: '#5b21b6' },
-  { type: 'FIELD_CHECK', label: '현장확인', icon: '📍', bg: '#dcfce7', fg: '#166534' },
-  { type: 'AUTO_LOG', label: '상황일지 자동기록', icon: '📄', bg: '#e0f2fe', fg: '#075985' },
-  { type: 'END', label: '종료', icon: '■', bg: C.navy, fg: '#fff' },
+  { type: 'START', label: '시작', icon: '▶', bg: '#1e2124', fg: '#fff' },
+  { type: 'TASK', label: '프로세스/임무', icon: '□', bg: '#fff', fg: '#1e2124' },
+  { type: 'DECISION', label: '판단', icon: '◇', bg: '#fff8e1', fg: '#9d5b00' },
+  { type: 'DISPATCH', label: '상황전파', icon: '▷', bg: '#eff5ff', fg: '#0b50d0' },
+  { type: 'FIELD_CHECK', label: '현장확인', icon: '◎', bg: '#eef7f0', fg: '#228738' },
+  { type: 'AUTO_LOG', label: '상황일지 자동기록', icon: '≡', bg: '#f4f5f6', fg: '#464c53' },
+  { type: 'END', label: '종료', icon: '■', bg: '#1e2124', fg: '#fff' },
 ];
 const T = (t: NodeType) => TYPES.find((x) => x.type === t)!;
 
@@ -100,25 +100,25 @@ export function SitSop() {
           {graph && <Chip tone="purple">{graph.mapperVersion === 'uni-sop-2' ? 'AI 초안' : graph.mapperVersion === 'manual' ? '편집본' : '기본 SOP'} · v0.{version}</Chip>}
           {linkFrom && <Chip tone="orange">연결 대상 노드를 클릭 (다시 클릭하면 취소)</Chip>}
           <div style={{ flex: 1 }} />
-          <Btn small onClick={() => void generate()} disabled={busy}>{busy ? '유니 생성 중…' : graph ? '✦ AI로 재생성' : '✦ AI SOP 생성'}</Btn>
+          <Btn small onClick={() => void generate()} disabled={busy}>{busy ? '유니 생성 중…' : graph ? 'AI로 재생성' : 'AI SOP 생성'}</Btn>
           {allSources.length > 0 && <Btn small onClick={() => setShowSources(true)}>AI 생성 근거 {allSources.length}</Btn>}
           <Btn small disabled={!graph} onClick={() => void save()}>버전 저장</Btn>
           <Btn small kind="primary" disabled={!graph || ex.status === 'CLOSED'} onClick={() => void start()}>훈련 실행으로 이동 →</Btn>
         </div>
-        <div style={{ flex: 1, overflow: 'auto', background: 'radial-gradient(#d4d8e2 1px, transparent 1px) 0 0/22px 22px, #f8fafc' }}>
+        <div style={{ flex: 1, overflow: 'auto', background: 'radial-gradient(#cdd1d5 1px, transparent 1px) 0 0/22px 22px, #f4f5f6' }}>
           {busy && !graph && <div style={{ padding: 60, textAlign: 'center', color: C.muted }}>유니 SOP API(/chat/json)로 절차를 생성하고 있습니다… <div style={{ fontSize: 12, marginTop: 6 }}>훈련상황 + 챗봇 대화 요약 + 인용 근거를 전달</div></div>}
           {!busy && !graph && <div style={{ padding: 60, textAlign: 'center', color: C.muted }}>[AI SOP 생성]을 누르세요.</div>}
           {graph && (
             <svg width={1280} height={Math.max(...[...pos.values()].map((p) => p.y), 100) + 120} style={{ display: 'block' }}>
-              <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#64748b" /></marker></defs>
+              <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#464c53" /></marker></defs>
               {graph.edges.map((e, i) => { const a = pos.get(e.from); const b = pos.get(e.to); if (!a || !b) return null; const y1 = a.y + 22, y2 = b.y - 22; const mid = (y1 + y2) / 2; return (
-                <g key={i}><path d={`M${a.x},${y1} C${a.x},${mid} ${b.x},${mid} ${b.x},${y2}`} stroke="#94a3b8" strokeWidth={1.6} fill="none" markerEnd="url(#arr)" />
-                  {e.label && <text x={(a.x + b.x) / 2 + (b.x > a.x ? 12 : b.x < a.x ? -12 : 10)} y={mid} fontSize={11} fontWeight={800} fill={e.label === 'YES' ? '#166534' : '#991b1b'} textAnchor="middle">{e.label}</text>}</g>); })}
+                <g key={i}><path d={`M${a.x},${y1} C${a.x},${mid} ${b.x},${mid} ${b.x},${y2}`} stroke="#8a949e" strokeWidth={1.6} fill="none" markerEnd="url(#arr)" />
+                  {e.label && <text x={(a.x + b.x) / 2 + (b.x > a.x ? 12 : b.x < a.x ? -12 : 10)} y={mid} fontSize={11} fontWeight={800} fill={e.label === 'YES' ? '#228738' : '#d0290e'} textAnchor="middle">{e.label}</text>}</g>); })}
               {graph.nodes.map((n) => { const p = pos.get(n.id); if (!p) return null; const t = T(n.type); const isSel = sel === n.id; const w = n.type === 'DECISION' ? 220 : 210; return (
                 <g key={n.id} transform={`translate(${p.x},${p.y})`} onClick={() => (linkFrom ? toggleLink(n.id) : setSel(isSel ? null : n.id))} style={{ cursor: 'pointer' }}>
-                  {n.type === 'DECISION' ? <polygon points={`0,-26 ${w / 2},0 0,26 ${-w / 2},0`} fill={t.bg} stroke={isSel ? C.blue : '#f59e0b'} strokeWidth={isSel ? 3 : 1.5} /> : <rect x={-w / 2} y={-22} width={w} height={44} rx={n.type === 'START' || n.type === 'END' ? 22 : 8} fill={t.bg} stroke={isSel ? C.blue : linkFrom === n.id ? C.orange : '#cbd5e1'} strokeWidth={isSel || linkFrom === n.id ? 3 : 1.2} />}
+                  {n.type === 'DECISION' ? <polygon points={`0,-26 ${w / 2},0 0,26 ${-w / 2},0`} fill={t.bg} stroke={isSel ? C.blue : '#9d5b00'} strokeWidth={isSel ? 3 : 1.5} /> : <rect x={-w / 2} y={-22} width={w} height={44} rx={n.type === 'START' || n.type === 'END' ? 22 : 8} fill={t.bg} stroke={isSel ? C.blue : linkFrom === n.id ? C.orange : '#cdd1d5'} strokeWidth={isSel || linkFrom === n.id ? 3 : 1.2} />}
                   <text y={4} textAnchor="middle" fontSize={12.5} fontWeight={700} fill={t.fg}>{t.icon} {n.title.length > 20 ? n.title.slice(0, 20) + '…' : n.title}</text>
-                  {n.dept && <text y={36} textAnchor="middle" fontSize={10} fill="#64748b">{n.dept}{n.assignee ? ` · ${n.assignee}` : ''}</text>}
+                  {n.dept && <text y={36} textAnchor="middle" fontSize={10} fill="#464c53">{n.dept}{n.assignee ? ` · ${n.assignee}` : ''}</text>}
                 </g>); })}
             </svg>
           )}
@@ -141,7 +141,7 @@ export function SitSop() {
             <Field label="세부 임무 / 지시사항 (줄마다 하나)"><Textarea value={(node.tasks ?? []).join('\n')} onChange={(e) => upd({ tasks: e.target.value.split('\n').filter((x) => x.trim()) })} style={{ minHeight: 90 }} /></Field>
             <Field label="상황일지 기록 규칙"><div style={{ fontSize: 12 }}>{['전파 시 자동 기록', '수신 확인 시 자동 기록', '완료 보고 시 자동 기록', '지연 발생 시 자동 기록'].map((r) => <label key={r} style={{ display: 'flex', gap: 6, marginBottom: 3 }}><input type="checkbox" checked={(node.logRules ?? ['전파 시 자동 기록', '수신 확인 시 자동 기록', '완료 보고 시 자동 기록', '지연 발생 시 자동 기록']).includes(r)} onChange={(e) => { const cur = node.logRules ?? ['전파 시 자동 기록', '수신 확인 시 자동 기록', '완료 보고 시 자동 기록', '지연 발생 시 자동 기록']; upd({ logRules: e.target.checked ? [...cur, r] : cur.filter((x) => x !== r) }); }} />{r}</label>)}</div></Field>
             <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}><Btn small onClick={() => setLinkFrom(linkFrom === node.id ? null : node.id)} kind={linkFrom === node.id ? 'warn' : 'default'}>{linkFrom === node.id ? '연결 취소' : '→ 다른 노드로 연결'}</Btn></div>
-            <Card title="✦ AI로 임무 보완" pad={10} style={{ background: '#f8fafc' }}>
+            <Card title={<span>AI로 임무 보완 <Chip tone="purple">유니</Chip></span>} pad={10} style={{ background: '#f4f5f6' }}>
               <div style={{ display: 'flex', gap: 4 }}><Input value={aiQ} onChange={(e) => setAiQ(e.target.value)} placeholder="예: 세부 임무를 3개 더" onKeyDown={(e) => { if (e.key === 'Enter') askAi(); }} /><Btn small kind="primary" onClick={askAi} disabled={!aiQ.trim() || aiA?.streaming}>질의</Btn></div>
               {aiA && <div style={{ marginTop: 8, fontSize: 12, whiteSpace: 'pre-wrap', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 6, padding: 8, maxHeight: 180, overflow: 'auto' }}>{aiA.text || '…'}{aiA.sources.length > 0 && <div style={{ marginTop: 6, color: C.muted, fontSize: 11 }}>근거: {aiA.sources.slice(0, 3).map((s) => s.filename).join(' · ')}</div>}</div>}
               {aiA && !aiA.streaming && <Btn small style={{ marginTop: 6 }} onClick={applyAi}>선택 노드에 반영</Btn>}
@@ -149,13 +149,13 @@ export function SitSop() {
           </>
         )}
         {!node && allSources.length > 0 && (
-          <Card title="✦ AI 생성 근거" pad={10} style={{ marginTop: 10, background: '#f8fafc' }}>
-            {allSources.slice(0, 4).map((s, i) => { const x = s as { filename: string; score: number; text: string }; return <div key={i} style={{ fontSize: 12, marginBottom: 8 }}><b>📄 {x.filename}</b>{x.score ? <Chip tone="blue" style={{ marginLeft: 4 }}>{Math.round(x.score * 100)}%</Chip> : null}<div style={{ color: C.muted, marginTop: 2, fontSize: 11 }}>{x.text.slice(0, 120)}</div></div>; })}
+          <Card title="AI 생성 근거" pad={10} style={{ marginTop: 10, background: '#f4f5f6' }}>
+            {allSources.slice(0, 4).map((s, i) => { const x = s as { filename: string; score: number; text: string }; return <div key={i} style={{ fontSize: 12, marginBottom: 8 }}><b>{x.filename}</b>{x.score ? <Chip tone="blue" style={{ marginLeft: 4 }}>{Math.round(x.score * 100)}%</Chip> : null}<div style={{ color: C.muted, marginTop: 2, fontSize: 11 }}>{x.text.slice(0, 120)}</div></div>; })}
             {allSources.length > 4 && <Btn small onClick={() => setShowSources(true)}>전체 {allSources.length}건</Btn>}
           </Card>
         )}
       </div>
-      {showSources && <Modal title="AI 생성 근거 (SOP 생성 + 사전 질의 인용)" onClose={() => setShowSources(false)} width={680}>{allSources.map((s, i) => { const x = s as { filename: string; score: number; text: string }; return <div key={i} style={{ padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 8, fontSize: 12 }}><b>📄 {x.filename}</b> {x.score ? <Chip tone="blue">{Math.round(x.score * 100)}%</Chip> : null}<div style={{ color: C.muted, marginTop: 4, whiteSpace: 'pre-wrap' }}>{x.text}</div></div>; })}</Modal>}
+      {showSources && <Modal title="AI 생성 근거 (SOP 생성 + 사전 질의 인용)" onClose={() => setShowSources(false)} width={680}>{allSources.map((s, i) => { const x = s as { filename: string; score: number; text: string }; return <div key={i} style={{ padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 8, fontSize: 12 }}><b>{x.filename}</b> {x.score ? <Chip tone="blue">{Math.round(x.score * 100)}%</Chip> : null}<div style={{ color: C.muted, marginTop: 4, whiteSpace: 'pre-wrap' }}>{x.text}</div></div>; })}</Modal>}
       <Toast msg={toast} />
     </div>
   );

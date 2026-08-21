@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { get, api, pickSaveLocation, writeFileTo, type Plan } from '../api';
-import { Btn, C, Chip, Toast, useToast } from '../ui';
+import { Toast, useToast } from '../ui';
+import { Icon, KBadge, KBtn } from '../krds';
 
 /**
  * 4-1 경로: @rhwp/editor(iframe 웹 한글 에디터)에 내보낸 HWPX를 로드 → 사용자가 직접 편집 → exportHwpx로 서버에 되돌린다.
@@ -49,16 +50,21 @@ export function PlanRhwpEditor() {
     catch (e) { show((e as Error).message); }
   };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 20px', background: '#fff', borderBottom: `1px solid ${C.border}` }}>
-        <Link to={`/plan/${id}`} style={{ color: C.muted, fontSize: 12 }}>← 문서로</Link>
-        <b>{plan?.title ?? ''}</b> <Chip tone="purple">rhwp 웹 한글 에디터</Chip>
-        <span style={{ fontSize: 12, color: C.muted }}>{status}</span>
-        <div style={{ flex: 1 }} />
-        <Btn kind="primary" disabled={!ready} onClick={() => void saveBack()}>편집본 서버에 저장 (HWPX)</Btn>
-        {plan?.export && <Btn onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다">원본 다운로드</Btn>}
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)' }}>
+      <div className="band">
+        <div className="wrap console">
+          <Link to={`/plan/${id}`} className="back"><Icon name="back" /> 문서로</Link>
+          <div className="doc-tit"><strong>{plan?.title ?? ''}</strong><span>{status}</span></div>
+          <KBadge tone="light-primary">rhwp 웹 한글 에디터</KBadge>
+          <span className="tiny dim">외부 studio(edwardkim.github.io) iframe · 인터넷 연결 필요</span>
+          <div style={{ flex: 1 }} />
+          {plan?.export && <KBtn size="sm" onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다"><Icon name="download" /> 원본 다운로드</KBtn>}
+          <KBtn kind="primary" size="sm" disabled={!ready} onClick={() => void saveBack()}>편집본 서버에 저장 (HWPX)</KBtn>
+        </div>
       </div>
-      <div ref={boxRef} style={{ flex: 1, minHeight: 0 }} />
+      <div style={{ flex: 1, minHeight: 0, margin: 24, border: '1px solid #cdd1d5', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
+        <div ref={boxRef} style={{ height: '100%' }} />
+      </div>
       <Toast msg={toast} />
     </div>
   );

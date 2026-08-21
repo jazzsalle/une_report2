@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { get, post, put, fmtTime, type Exercise, type Task, type Event, type User } from '../api';
-import { Btn, C, Card, Chip, Field, Input, Select, Textarea, Toast, statusTone, useToast } from '../ui';
+import { Btn, C, Card, Chip, Field, Input, Modal, Select, Textarea, Toast, statusTone, useToast } from '../ui';
 
 const TABS = ['임무지시', '최초상황 전파', '현장확인 요청', '조치결과 요청', '추가상황 전파'] as const;
 const TEMPLATES: Record<string, { title: string; body: string }> = {
@@ -40,7 +40,7 @@ export function SitDispatch() {
   const redispatch = async () => { const r = await post<{ count: number }>(`/exercises/${id}/redispatch`, {}); show(`미확인자 ${r.count}명 재전파`); await load(); };
   const cnt = (f: (t: Task) => boolean) => tasks.filter(f).length;
   const total = tasks.length || 1;
-  const bar = (label: string, n: number, color: string) => <div style={{ marginBottom: 8 }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}><span>{label}</span><b>{n}명</b></div><div style={{ height: 6, background: '#e5e7eb', borderRadius: 3, marginTop: 3 }}><div style={{ width: `${(n / total) * 100}%`, height: 6, background: color, borderRadius: 3 }} /></div></div>;
+  const bar = (label: string, n: number, color: string) => <div style={{ marginBottom: 8 }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span>{label}</span><b className="num">{n}명</b></div><div className="progress" style={{ height: 6, marginTop: 3 }} role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={n} aria-label={label}><span style={{ width: `${(n / total) * 100}%`, background: color }} /></div></div>;
   if (!ex) return <div style={{ padding: 24 }}>불러오는 중…</div>;
   if (!tasks.length) return <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>임무가 없습니다. <Link to={`/sit/${id}/sop`}>SOP 화면</Link>에서 [훈련 실행으로 이동]을 눌러 임무를 생성하세요.</div>;
   return (
@@ -73,23 +73,23 @@ export function SitDispatch() {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>{recipients.map((r) => { const u = users.find((x) => x.id === r); return u ? <Chip key={r} tone="blue">{u.dept} {u.name} <span style={{ cursor: 'pointer' }} onClick={() => setRecipients(recipients.filter((x) => x !== r))}>✕</span></Chip> : null; })}<Select value="" onChange={(e) => { if (e.target.value && !recipients.includes(e.target.value)) setRecipients([...recipients, e.target.value]); }} style={{ width: 160, padding: '3px 6px', fontSize: 12 }}><option value="">+ 대상 추가</option>{users.map((u) => <option key={u.id} value={u.id}>{u.dept} · {u.name}</option>)}</Select></div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>POC에서는 첫 번째 대상이 임무 담당자로 배정되며, 모바일 화면(/m/담당자)에 나타나는 것이 발송입니다.</div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><Btn kind="primary" onClick={() => void dispatch()} disabled={ex.status === 'CLOSED'}>즉시 전파</Btn></div>
-            {sel.message && <div style={{ marginTop: 12, fontSize: 12, background: '#f8fafc', padding: 10, borderRadius: 8, whiteSpace: 'pre-wrap' }}><b>발송된 메시지</b> ({fmtTime(sel.dispatchedAt)})<br />{sel.message}</div>}
+            {sel.message && <div style={{ marginTop: 12, fontSize: 13, background: '#f4f5f6', padding: 10, borderRadius: 8, whiteSpace: 'pre-wrap' }}><b>발송된 메시지</b> ({fmtTime(sel.dispatchedAt)})<br />{sel.message}</div>}
           </>
         )}
       </Card>
       <div style={{ overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Card title={`전파 현황 · 전체 ${tasks.length}건`}>
-          {bar('발송 완료', cnt((t) => !!t.dispatchedAt), C.blue)}{bar('수신 확인', cnt((t) => !!t.ackedAt), '#0ea5e9')}{bar('완료 보고', cnt((t) => t.status === '완료'), C.green)}{bar('지연', cnt((t) => t.status === '지연'), C.orange)}{bar('미확인', cnt((t) => t.status === '전파완료'), C.red)}
+          {bar('발송 완료', cnt((t) => !!t.dispatchedAt), C.blue)}{bar('수신 확인', cnt((t) => !!t.ackedAt), '#0b50d0')}{bar('완료 보고', cnt((t) => t.status === '완료'), C.green)}{bar('지연', cnt((t) => t.status === '지연'), C.orange)}{bar('미확인', cnt((t) => t.status === '전파완료'), C.red)}
         </Card>
         <Card title="담당자 수신 현황" style={{ flex: 1 }}>
           {tasks.filter((t) => t.dispatchedAt).map((t) => <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: `1px solid ${C.border}` }}><div style={{ width: 28, height: 28, borderRadius: 14, background: C.blueLight, color: C.blue, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800 }}>{t.assigneeName[0]}</div><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700 }}>{t.assigneeName} <span style={{ fontWeight: 400, color: C.muted }}>{t.dept}</span></div><div style={{ fontSize: 11, color: C.muted }}>발송 {fmtTime(t.dispatchedAt)} · {t.ackedAt ? `확인 ${fmtTime(t.ackedAt)}` : '미확인'}</div></div><Chip tone={statusTone(t.status)}>{t.status}</Chip></div>)}
           {!tasks.some((t) => t.dispatchedAt) && <div style={{ color: C.muted, fontSize: 12 }}>아직 전파된 임무가 없습니다.</div>}
         </Card>
       </div>
-      <Card title={<span>📄 자동 상황일지 기록 내역 <Chip tone="green">자동 기록</Chip></span>} right={<Link to={`/sit/${id}/journal`}><Btn small>상황일지 반영</Btn></Link>} style={{ gridColumn: '1/-1', maxHeight: 150, overflow: 'auto' }}>
+      <Card title={<span>자동 상황일지 기록 내역 <Chip tone="green">자동 기록</Chip></span>} right={<Link to={`/sit/${id}/journal`}><Btn small>상황일지 반영</Btn></Link>} style={{ gridColumn: '1/-1', maxHeight: 150, overflow: 'auto' }}>
         {events.slice(-6).reverse().map((e) => <div key={e.id} style={{ fontSize: 12.5, padding: '3px 0' }}><b style={{ color: C.navy }}>{fmtTime(e.at)}</b> <Chip>{e.kind}</Chip> {e.content}</div>)}
       </Card>
-      {preview && sel && <div onClick={() => setPreview(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'grid', placeItems: 'center', zIndex: 50 }}><div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, width: 460 }}><b>전파 미리보기</b><div style={{ marginTop: 10, background: '#f8fafc', padding: 12, borderRadius: 8, fontSize: 13, whiteSpace: 'pre-wrap' }}><b>{fill(title, sel)}</b>{'\n'}{fill(body, sel)}</div><div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>대상: {recipients.map((r) => users.find((u) => u.id === r)?.name).join(', ')}</div><div style={{ textAlign: 'right', marginTop: 12 }}><Btn onClick={() => setPreview(false)}>닫기</Btn></div></div></div>}
+      {preview && sel && <Modal title="전파 미리보기" onClose={() => setPreview(false)} width={480}><div style={{ background: '#f4f5f6', padding: 12, borderRadius: 8, fontSize: 14, whiteSpace: 'pre-wrap' }}><b>{fill(title, sel)}</b>{'\n'}{fill(body, sel)}</div><div style={{ fontSize: 13, color: C.muted }}>대상: {recipients.map((r) => users.find((u) => u.id === r)?.name).join(', ')}</div><div style={{ textAlign: 'right' }}><Btn onClick={() => setPreview(false)}>닫기</Btn></div></Modal>}
       <Toast msg={toast} />
     </div>
   );
