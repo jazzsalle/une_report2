@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap">
+<style>
+:root{--primary:#256ef4;--primary-60:#0b50d0;--primary-70:#083891;--text:#1e2124;--subtle:#464c53;--disabled:#8a949e;--border:#cdd1d5;--line:#f1f3f5;--surface:#f4f5f6;--success:#228738;--success-bg:#eef7f0;--success-bd:#b9dec3;--warn:#9d5b00;--warn-bg:#fff8e1;--warn-bd:#ffe0a3;--danger:#d0290e;--danger-bg:#fdf2f0;--danger-bd:#f4c2b8;--info-bg:#eff5ff;--info-bd:#c2d6ff}
+html{font-size:62.5%}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Pretendard GOV","Pretendard","Noto Sans KR","Malgun Gothic","맑은 고딕",sans-serif;font-size:1.7rem;line-height:1.5;color:var(--text);background:var(--surface);-webkit-font-smoothing:antialiased}
+a{color:#256ef4;text-decoration:none}a:hover{color:#083891}
+h1,h2,h3,p,ul,ol,dl,figure{margin:0}
+button{font-family:inherit}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.wrap{max-width:152rem;margin:0 auto;padding:0 2.4rem}
+.hdr{background:#fff;border-bottom:0.1rem solid var(--border)}
+.hdr-in{display:flex;align-items:center;gap:3.2rem;height:6.4rem}
+.logo{display:flex;align-items:center;gap:1rem}
+.logo-mark{display:inline-flex;align-items:center;justify-content:center;width:3.2rem;height:3.2rem;border-radius:0.6rem;background:#256ef4;color:#fff;font-size:1.4rem;font-weight:700}
+.logo-tit{font-size:1.8rem;font-weight:700;white-space:nowrap}
+.gnb{display:flex;gap:0.4rem;align-self:stretch}
+.gnb a{display:flex;align-items:center;padding:0 1.6rem;font-size:1.7rem;color:#464c53;white-space:nowrap}
+.gnb a[aria-current="page"]{color:#256ef4;font-weight:700;box-shadow:inset 0 -0.3rem 0 #256ef4}
+.util{margin-left:auto;display:flex;align-items:center;gap:1.2rem;font-size:1.5rem;color:var(--subtle);white-space:nowrap}
+.band{background:#fff;border-bottom:0.1rem solid var(--border)}
+.band-in{display:flex;align-items:center;gap:2.4rem;min-height:5.6rem}
+.lnb{display:flex;gap:0.4rem;align-self:stretch}
+.lnb a{display:flex;align-items:center;padding:0 1.6rem;font-size:1.5rem;color:#464c53;min-height:5.6rem}
+.lnb a[aria-current="page"]{color:#256ef4;font-weight:700;box-shadow:inset 0 -0.3rem 0 #256ef4}
+.console{display:flex;align-items:center;gap:2rem;padding:1.2rem 2.4rem;flex-wrap:wrap}
+.console .back{display:inline-flex;align-items:center;gap:0.2rem;font-size:1.4rem;color:var(--subtle)}
+.console .back svg{width:1.6rem;height:1.6rem}
+.doc-tit{min-width:0}
+.doc-tit strong{display:block;font-size:1.7rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.doc-tit span{font-size:1.3rem;color:var(--subtle)}
+.pipe{list-style:none;display:flex;gap:0.4rem;margin:0 0 0 auto;padding:0;align-items:center}
+.pipe li{display:flex;align-items:center;gap:0.4rem}
+.pipe .arrow{width:1.4rem;height:1.4rem;opacity:.4}
+.chip{display:inline-flex;align-items:center;gap:0.6rem;padding:0.5rem 1.2rem;border-radius:10rem;font-size:1.3rem;border:0.1rem solid;white-space:nowrap;font-weight:400;background:#fff;cursor:pointer;line-height:1.5}
+.chip svg{width:1.4rem;height:1.4rem}
+.chip.done{background:#eef7f0;color:#228738;border-color:#b9dec3}
+.chip.now{background:#256ef4;color:#fff;border-color:#256ef4;font-weight:700}
+.chip.todo{color:#8a949e;border-color:#cdd1d5}
+.krds-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.6rem;height:4.8rem;padding:0 1.6rem;border-radius:0.8rem;font-size:1.7rem;font-weight:700;border:0.1rem solid transparent;cursor:pointer;white-space:nowrap;line-height:1}
+.krds-btn svg{width:1.8rem;height:1.8rem}
+.krds-btn.small{height:4rem;padding:0 1.4rem;font-size:1.5rem}
+.krds-btn.small svg{width:1.6rem;height:1.6rem}
+.krds-btn.xsmall{height:3.2rem;padding:0 1.2rem;font-size:1.3rem;border-radius:0.6rem}
+.krds-btn.xsmall svg{width:1.4rem;height:1.4rem}
+.krds-btn.primary{background:#256ef4;color:#fff;border-color:#256ef4}
+.krds-btn.secondary{background:#fff;color:#256ef4;border-color:#256ef4}
+.krds-btn.tertiary{background:#fff;color:#1e2124;border-color:#8a949e}
+.krds-btn.danger{background:#fff;color:#d0290e;border-color:#d0290e}
+.krds-btn.text{background:transparent;color:#256ef4;border-color:transparent;padding:0 0.8rem}
+.krds-btn.icon{width:3.2rem;height:3.2rem;padding:0;border-radius:0.6rem;background:transparent;border-color:transparent;color:#464c53}
+.krds-btn[disabled]{opacity:.4;cursor:not-allowed}
+.krds-badge{display:inline-flex;align-items:center;gap:0.4rem;padding:0.2rem 0.8rem;border-radius:10rem;font-size:1.3rem;font-weight:700;line-height:1.6;white-space:nowrap}
+.bg-success{background:#228738;color:#fff}.bg-light-success{background:#eef7f0;color:#228738}
+.bg-primary{background:#256ef4;color:#fff}.bg-light-primary{background:#eff5ff;color:#256ef4}
+.bg-light-warning{background:#fff8e1;color:#9d5b00}.bg-danger{background:#d0290e;color:#fff}.bg-light-danger{background:#fdf2f0;color:#d0290e}
+.bg-gray{background:#8a949e;color:#fff}.bg-light-gray{background:#f4f5f6;color:#464c53}
+.bg-navy{background:#1e2124;color:#fff}
+.card{background:#fff;border:0.1rem solid var(--border);border-radius:1.2rem;padding:2.4rem}
+.card.tight{padding:2rem}
+.card h2,.card h3{font-size:1.9rem;font-weight:700}
+.card-head{display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem}
+.card-head .grow{flex:1}
+.card-desc{font-size:1.5rem;color:var(--subtle)}
+.stack{display:flex;flex-direction:column;gap:1.6rem}
+.row{display:flex;align-items:center;gap:0.8rem}
+.krds-table-wrap{overflow-x:auto}
+.tbl{width:100%;border-collapse:collapse;font-size:1.5rem}
+.tbl th,.tbl td{padding:1.1rem 1.4rem;border-bottom:0.1rem solid var(--border);text-align:left;vertical-align:middle}
+.tbl thead th{background:var(--surface);font-weight:700;color:var(--subtle);border-top:0.1rem solid var(--border);font-size:1.4rem;white-space:nowrap}
+.tbl.row-th th{background:var(--surface);width:24%;font-weight:700;color:var(--text)}
+.tbl .num{font-variant-numeric:tabular-nums}
+.tbl tr.sel td{background:#eff5ff}
+.tbl.compact th,.tbl.compact td{padding:0.8rem 1.2rem;font-size:1.4rem}
+.krds-alert{display:flex;gap:1rem;align-items:flex-start;padding:1.2rem 1.6rem;border-radius:0.8rem;border:0.1rem solid;font-size:1.5rem;line-height:1.5}
+.krds-alert svg{flex-shrink:0;width:2rem;height:2rem;margin-top:0.2rem}
+.krds-alert.success{background:var(--success-bg);border-color:var(--success-bd)}.krds-alert.success svg{color:var(--success)}
+.krds-alert.warning{background:var(--warn-bg);border-color:var(--warn-bd)}.krds-alert.warning svg{color:var(--warn)}
+.krds-alert.information{background:var(--info-bg);border-color:var(--info-bd)}.krds-alert.information svg{color:var(--primary)}
+.krds-alert.danger{background:var(--danger-bg);border-color:var(--danger-bd)}.krds-alert.danger svg{color:var(--danger)}
+.form-group{display:flex;flex-direction:column;gap:0.6rem}
+.form-tit{font-size:1.5rem;font-weight:700}
+.form-tit .req{color:#d0290e;margin-left:0.2rem}
+.form-hint{font-size:1.3rem;color:var(--subtle)}
+.krds-input,.krds-select,.krds-textarea{display:flex;align-items:center;width:100%;height:4rem;padding:0 1.2rem;border:0.1rem solid #8a949e;border-radius:0.8rem;font:inherit;font-size:1.5rem;color:var(--text);background:#fff}
+.krds-select{justify-content:space-between;gap:0.8rem}
+.krds-select svg{width:1.6rem;height:1.6rem;color:#464c53;flex-shrink:0}
+.krds-textarea{height:auto;min-height:8rem;padding:1rem 1.2rem;align-items:flex-start;line-height:1.6}
+.ph{color:#8a949e}
+.form-grid{display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:1.6rem 2.4rem}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:0.6rem 1.2rem;font-size:1.5rem;line-height:1.6}
+.kv dt{color:var(--subtle);white-space:nowrap}.kv dd{margin:0}
+.rail{display:flex;flex-direction:column;gap:1.6rem}
+.rail .card h3{font-size:1.5rem;color:var(--subtle);margin-bottom:1.2rem}
+.tabs{display:flex;gap:0.4rem;border-bottom:0.1rem solid var(--border)}
+.tabs button{height:4.4rem;padding:0 1.6rem;font-size:1.5rem;color:#464c53;background:transparent;border:none;cursor:pointer}
+.tabs button[aria-selected="true"]{color:#256ef4;font-weight:700;box-shadow:inset 0 -0.3rem 0 #256ef4}
+.tabs button[disabled]{color:#8a949e;cursor:not-allowed}
+.tpl-card{min-width:21rem;border:0.1rem solid var(--border);border-radius:0.8rem;padding:1.4rem 1.6rem;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:0.6rem}
+.tpl-card.sel{border:0.2rem solid #256ef4;background:#eff5ff}
+.tpl-card strong{font-size:1.5rem}
+.tpl-card .meta{font-size:1.3rem;color:var(--subtle)}
+.tpl-card .lv{display:flex;gap:0.4rem;flex-wrap:wrap}
+.tpl-card .lv span{font-size:1.2rem;padding:0.1rem 0.6rem;border-radius:0.4rem;background:#f4f5f6;color:#464c53}
+.doc-body{font-size:1.5rem;line-height:1.8}
+.doc-body .p{padding:0.4rem 0.8rem;margin:0 -0.8rem;border-radius:0.6rem;cursor:pointer}
+.doc-body .p.sel{background:#eff5ff;outline:0.2rem solid #256ef4}
+.doc-body .h1{font-size:2.2rem;font-weight:700;margin-top:1.6rem}
+.doc-body .h2{font-size:1.9rem;font-weight:700;margin-top:1.2rem}
+.doc-body .h3{font-size:1.9rem;font-weight:400;padding-left:1.6rem}
+.doc-body .h4{font-size:1.5rem;font-weight:400;padding-left:3.2rem}
+.doc-body .li{padding-left:3.2rem}
+.doc-body table{border-collapse:collapse;width:100%;font-size:1.4rem;margin:0.6rem 0}
+.doc-body th,.doc-body td{border:0.1rem solid #cdd1d5;padding:0.6rem 1rem;text-align:left}
+.doc-body th{background:#f4f5f6}
+.num{font-variant-numeric:tabular-nums}
+.dim{color:var(--subtle)}
+.tiny{font-size:1.3rem}
+</style>
+</helmet>
+<div style="width:1520px;min-height:980px;background:#f4f5f6" data-screen-label="초안 · AI 문단 수정">
+<header class="hdr" data-screen-label="공통 헤더">
+<div class="wrap hdr-in">
+<a class="logo" href="#"><span class="logo-mark">UNE</span><strong class="logo-tit">재난안전 AI 문서 POC</strong></a>
+<nav class="gnb" aria-label="주요 메뉴"><a href="#" aria-current="page">계획서 생성</a><a href="#">상황일지</a></nav>
+<div class="util"><span>안전총괄과 · 정하늘 (계획 작성자)</span><button type="button" class="krds-btn tertiary xsmall">사용자 변경</button></div>
+</div>
+</header>
+<div class="band">
+<div class="wrap console">
+<a class="back" href="#"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 4l-6 6 6 6"/></svg> 문서 관리</a>
+<div class="doc-tit"><strong>2026 폭염 대비 계획서</strong><span>폭염 · 대비 · 템플릿 문서 템플릿_01 · 수정 2026. 8. 21. 10:42 정하늘</span></div>
+<ol class="pipe" aria-label="작업 단계">
+<li><button type="button" class="chip done"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg> 기준정보</button><span class="arrow"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4l6 6-6 6"/></svg></span></li>
+<li><button type="button" class="chip done"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg> 목차</button><span class="arrow"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4l6 6-6 6"/></svg></span></li>
+<li><button type="button" class="chip now" aria-current="step"><span>3</span> 초안 5/11</button><span class="arrow"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4l6 6-6 6"/></svg></span></li>
+<li><button type="button" class="chip todo"><span>4</span> 미리보기·내보내기</button></li>
+</ol>
+<button type="button" class="krds-btn tertiary small" disabled="disabled" title="내보낸 HWPX를 rhwp 웹 에디터로 엽니다"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4H4.5A1.5 1.5 0 0 0 3 5.5v10A1.5 1.5 0 0 0 4.5 17h10a1.5 1.5 0 0 0 1.5-1.5V12"/><path d="M11 3h6v6M17 3l-8 8"/></svg> rhwp 에디터에서 열기</button>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:30rem minmax(0, 1fr) 34rem;min-height:78rem;background:#fff;border-bottom:0.1rem solid #cdd1d5">
+<section style="border-right:0.1rem solid #cdd1d5;display:flex;flex-direction:column">
+<div class="row" style="padding:1.2rem;border-bottom:0.1rem solid #cdd1d5">
+<h2 style="font-size:1.5rem;font-weight:700;flex:1">목차 <span class="num">5/11</span></h2>
+<button type="button" class="krds-btn danger xsmall">생성 취소</button>
+</div>
+<ol style="list-style:none;padding:0;overflow:auto">
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:1.2rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:1;cursor:pointer">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">1</span>
+<span style="flex:1;font-size:1.5rem;font-weight:700">총칙</span>
+
+<span class="krds-badge bg-light-success">완료</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:3rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:1;cursor:pointer">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">1.1</span>
+<span style="flex:1;font-size:1.4rem;font-weight:400">목적</span>
+
+<span class="krds-badge bg-light-success">완료</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:3rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:1;cursor:pointer">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">1.2</span>
+<span style="flex:1;font-size:1.4rem;font-weight:400">적용 범위</span>
+<span style="display:inline-flex;width:1.6rem;height:1.6rem;color:#464c53" title="사용자 수정 · 재생성 보호"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="9" width="11" height="8" rx="1.5"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span>
+<span class="krds-badge bg-light-success">완료</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:1.2rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:1;cursor:pointer">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">2</span>
+<span style="flex:1;font-size:1.5rem;font-weight:700">폭염 위험요인 및 현황</span>
+
+<span class="krds-badge bg-light-success">완료</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:3rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:1;cursor:pointer">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">2.1</span>
+<span style="flex:1;font-size:1.4rem;font-weight:400">기상 전망 및 특보 기준</span>
+
+<span class="krds-badge bg-light-success">완료</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:3rem;border-bottom:0.1rem solid #f1f3f5;background:#eff5ff;opacity:1;cursor:pointer">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">2.2</span>
+<span style="flex:1;font-size:1.4rem;font-weight:400">취약계층 및 취약시설 현황</span>
+
+<span class="krds-badge bg-light-primary">진행중</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:1.2rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:0.6;cursor:default">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">3</span>
+<span style="flex:1;font-size:1.5rem;font-weight:700">예방·대비 대책</span>
+
+<span class="krds-badge bg-light-gray">대기</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:3rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:0.6;cursor:default">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">3.1</span>
+<span style="flex:1;font-size:1.4rem;font-weight:400">무더위쉼터 운영</span>
+
+<span class="krds-badge bg-light-gray">대기</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:3rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:0.6;cursor:default">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">3.2</span>
+<span style="flex:1;font-size:1.4rem;font-weight:400">취약계층 보호</span>
+
+<span class="krds-badge bg-light-gray">대기</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:3rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:0.6;cursor:default">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">3.3</span>
+<span style="flex:1;font-size:1.4rem;font-weight:400">비상연락망 및 근무체계</span>
+
+<span class="krds-badge bg-light-gray">대기</span>
+</li>
+<li style="display:flex;align-items:center;gap:0.8rem;padding:0.9rem 1.2rem;padding-left:1.2rem;border-bottom:0.1rem solid #f1f3f5;background:transparent;opacity:0.6;cursor:default">
+<span class="num dim" style="width:3.2rem;font-size:1.3rem">4</span>
+<span style="flex:1;font-size:1.5rem;font-weight:700">부록</span>
+
+<span class="krds-badge bg-light-gray">대기</span>
+</li>
+</ol>
+<div style="margin-top:auto;padding:1.2rem;border-top:0.1rem solid #f1f3f5">
+<div style="height:0.8rem;border-radius:10rem;background:#cdd1d5;overflow:hidden" role="progressbar" aria-valuemin="0" aria-valuemax="11" aria-valuenow="5" aria-label="초안 생성 진행"><span style="display:block;width:45%;height:100%;background:#256ef4"></span></div>
+<p class="form-hint" style="margin-top:0.6rem">11절 중 5절 완료 · 2.2 생성 중 (T3Q RPT-002, 절당 약 15~20초)</p>
+</div>
+</section>
+
+<section style="padding:2.4rem 3.2rem;overflow:auto">
+<h1 class="sr-only">초안</h1>
+<div class="row" style="margin-bottom:1.6rem">
+<h2 style="font-size:1.9rem;font-weight:700">2.2 취약계층 및 취약시설 현황</h2>
+<span class="krds-badge bg-light-success">T3Q</span>
+<span class="krds-badge bg-light-primary">생성 중…</span>
+<div style="flex:1"></div>
+<button type="button" class="krds-btn tertiary xsmall">근거 3</button>
+<button type="button" class="krds-btn tertiary xsmall" disabled="disabled">직접 편집</button>
+</div>
+<div class="doc-body" style="font-family:'함초롬바탕','HCR Batang','Noto Serif KR',serif">
+<div class="p h1">□ 취약계층 현황</div>
+<div class="p h2">ㅇ 폭염 취약계층은 65세 이상 독거노인, 거동불편자, 만성질환자, 야외근로자로 구분하며 2026. 6. 30. 기준 원주시 내 대상자는 12,480명이다.</div>
+<div class="p sel">
+<table>
+<caption class="sr-only">폭염 취약계층 구분별 대상자 수</caption>
+<thead><tr><th scope="col">구분</th><th scope="col">대상자(명)</th><th scope="col">전년 대비</th><th scope="col">관리 부서</th></tr></thead>
+<tbody><tr><td>독거노인</td><td class="num">7,912</td><td class="num">+4.1%</td><td>노인장애인과</td></tr><tr><td>거동불편자</td><td class="num">2,305</td><td class="num">+1.8%</td><td>노인장애인과</td></tr><tr><td>야외근로자</td><td class="num">2,263</td><td class="num">-0.6%</td><td>일자리경제과</td></tr></tbody>
+</table>
+</div>
+<div class="p h3">- 독거노인 중 냉방기기 미보유 가구 1,204가구는 생활지원사 1일 1회 안부 확인 대상으로 우선 관리한다.</div>
+<div class="p h1">□ 취약시설 현황</div>
+<div class="p h2">ㅇ 관내 무더위쉼터 412개소 중 야간·휴일 연장운영 쉼터는 38개소이며, 경로당 비율이 71%로 가장 높다.</div>
+<div class="p h3">- 야외 작업장(건설현장 27, 농작업 밀집지 14)은 폭염 영향예보 "주의" 이상 시 휴식시간 보장 점검 대상이다.<span style="display:inline-block;width:0.8rem;height:1.6rem;background:#256ef4;vertical-align:text-bottom;margin-left:0.2rem" aria-hidden="true"></span></div>
+</div>
+</section>
+
+<aside style="border-left:0.1rem solid #cdd1d5;background:#f4f5f6;padding:1.6rem;display:flex;flex-direction:column;gap:1.2rem;overflow:auto">
+<div class="row"><span style="display:inline-flex;width:1.8rem;height:1.8rem;color:#256ef4"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 2l1.8 5.2L17 9l-5.2 1.8L10 16l-1.8-5.2L3 9l5.2-1.8z"/></svg></span><h2 style="font-size:1.5rem;font-weight:700">AI 문단 수정</h2><span class="krds-badge bg-light-gray" style="margin-left:auto">유니</span></div>
+<p class="form-hint">본문에서 문단·표·목록을 클릭해 선택한 뒤 수정 지시를 입력하세요. 템플릿 스타일 규칙이 함께 전달됩니다.</p>
+<div style="background:#eff5ff;border:0.1rem solid #256ef4;border-radius:0.8rem;padding:1.2rem;font-size:1.3rem;line-height:1.6;max-height:14rem;overflow:auto">
+<div class="row" style="justify-content:space-between;margin-bottom:0.6rem"><strong>선택된 문단</strong><span class="dim num">2.2 · #p2 · 표</span></div>
+<span class="dim">| 구분 | 대상자(명) | 전년 대비 | 관리 부서 |<br>| 독거노인 | 7,912 | +4.1% | 노인장애인과 |<br>| 거동불편자 | 2,305 | +1.8% | 노인장애인과 |<br>| 야외근로자 | 2,263 | -0.6% | 일자리경제과 |</span>
+</div>
+<div style="display:flex;gap:0.6rem;flex-wrap:wrap">
+<button type="button" class="krds-btn tertiary xsmall">더 간결하게</button>
+<button type="button" class="krds-btn tertiary xsmall">공문서 문체로</button>
+<button type="button" class="krds-btn tertiary xsmall">표로 정리</button>
+<button type="button" class="krds-btn tertiary xsmall">수치·근거 보강</button>
+<button type="button" class="krds-btn tertiary xsmall">두 문장으로 나눠</button>
+<button type="button" class="krds-btn tertiary xsmall">담당 부서 명시</button>
+</div>
+<div class="form-group">
+<div class="form-tit"><label for="inst">수정 지시</label></div>
+<div class="krds-textarea" id="inst" style="min-height:9rem;font-size:1.4rem">최근 3년 증감 추이 열을 추가하고, 관리 부서는 과 단위로 통일해줘</div>
+</div>
+<div class="row">
+<button type="button" class="krds-btn primary small" style="flex:1">수정 요청</button>
+<button type="button" class="krds-btn tertiary small">원문 복원</button>
+</div>
+<div class="krds-alert information" style="font-size:1.3rem;padding:1rem 1.2rem"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zm0 4a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2zM11 14H9V9h2z"/></svg><div>수정한 문단이 있는 절은 초안을 다시 생성해도 덮어쓰지 않습니다(목차에 자물쇠 표시). 다시 만들려면 생성이 끝난 뒤 그 절의 다시 생성 버튼을 누르세요.</div></div>
+<div>
+<h3 style="font-size:1.4rem;font-weight:700;margin-bottom:0.8rem">수정 이력 <span class="num dim" style="font-weight:400">(2)</span></h3>
+<div class="stack" style="gap:0.6rem">
+<div style="background:#fff;border:0.1rem solid #cdd1d5;border-radius:0.6rem;padding:1rem;font-size:1.3rem"><div style="color:#256ef4;font-weight:700">공문서 문체로</div><div class="dim num">10:51:08 · #p1 · 유니</div></div>
+<div style="background:#fff;border:0.1rem solid #cdd1d5;border-radius:0.6rem;padding:1rem;font-size:1.3rem"><div style="color:#256ef4;font-weight:700">담당 부서 명시</div><div class="dim num">10:49:32 · #p3 · 유니</div></div>
+</div>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1520,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

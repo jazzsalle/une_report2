@@ -43,3 +43,6 @@ tmp/
 
 # Original package archive (contents already installed at repo root)
 설계 및 개발착수 문서/*.zip
+
+# Design canvas bundle (2MB+, regenerated from build.mjs + seed-canvas)
+design_handoff_krds_uiux/poc-plan/une-plan-krds.html

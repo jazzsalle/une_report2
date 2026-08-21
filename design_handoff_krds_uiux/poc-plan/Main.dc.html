@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap">
+<style>
+:root{--primary:#256ef4;--primary-60:#0b50d0;--primary-70:#083891;--text:#1e2124;--subtle:#464c53;--disabled:#8a949e;--border:#cdd1d5;--line:#f1f3f5;--surface:#f4f5f6;--success:#228738;--success-bg:#eef7f0;--success-bd:#b9dec3;--warn:#9d5b00;--warn-bg:#fff8e1;--warn-bd:#ffe0a3;--danger:#d0290e;--danger-bg:#fdf2f0;--danger-bd:#f4c2b8;--info-bg:#eff5ff;--info-bd:#c2d6ff}
+html{font-size:62.5%}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Pretendard GOV","Pretendard","Noto Sans KR","Malgun Gothic","맑은 고딕",sans-serif;font-size:1.7rem;line-height:1.5;color:var(--text);background:var(--surface);-webkit-font-smoothing:antialiased}
+a{color:#256ef4;text-decoration:none}a:hover{color:#083891}
+h1,h2,h3,p,ul,ol,dl,figure{margin:0}
+button{font-family:inherit}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.wrap{max-width:152rem;margin:0 auto;padding:0 2.4rem}
+.hdr{background:#fff;border-bottom:0.1rem solid var(--border)}
+.hdr-in{display:flex;align-items:center;gap:3.2rem;height:6.4rem}
+.logo{display:flex;align-items:center;gap:1rem}
+.logo-mark{display:inline-flex;align-items:center;justify-content:center;width:3.2rem;height:3.2rem;border-radius:0.6rem;background:#256ef4;color:#fff;font-size:1.4rem;font-weight:700}
+.logo-tit{font-size:1.8rem;font-weight:700;white-space:nowrap}
+.gnb{display:flex;gap:0.4rem;align-self:stretch}
+.gnb a{display:flex;align-items:center;padding:0 1.6rem;font-size:1.7rem;color:#464c53;white-space:nowrap}
+.gnb a[aria-current="page"]{color:#256ef4;font-weight:700;box-shadow:inset 0 -0.3rem 0 #256ef4}
+.util{margin-left:auto;display:flex;align-items:center;gap:1.2rem;font-size:1.5rem;color:var(--subtle);white-space:nowrap}
+.band{background:#fff;border-bottom:0.1rem solid var(--border)}
+.band-in{display:flex;align-items:center;gap:2.4rem;min-height:5.6rem}
+.lnb{display:flex;gap:0.4rem;align-self:stretch}
+.lnb a{display:flex;align-items:center;padding:0 1.6rem;font-size:1.5rem;color:#464c53;min-height:5.6rem}
+.lnb a[aria-current="page"]{color:#256ef4;font-weight:700;box-shadow:inset 0 -0.3rem 0 #256ef4}
+.console{display:flex;align-items:center;gap:2rem;padding:1.2rem 2.4rem;flex-wrap:wrap}
+.console .back{display:inline-flex;align-items:center;gap:0.2rem;font-size:1.4rem;color:var(--subtle)}
+.console .back svg{width:1.6rem;height:1.6rem}
+.doc-tit{min-width:0}
+.doc-tit strong{display:block;font-size:1.7rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.doc-tit span{font-size:1.3rem;color:var(--subtle)}
+.pipe{list-style:none;display:flex;gap:0.4rem;margin:0 0 0 auto;padding:0;align-items:center}
+.pipe li{display:flex;align-items:center;gap:0.4rem}
+.pipe .arrow{width:1.4rem;height:1.4rem;opacity:.4}
+.chip{display:inline-flex;align-items:center;gap:0.6rem;padding:0.5rem 1.2rem;border-radius:10rem;font-size:1.3rem;border:0.1rem solid;white-space:nowrap;font-weight:400;background:#fff;cursor:pointer;line-height:1.5}
+.chip svg{width:1.4rem;height:1.4rem}
+.chip.done{background:#eef7f0;color:#228738;border-color:#b9dec3}
+.chip.now{background:#256ef4;color:#fff;border-color:#256ef4;font-weight:700}
+.chip.todo{color:#8a949e;border-color:#cdd1d5}
+.krds-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.6rem;height:4.8rem;padding:0 1.6rem;border-radius:0.8rem;font-size:1.7rem;font-weight:700;border:0.1rem solid transparent;cursor:pointer;white-space:nowrap;line-height:1}
+.krds-btn svg{width:1.8rem;height:1.8rem}
+.krds-btn.small{height:4rem;padding:0 1.4rem;font-size:1.5rem}
+.krds-btn.small svg{width:1.6rem;height:1.6rem}
+.krds-btn.xsmall{height:3.2rem;padding:0 1.2rem;font-size:1.3rem;border-radius:0.6rem}
+.krds-btn.xsmall svg{width:1.4rem;height:1.4rem}
+.krds-btn.primary{background:#256ef4;color:#fff;border-color:#256ef4}
+.krds-btn.secondary{background:#fff;color:#256ef4;border-color:#256ef4}
+.krds-btn.tertiary{background:#fff;color:#1e2124;border-color:#8a949e}
+.krds-btn.danger{background:#fff;color:#d0290e;border-color:#d0290e}
+.krds-btn.text{background:transparent;color:#256ef4;border-color:transparent;padding:0 0.8rem}
+.krds-btn.icon{width:3.2rem;height:3.2rem;padding:0;border-radius:0.6rem;background:transparent;border-color:transparent;color:#464c53}
+.krds-btn[disabled]{opacity:.4;cursor:not-allowed}
+.krds-badge{display:inline-flex;align-items:center;gap:0.4rem;padding:0.2rem 0.8rem;border-radius:10rem;font-size:1.3rem;font-weight:700;line-height:1.6;white-space:nowrap}
+.bg-success{background:#228738;color:#fff}.bg-light-success{background:#eef7f0;color:#228738}
+.bg-primary{background:#256ef4;color:#fff}.bg-light-primary{background:#eff5ff;color:#256ef4}
+.bg-light-warning{background:#fff8e1;color:#9d5b00}.bg-danger{background:#d0290e;color:#fff}.bg-light-danger{background:#fdf2f0;color:#d0290e}
+.bg-gray{background:#8a949e;color:#fff}.bg-light-gray{background:#f4f5f6;color:#464c53}
+.bg-navy{background:#1e2124;color:#fff}
+.card{background:#fff;border:0.1rem solid var(--border);border-radius:1.2rem;padding:2.4rem}
+.card.tight{padding:2rem}
+.card h2,.card h3{font-size:1.9rem;font-weight:700}
+.card-head{display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem}
+.card-head .grow{flex:1}
+.card-desc{font-size:1.5rem;color:var(--subtle)}
+.stack{display:flex;flex-direction:column;gap:1.6rem}
+.row{display:flex;align-items:center;gap:0.8rem}
+.krds-table-wrap{overflow-x:auto}
+.tbl{width:100%;border-collapse:collapse;font-size:1.5rem}
+.tbl th,.tbl td{padding:1.1rem 1.4rem;border-bottom:0.1rem solid var(--border);text-align:left;vertical-align:middle}
+.tbl thead th{background:var(--surface);font-weight:700;color:var(--subtle);border-top:0.1rem solid var(--border);font-size:1.4rem;white-space:nowrap}
+.tbl.row-th th{background:var(--surface);width:24%;font-weight:700;color:var(--text)}
+.tbl .num{font-variant-numeric:tabular-nums}
+.tbl tr.sel td{background:#eff5ff}
+.tbl.compact th,.tbl.compact td{padding:0.8rem 1.2rem;font-size:1.4rem}
+.krds-alert{display:flex;gap:1rem;align-items:flex-start;padding:1.2rem 1.6rem;border-radius:0.8rem;border:0.1rem solid;font-size:1.5rem;line-height:1.5}
+.krds-alert svg{flex-shrink:0;width:2rem;height:2rem;margin-top:0.2rem}
+.krds-alert.success{background:var(--success-bg);border-color:var(--success-bd)}.krds-alert.success svg{color:var(--success)}
+.krds-alert.warning{background:var(--warn-bg);border-color:var(--warn-bd)}.krds-alert.warning svg{color:var(--warn)}
+.krds-alert.information{background:var(--info-bg);border-color:var(--info-bd)}.krds-alert.information svg{color:var(--primary)}
+.krds-alert.danger{background:var(--danger-bg);border-color:var(--danger-bd)}.krds-alert.danger svg{color:var(--danger)}
+.form-group{display:flex;flex-direction:column;gap:0.6rem}
+.form-tit{font-size:1.5rem;font-weight:700}
+.form-tit .req{color:#d0290e;margin-left:0.2rem}
+.form-hint{font-size:1.3rem;color:var(--subtle)}
+.krds-input,.krds-select,.krds-textarea{display:flex;align-items:center;width:100%;height:4rem;padding:0 1.2rem;border:0.1rem solid #8a949e;border-radius:0.8rem;font:inherit;font-size:1.5rem;color:var(--text);background:#fff}
+.krds-select{justify-content:space-between;gap:0.8rem}
+.krds-select svg{width:1.6rem;height:1.6rem;color:#464c53;flex-shrink:0}
+.krds-textarea{height:auto;min-height:8rem;padding:1rem 1.2rem;align-items:flex-start;line-height:1.6}
+.ph{color:#8a949e}
+.form-grid{display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:1.6rem 2.4rem}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:0.6rem 1.2rem;font-size:1.5rem;line-height:1.6}
+.kv dt{color:var(--subtle);white-space:nowrap}.kv dd{margin:0}
+.rail{display:flex;flex-direction:column;gap:1.6rem}
+.rail .card h3{font-size:1.5rem;color:var(--subtle);margin-bottom:1.2rem}
+.tabs{display:flex;gap:0.4rem;border-bottom:0.1rem solid var(--border)}
+.tabs button{height:4.4rem;padding:0 1.6rem;font-size:1.5rem;color:#464c53;background:transparent;border:none;cursor:pointer}
+.tabs button[aria-selected="true"]{color:#256ef4;font-weight:700;box-shadow:inset 0 -0.3rem 0 #256ef4}
+.tabs button[disabled]{color:#8a949e;cursor:not-allowed}
+.tpl-card{min-width:21rem;border:0.1rem solid var(--border);border-radius:0.8rem;padding:1.4rem 1.6rem;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:0.6rem}
+.tpl-card.sel{border:0.2rem solid #256ef4;background:#eff5ff}
+.tpl-card strong{font-size:1.5rem}
+.tpl-card .meta{font-size:1.3rem;color:var(--subtle)}
+.tpl-card .lv{display:flex;gap:0.4rem;flex-wrap:wrap}
+.tpl-card .lv span{font-size:1.2rem;padding:0.1rem 0.6rem;border-radius:0.4rem;background:#f4f5f6;color:#464c53}
+.doc-body{font-size:1.5rem;line-height:1.8}
+.doc-body .p{padding:0.4rem 0.8rem;margin:0 -0.8rem;border-radius:0.6rem;cursor:pointer}
+.doc-body .p.sel{background:#eff5ff;outline:0.2rem solid #256ef4}
+.doc-body .h1{font-size:2.2rem;font-weight:700;margin-top:1.6rem}
+.doc-body .h2{font-size:1.9rem;font-weight:700;margin-top:1.2rem}
+.doc-body .h3{font-size:1.9rem;font-weight:400;padding-left:1.6rem}
+.doc-body .h4{font-size:1.5rem;font-weight:400;padding-left:3.2rem}
+.doc-body .li{padding-left:3.2rem}
+.doc-body table{border-collapse:collapse;width:100%;font-size:1.4rem;margin:0.6rem 0}
+.doc-body th,.doc-body td{border:0.1rem solid #cdd1d5;padding:0.6rem 1rem;text-align:left}
+.doc-body th{background:#f4f5f6}
+.num{font-variant-numeric:tabular-nums}
+.dim{color:var(--subtle)}
+.tiny{font-size:1.3rem}
+</style>
+</helmet>
+<div style="width:1520px;min-height:1000px;background:#f4f5f6" data-screen-label="문서 관리">
+<header class="hdr" data-screen-label="공통 헤더">
+<div class="wrap hdr-in">
+<a class="logo" href="#"><span class="logo-mark">UNE</span><strong class="logo-tit">재난안전 AI 문서 POC</strong></a>
+<nav class="gnb" aria-label="주요 메뉴"><a href="#" aria-current="page">계획서 생성</a><a href="#">상황일지</a></nav>
+<div class="util"><span>안전총괄과 · 정하늘 (계획 작성자)</span><button type="button" class="krds-btn tertiary xsmall">사용자 변경</button></div>
+</div>
+</header>
+<div class="band">
+<div class="wrap band-in">
+<nav class="lnb" aria-label="계획서 메뉴"><a href="#" aria-current="page">문서 관리</a><a href="#">HWPX 템플릿 · 스타일 분석</a></nav>
+<button type="button" class="krds-btn primary small" style="margin-left:auto"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg> 새 문서 생성</button>
+</div>
+</div>
+<div class="wrap" style="padding-top:2.4rem;padding-bottom:2.4rem">
+<h1 class="sr-only">문서 관리</h1>
+<div class="stack" style="gap:2.4rem">
+<section class="card">
+<div class="card-head"><h2>기준정보 템플릿</h2><span class="card-desc">선택한 템플릿의 기준정보로 새 문서를 시작합니다 · 최근 저장 순</span></div>
+<div style="display:flex;gap:1.2rem;overflow-x:auto;padding-bottom:0.4rem">
+<button type="button" style="min-width:20rem;height:12.8rem;border:0.2rem dashed #cdd1d5;border-radius:0.8rem;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.6rem;color:#464c53;font-size:1.5rem;cursor:pointer"><span style="display:inline-flex;width:2rem;height:2rem"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg></span>빈 문서</button>
+<div class="tpl-card" style="min-width:24rem"><div class="row" style="justify-content:space-between"><span class="krds-badge bg-light-primary">폭염</span><span class="krds-badge bg-light-gray">대비</span></div><strong>여름철 폭염 대비 (지자체)</strong><span class="meta">정하늘 · 2일 전</span></div>
+<div class="tpl-card" style="min-width:24rem"><div class="row" style="justify-content:space-between"><span class="krds-badge bg-light-primary">태풍/호우</span><span class="krds-badge bg-light-gray">예방</span></div><strong>풍수해 예방 기본</strong><span class="meta">정하늘 · 1주 전</span></div>
+<div class="tpl-card" style="min-width:24rem"><div class="row" style="justify-content:space-between"><span class="krds-badge bg-light-primary">산불</span><span class="krds-badge bg-light-gray">대비</span></div><strong>봄철 산불 대비 (내부보고)</strong><span class="meta">홍길동 · 3주 전</span></div>
+</div>
+</section>
+
+<section class="card">
+<div class="card-head">
+<h2>문서 전체 목록 <span class="dim" style="font-weight:400;font-size:1.5rem">(4/4)</span></h2>
+<div class="grow"></div>
+<div class="row">
+<div class="krds-input" style="width:22rem;height:4rem;gap:0.8rem"><span style="display:inline-flex;width:1.6rem;height:1.6rem;color:#464c53"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13.5 13.5L17 17"/></svg></span><span class="ph">문서 명 검색</span></div>
+<div class="krds-select" style="width:15rem"><span>재난유형 전체</span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7.5l5 5 5-5"/></svg></div>
+<div class="krds-select" style="width:12rem"><span>단계 전체</span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7.5l5 5 5-5"/></svg></div>
+<label class="row" style="font-size:1.5rem;gap:0.6rem;white-space:nowrap"><span style="width:1.8rem;height:1.8rem;border:0.1rem solid #8a949e;border-radius:0.3rem;background:#fff;display:inline-block"></span>내 문서</label>
+</div>
+</div>
+<div class="krds-table-wrap">
+<table class="tbl">
+<caption class="sr-only">기관의 계획서 문서 목록</caption>
+<colgroup><col style="width:4rem"><col><col style="width:10%"><col style="width:10%"><col style="width:14%"><col style="width:8%"><col style="width:8%"><col style="width:13%"><col style="width:9%"><col style="width:9%"></colgroup>
+<thead><tr><th scope="col"><span class="sr-only">선택</span></th><th scope="col">문서 명</th><th scope="col">재난유형</th><th scope="col">재난관리단계</th><th scope="col">진행</th><th scope="col">생성자</th><th scope="col">수정자</th><th scope="col">생성 일시</th><th scope="col">수정 일시</th><th scope="col">훈련 연동</th></tr></thead>
+<tbody>
+<tr><td><span style="width:1.8rem;height:1.8rem;border:0.1rem solid #8a949e;border-radius:0.3rem;background:#fff;display:inline-block"></span></td><td><a href="#" style="font-weight:700">2026 폭염 대비 계획서</a></td><td>폭염</td><td>대비</td><td><span class="krds-badge bg-light-primary">5/11 초안</span></td><td>정하늘</td><td>정하늘</td><td class="num">2026. 8. 20. 09:12</td><td class="num">12분 전</td><td>-</td></tr>
+<tr><td><span style="width:1.8rem;height:1.8rem;border:0.1rem solid #8a949e;border-radius:0.3rem;background:#fff;display:inline-block"></span></td><td><a href="#" style="font-weight:700">2026 풍수해 예방 계획서</a></td><td>태풍/호우</td><td>예방</td><td><span class="krds-badge bg-light-success">9/9 초안 · 내보냄</span></td><td>정하늘</td><td>홍길동</td><td class="num">2026. 8. 12. 14:05</td><td class="num">3일 전</td><td><a href="#"><span class="krds-badge bg-navy">훈련 1건</span></a></td></tr>
+<tr><td><span style="width:1.8rem;height:1.8rem;border:0.1rem solid #8a949e;border-radius:0.3rem;background:#fff;display:inline-block"></span></td><td><a href="#" style="font-weight:700">2026 봄철 산불 대비 계획서</a></td><td>산불</td><td>대비</td><td><span class="krds-badge bg-light-gray">0/8 초안</span></td><td>홍길동</td><td>홍길동</td><td class="num">2026. 7. 28. 10:11</td><td class="num">3주 전</td><td>-</td></tr>
+<tr><td><span style="width:1.8rem;height:1.8rem;border:0.1rem solid #8a949e;border-radius:0.3rem;background:#fff;display:inline-block"></span></td><td><a href="#" style="font-weight:700">학교시설 지진 대비 계획서</a></td><td>지진</td><td>대비</td><td><span class="krds-badge bg-light-gray">기준정보</span></td><td>최유진</td><td>최유진</td><td class="num">2026. 7. 3. 16:40</td><td class="num">1개월 전</td><td>-</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1520,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

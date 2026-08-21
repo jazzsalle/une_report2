@@ -1,5 +1,0 @@
--- 운영 데이터량 검증 후 적용하는 Execution Log 월별 파티션 전환 계획.
--- v1.0 초기 구축은 단일 execution_event 테이블과 인덱스로 시작한다.
--- 전환 시 주의: PostgreSQL 파티션 테이블의 PK/UNIQUE는 partition key를 포함해야 한다.
--- 권고 전환안: PRIMARY KEY(execution_event_id, recorded_at), RANGE(recorded_at), 월별 partition.
--- 전환은 무중단 dual-write 또는 maintenance window에서 별도 ICR 승인 후 수행한다.

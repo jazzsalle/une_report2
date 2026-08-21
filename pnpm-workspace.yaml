@@ -1,7 +1,3 @@
 packages:
-  - apps/*
-  - services/*
-  - packages/*
-  - tests/integration
-  - tests/e2e
-  - tests/contract
+  - apps/poc
+  - apps/poc/*

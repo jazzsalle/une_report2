@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/fonts.css">
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/token/krds_tokens.css">
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/common/common.css">
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/component/output.css">
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/component/extended.css">
+<script src="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/_ds_bundle.js"></script>
+<style>body{margin:0;font-family:"Pretendard GOV",sans-serif;color:var(--krds-light-color-text-basic,#1e2124);background:var(--krds-color-light-gray-5,#f4f5f6)}a{color:#256ef4}a:hover{color:#083891}</style>
+</helmet>
+<div>
+<header style="background:#fff;border-bottom:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5)">
+<div style="display:flex;align-items:center;gap:3.2rem;max-width:144rem;margin:0 auto;padding:0 2.4rem;height:6.4rem">
+<div style="display:flex;align-items:center;gap:1rem">
+<span style="display:inline-flex;align-items:center;justify-content:center;width:3.2rem;height:3.2rem;border-radius:0.6rem;background:#256ef4;color:#fff;font-size:1.4rem;font-weight:700">UNE</span>
+<strong style="font-size:1.8rem;font-weight:700">재난안전 문서플랫폼</strong>
+</div>
+<nav aria-label="주요 메뉴" style="display:flex;gap:0.4rem;align-self:stretch">
+<a href="#" aria-current="page" style="display:flex;align-items:center;padding:0 1.6rem;font-size:1.7rem;font-weight:700;color:#256ef4;text-decoration:none;box-shadow:inset 0 -0.3rem 0 #256ef4">계획서 생성</a>
+<a href="#" style="display:flex;align-items:center;padding:0 1.6rem;font-size:1.7rem;color:#464c53;text-decoration:none">전자상황판</a>
+<a href="#" style="display:flex;align-items:center;padding:0 1.6rem;font-size:1.7rem;color:#464c53;text-decoration:none">상황일지</a>
+<a href="#" style="display:flex;align-items:center;padding:0 1.6rem;font-size:1.7rem;color:#464c53;text-decoration:none">종료·평가</a>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:1.2rem;font-size:1.5rem;color:var(--krds-light-color-text-subtle,#464c53)">
+<span>원주시 안전총괄과 · 김민정 주무관</span>
+<button type="button" class="krds-btn tertiary xsmall">로그아웃</button>
+</div>
+</div>
+</header>
+<div style="display:flex;gap:2.4rem;max-width:144rem;margin:0 auto;padding:2.4rem;align-items:flex-start">
+<aside style="width:27rem;flex-shrink:0;position:sticky;top:2.4rem;display:flex;flex-direction:column;gap:1.6rem">
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2rem">
+<span class="krds-badge bg-light-primary">작성 중</span>
+<h1 style="font-size:1.8rem;font-weight:700;margin:1rem 0 0.6rem;line-height:1.4">2026년 원주시 풍수해 대비 재난안전계획서</h1>
+<p style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53);margin:0">PLAN-2026-0034 · 2026. 8. 12. 시작</p>
+</section>
+<nav aria-label="작성 단계" style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:1.2rem">
+<ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column">
+<sc-for list="{{ steps }}" as="s" hint-placeholder-count="6">
+<li style="border-bottom:0.1rem solid #f1f3f5">
+<a href="#" style="display:flex;align-items:center;gap:1.2rem;padding:1.2rem 0.8rem;text-decoration:none;background:{{ s.bg }};border-radius:0.8rem">
+<span style="display:inline-flex;align-items:center;justify-content:center;width:2.8rem;height:2.8rem;border-radius:50%;flex-shrink:0;font-size:1.4rem;font-weight:700;background:{{ s.circleBg }};color:{{ s.circleFg }};border:0.1rem solid {{ s.circleBd }}">{{ s.mark }}</span>
+<span style="flex:1;font-size:1.5rem;font-weight:{{ s.weight }};color:{{ s.fg }}">{{ s.label }}</span>
+<span style="font-size:1.2rem;color:{{ s.stateFg }}">{{ s.state }}</span>
+</a>
+</li>
+</sc-for>
+</ol>
+</nav>
+</aside>
+<main style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1.6rem">
+<div style="display:flex;align-items:baseline;gap:1.2rem">
+<h2 style="font-size:2.4rem;font-weight:700;margin:0">5. 목차·본문 생성</h2>
+<span style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">UNE-PLAN-009 / 010 / 016</span>
+</div>
+<div class="krds-alert information slim">
+<i class="svg-icon ico-information-fill" aria-hidden="true"></i>
+<div class="alert-body">계획서 AI 생성은 T3Q RPT-001/002 계약만 사용합니다. 생성된 본문은 사용자가 수정한 블록을 덮어쓰지 않습니다.</div>
+</div>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">생성 기준</h3>
+<span class="krds-badge bg-light-success">Snapshot 확정됨</span>
+</div>
+<div class="krds-table-wrap">
+<table class="tbl col data">
+<caption>이번 생성에 쓰이는 기준정보와 반입 문서</caption>
+<colgroup><col style="width:24%"><col></colgroup>
+<tbody>
+<tr><th scope="row">기준정보 Snapshot</th><td>SNAP-2026-0412 · 2026. 8. 12. 14:02 확정</td></tr>
+<tr><th scope="row">반입 문서</th><td>2025년_풍수해_재난안전계획.hwpx [hwpx, 4.2MB] · 검증 완료 · 문단 1,284 · 표 96</td></tr>
+<tr><th scope="row">생성 계약</th><td>T3Q RPT-001(목차) · RPT-002(본문)</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">목차 생성</h3>
+<span class="krds-badge bg-success">완료</span>
+<span style="margin-left:auto;font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">2026. 8. 12. 14:21 · 12초 소요</span>
+</div>
+<p style="font-size:1.5rem;color:var(--krds-light-color-text-subtle,#464c53);margin:1.2rem 0 1.6rem">목차 v3 · 총 6장 42절 · 반입 문서의 목차 구조를 기준으로 생성되었습니다.</p>
+<div style="display:flex;gap:0.8rem">
+<button type="button" class="krds-btn tertiary small">목차 보기</button>
+<button type="button" class="krds-btn tertiary small">다시 생성</button>
+</div>
+</section>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">본문 생성</h3>
+<span class="krds-badge bg-light-primary">진행 중</span>
+<span style="margin-left:auto;font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">Job JOB-8842 · 시작 14:24</span>
+</div>
+<div class="krds-progress large">
+<div class="progress-indicator" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><span class="bar" style="width:62%"></span></div>
+<p class="progress-msg">42절 중 26절 생성됨 (62%) · 예상 남은 시간 약 3분</p>
+</div>
+<div style="display:flex;gap:0.8rem;margin-top:1.6rem">
+<button type="button" class="krds-btn tertiary small">생성 중지</button>
+</div>
+</section>
+<div style="display:flex;align-items:center;gap:0.8rem;padding:0.4rem 0 2.4rem">
+<span style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">Correlation ID: 01J8ZK3VQ2M7</span>
+<div style="margin-left:auto;display:flex;gap:0.8rem">
+<button type="button" class="krds-btn tertiary medium">이전 단계</button>
+<button type="button" class="krds-btn primary medium" disabled>다음: Export·다운로드</button>
+</div>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:980}}">
+class Component extends DCLogic {
+  renderVals() {
+    const done = { mark: '✓', circleBg: '#eef2f7', circleFg: '#256ef4', circleBd: '#cdd1d5', fg: '#464c53', weight: 400, state: '완료', stateFg: '#228738', bg: 'transparent' };
+    return {
+      steps: [
+        { ...done, mark: '✓', label: '로그인' },
+        { ...done, label: '계획서' },
+        { ...done, label: '기준정보' },
+        { ...done, label: 'HWPX 반입' },
+        { mark: '5', label: '목차·본문 생성', circleBg: '#256ef4', circleFg: '#fff', circleBd: '#256ef4', fg: '#1e2124', weight: 700, state: '진행 중', stateFg: '#256ef4', bg: '#eff5ff' },
+        { mark: '6', label: 'Export·다운로드', circleBg: '#fff', circleFg: '#8a949e', circleBd: '#cdd1d5', fg: '#8a949e', weight: 400, state: '대기', stateFg: '#8a949e', bg: 'transparent' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/fonts.css">
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/token/krds_tokens.css">
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/common/common.css">
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/component/output.css">
+<link rel="stylesheet" href="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/css/component/extended.css">
+<script src="_ds/krds-design-system-8b8504b7-887f-4ab7-af18-1835a1239fd7/_ds_bundle.js"></script>
+<style>body{margin:0;font-family:"Pretendard GOV",sans-serif;color:var(--krds-light-color-text-basic,#1e2124);background:var(--krds-color-light-gray-5,#f4f5f6)}a{color:#256ef4}a:hover{color:#083891}</style>
+</helmet>
+<div>
+<header style="background:#fff;border-bottom:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5)" data-screen-label="공통 헤더">
+<div style="display:flex;align-items:center;gap:3.2rem;max-width:152rem;margin:0 auto;padding:0 2.4rem;height:6.4rem">
+<div style="display:flex;align-items:center;gap:1rem">
+<span style="display:inline-flex;align-items:center;justify-content:center;width:3.2rem;height:3.2rem;border-radius:0.6rem;background:#256ef4;color:#fff;font-size:1.4rem;font-weight:700">UNE</span>
+<strong style="font-size:1.8rem;font-weight:700;white-space:nowrap">재난안전 문서플랫폼</strong>
+</div>
+<nav aria-label="주요 메뉴" style="display:flex;gap:0.4rem;align-self:stretch">
+<sc-for list="{{ nav }}" as="n" hint-placeholder-count="4">
+<button type="button" onClick="{{ n.go }}" style="display:flex;align-items:center;padding:0 1.6rem;font-size:1.7rem;border:none;background:transparent;cursor:pointer;white-space:nowrap;font-weight:{{ n.weight }};color:{{ n.fg }};box-shadow:{{ n.shadow }}">{{ n.label }}</button>
+</sc-for>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:1.2rem;font-size:1.5rem;color:var(--krds-light-color-text-subtle,#464c53);white-space:nowrap">
+<span>원주시 안전총괄과 · 김민정 주무관</span>
+<button type="button" class="krds-btn tertiary xsmall">로그아웃</button>
+</div>
+</div>
+</header>
+
+<sc-if value="{{ screenPlan }}" hint-placeholder-val="{{ true }}">
+<div data-screen-label="계획서 생성">
+<div style="background:#fff;border-bottom:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5)">
+<div style="display:flex;align-items:center;gap:2.4rem;max-width:152rem;margin:0 auto;padding:1.2rem 2.4rem;flex-wrap:wrap">
+<div style="min-width:0">
+<strong style="display:block;font-size:1.7rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">2026년 원주시 풍수해 대비 재난안전계획서</strong>
+<span style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">PLAN-2026-0034</span>
+</div>
+<ol style="list-style:none;display:flex;gap:0.4rem;margin:0 0 0 auto;padding:0;align-items:center;flex-wrap:wrap">
+<sc-for list="{{ pipe }}" as="p" hint-placeholder-count="6">
+<li style="display:flex;align-items:center;gap:0.4rem">
+<button type="button" onClick="{{ p.go }}" style="display:inline-flex;align-items:center;gap:0.6rem;padding:0.5rem 1.2rem;border-radius:10rem;font-size:1.3rem;cursor:pointer;font-weight:{{ p.weight }};background:{{ p.bg }};color:{{ p.fg }};border:0.1rem solid {{ p.bd }};white-space:nowrap">{{ p.mark }} {{ p.label }}</button>
+<i class="svg-icon ico-angle right" aria-hidden="true" style="width:1.4rem;height:1.4rem;opacity:{{ p.arrowOpacity }}"></i>
+</li>
+</sc-for>
+</ol>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:minmax(0,2fr) 36rem;gap:2.4rem;max-width:152rem;margin:0 auto;padding:2.4rem;align-items:start">
+<main style="display:flex;flex-direction:column;gap:1.6rem;min-width:0">
+
+<sc-if value="{{ s1 }}" hint-placeholder-val="{{ false }}">
+<h2 style="font-size:2.2rem;font-weight:700;margin:0">로그인 <span style="font-size:1.3rem;font-weight:400;color:var(--krds-light-color-text-subtle,#464c53)">UNE-AUTH-001 / 002</span></h2>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">로그인 정보</h3>
+<span class="krds-badge bg-success">완료</span>
+</div>
+<div class="krds-table-wrap">
+<table class="tbl col data">
+<caption>현재 세션의 로그인 정보</caption>
+<colgroup><col style="width:24%"><col></colgroup>
+<tbody>
+<tr><th scope="row">기관</th><td>원주시 (TNT-a3f2…9c14)</td></tr>
+<tr><th scope="row">사용자</th><td>김민정 주무관 (mj.kim) · 계획서 작성자</td></tr>
+<tr><th scope="row">인증 방식</th><td>외부 SSO 토큰 교환 · AUTH_MODE=mock (ADR-22 D3)</td></tr>
+<tr><th scope="row">세션 시작</th><td>2026. 8. 12. 13:52</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ s2 }}" hint-placeholder-val="{{ false }}">
+<h2 style="font-size:2.2rem;font-weight:700;margin:0">계획서 <span style="font-size:1.3rem;font-weight:400;color:var(--krds-light-color-text-subtle,#464c53)">UNE-PLAN-001 / 002</span></h2>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">내 계획서</h3>
+<button type="button" class="krds-btn primary small" style="margin-left:auto">새 계획서 만들기</button>
+</div>
+<div class="krds-table-wrap">
+<table class="tbl col data">
+<caption>기관의 계획서 목록</caption>
+<colgroup><col><col style="width:14%"><col style="width:20%"><col style="width:14%"></colgroup>
+<thead><tr><th scope="col">계획서명</th><th scope="col">연도</th><th scope="col">마지막 수정</th><th scope="col">상태</th></tr></thead>
+<tbody>
+<tr style="background:#eff5ff"><td style="text-align:left;font-weight:700">2026년 원주시 풍수해 대비 재난안전계획서</td><td>2026</td><td>2026. 8. 12. 14:24</td><td><span class="krds-badge bg-light-primary">작성 중</span></td></tr>
+<tr><td style="text-align:left">2026년 원주시 지진 대비 재난안전계획서</td><td>2026</td><td>2026. 7. 28. 10:11</td><td><span class="krds-badge bg-light-gray">초안</span></td></tr>
+<tr><td style="text-align:left">2025년 원주시 풍수해 대비 재난안전계획서</td><td>2025</td><td>2025. 10. 2. 17:40</td><td><span class="krds-badge bg-gray">완료</span></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ s3 }}" hint-placeholder-val="{{ false }}">
+<h2 style="font-size:2.2rem;font-weight:700;margin:0">기준정보 <span style="font-size:1.3rem;font-weight:400;color:var(--krds-light-color-text-subtle,#464c53)">UNE-PLAN-006 / 007</span></h2>
+<div class="krds-alert success slim">
+<i class="svg-icon ico-success-fill" aria-hidden="true"></i>
+<div class="alert-body">기준정보 Snapshot이 확정되었습니다 (SNAP-2026-0412 · 2026. 8. 12. 14:02). 확정된 Snapshot은 덮어쓸 수 없으며, 변경하려면 새 Snapshot을 확정해야 합니다.</div>
+</div>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0 0 1.6rem">확정된 기준정보</h3>
+<div class="krds-table-wrap">
+<table class="tbl col data">
+<caption>계획서 생성의 기준이 되는 정보</caption>
+<colgroup><col style="width:24%"><col></colgroup>
+<tbody>
+<tr><th scope="row">대상 지역</th><td>강원특별자치도 원주시 (25개 읍·면·동)</td></tr>
+<tr><th scope="row">재해 유형</th><td>풍수해 (태풍·호우·강풍·대설)</td></tr>
+<tr><th scope="row">대상 연도</th><td>2026년</td></tr>
+<tr><th scope="row">인구·시설 통계 기준일</th><td>2026. 6. 30.</td></tr>
+<tr><th scope="row">재해위험지구</th><td>34개소 (자연재해위험개선지구 12, 급경사지 22)</td></tr>
+</tbody>
+</table>
+</div>
+<div style="display:flex;gap:0.8rem;margin-top:1.6rem">
+<button type="button" class="krds-btn tertiary small">새 Snapshot 만들기</button>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ s4 }}" hint-placeholder-val="{{ false }}">
+<h2 style="font-size:2.2rem;font-weight:700;margin:0">HWPX 반입 <span style="font-size:1.3rem;font-weight:400;color:var(--krds-light-color-text-subtle,#464c53)">UNE-DOC-001 ~ 004</span></h2>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">반입 문서</h3>
+<span class="krds-badge bg-success">검증 완료</span>
+</div>
+<div style="display:flex;align-items:center;gap:1.6rem;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:0.8rem;padding:1.6rem">
+<i class="svg-icon ico-file" aria-hidden="true" style="width:3.2rem;height:3.2rem"></i>
+<div style="flex:1;min-width:0">
+<strong style="display:block;font-size:1.7rem">2025년_풍수해_재난안전계획.hwpx</strong>
+<span style="font-size:1.4rem;color:var(--krds-light-color-text-subtle,#464c53)">[hwpx, 4.2MB] · 2026. 8. 12. 14:05 반입 · FILE-77c1…e0a9</span>
+</div>
+<button type="button" class="krds-btn tertiary small">다른 파일 반입</button>
+</div>
+<div class="krds-table-wrap" style="margin-top:1.6rem">
+<table class="tbl col data">
+<caption>문서 분석 결과</caption>
+<colgroup><col style="width:24%"><col></colgroup>
+<tbody>
+<tr><th scope="row">구조 검증</th><td>통과 · HWPX 표준 스키마 적합</td></tr>
+<tr><th scope="row">구성</th><td>문단 1,284 · 표 96 · 그림 41 · 6장 39절</td></tr>
+<tr><th scope="row">보존 원칙</th><td>서식·표 구조는 원본 그대로 보존되며 생성 본문만 블록 단위로 들어갑니다.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ s5 }}" hint-placeholder-val="{{ true }}">
+<h2 style="font-size:2.2rem;font-weight:700;margin:0">목차·본문 생성 <span style="font-size:1.3rem;font-weight:400;color:var(--krds-light-color-text-subtle,#464c53)">UNE-PLAN-009 / 010 / 016</span></h2>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">목차 생성</h3>
+<span class="krds-badge bg-success">완료</span>
+<span style="margin-left:auto;font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">14:21 · 12초</span>
+</div>
+<p style="font-size:1.5rem;color:var(--krds-light-color-text-subtle,#464c53);margin:1.2rem 0">목차 v3 · 총 6장 42절</p>
+<details style="border-top:0.1rem solid #f1f3f5;padding-top:1.2rem">
+<summary style="font-size:1.5rem;cursor:pointer;color:#256ef4">생성된 목차 펼쳐 보기</summary>
+<ol style="font-size:1.5rem;line-height:1.9;margin:1.2rem 0 0;padding-left:2.4rem">
+<li>총칙 (4절)</li>
+<li>풍수해 위험요인 및 재해 발생 현황 (7절)</li>
+<li>예방·대비 대책 (12절)</li>
+<li>대응 대책 (11절)</li>
+<li>복구 대책 (5절)</li>
+<li>부록 (3절)</li>
+</ol>
+</details>
+<div style="display:flex;gap:0.8rem;margin-top:1.6rem">
+<button type="button" class="krds-btn tertiary small">다시 생성</button>
+</div>
+</section>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">본문 생성</h3>
+<span class="{{ contentBadgeClass }}">{{ contentBadgeLabel }}</span>
+<span style="margin-left:auto;font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">Job JOB-8842 · 시작 14:24</span>
+</div>
+<div class="krds-progress large">
+<div class="progress-indicator" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="bar" style="width:{{ progressWidth }}"></span></div>
+<p class="progress-msg">{{ progressMsg }}</p>
+</div>
+<div style="display:flex;gap:0.8rem;margin-top:1.6rem;align-items:center">
+<sc-if value="{{ contentRunning }}" hint-placeholder-val="{{ true }}">
+<button type="button" class="krds-btn tertiary small">생성 중지</button>
+<button type="button" class="krds-btn secondary small" onClick="{{ finishContent }}">시뮬레이션: 생성 완료</button>
+</sc-if>
+<button type="button" class="krds-btn primary small" disabled="{{ exportBlocked }}" onClick="{{ goExport }}" style="margin-left:auto">다음: Export·다운로드</button>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ s6 }}" hint-placeholder-val="{{ false }}">
+<h2 style="font-size:2.2rem;font-weight:700;margin:0">Export·다운로드 <span style="font-size:1.3rem;font-weight:400;color:var(--krds-light-color-text-subtle,#464c53)">UNE-DOC-012 ~ 014</span></h2>
+<sc-if value="{{ exportBlocked }}" hint-placeholder-val="{{ false }}">
+<div class="krds-alert warning slim">
+<i class="svg-icon ico-error-fill" aria-hidden="true"></i>
+<div class="alert-body">본문 생성이 아직 끝나지 않았습니다. 5단계에서 생성을 완료한 뒤 내보낼 수 있습니다.</div>
+</div>
+</sc-if>
+<sc-if value="{{ exportReady }}" hint-placeholder-val="{{ false }}">
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem">
+<h3 style="font-size:1.9rem;font-weight:700;margin:0">Export 결과</h3>
+<span class="krds-badge bg-success">완료</span>
+</div>
+<div class="krds-table-wrap">
+<table class="tbl col data">
+<caption>내보낸 파일 정보</caption>
+<colgroup><col style="width:24%"><col></colgroup>
+<tbody>
+<tr><th scope="row">파일명</th><td>2026_원주시_풍수해_재난안전계획서.hwpx [hwpx, 5.1MB]</td></tr>
+<tr><th scope="row">본문 반영</th><td>생성 블록 214개 삽입 · 사용자 수정 블록 0개 보존 · 개정 3판</td></tr>
+<tr><th scope="row">무결성</th><td>SHA-256 9f3a1c…b7e2</td></tr>
+</tbody>
+</table>
+</div>
+<div style="display:flex;gap:0.8rem;margin-top:1.6rem">
+<button type="button" class="krds-btn primary medium"><i class="svg-icon ico-download" aria-hidden="true"></i> HWPX 다운로드</button>
+<button type="button" class="krds-btn tertiary medium">다시 Export</button>
+</div>
+</section>
+</sc-if>
+</sc-if>
+
+</main>
+<aside style="display:flex;flex-direction:column;gap:1.6rem">
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2rem">
+<h3 style="font-size:1.5rem;font-weight:700;margin:0 0 1.2rem;color:var(--krds-light-color-text-subtle,#464c53)">생성 기준</h3>
+<dl style="margin:0;font-size:1.5rem;line-height:1.6;display:grid;grid-template-columns:auto 1fr;gap:0.6rem 1.2rem">
+<dt style="color:var(--krds-light-color-text-subtle,#464c53)">기준정보</dt><dd style="margin:0">SNAP-2026-0412 <span class="krds-badge bg-light-success">확정</span></dd>
+<dt style="color:var(--krds-light-color-text-subtle,#464c53)">반입 문서</dt><dd style="margin:0;word-break:break-all">2025년_풍수해_재난안전계획.hwpx [hwpx, 4.2MB]</dd>
+<dt style="color:var(--krds-light-color-text-subtle,#464c53)">문서 검증</dt><dd style="margin:0">통과 · 문단 1,284 · 표 96</dd>
+<dt style="color:var(--krds-light-color-text-subtle,#464c53)">생성 계약</dt><dd style="margin:0">T3Q RPT-001 / 002</dd>
+</dl>
+</section>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2rem">
+<h3 style="font-size:1.5rem;font-weight:700;margin:0 0 1.2rem;color:var(--krds-light-color-text-subtle,#464c53)">작업 기록</h3>
+<ul style="list-style:none;margin:0;padding:0;font-size:1.4rem;display:flex;flex-direction:column;gap:1rem">
+<sc-for list="{{ logs }}" as="l" hint-placeholder-count="5">
+<li style="display:flex;gap:1rem">
+<span style="color:var(--krds-light-color-text-subtle,#464c53);font-variant-numeric:tabular-nums;flex-shrink:0">{{ l.at }}</span>
+<span>{{ l.text }}</span>
+</li>
+</sc-for>
+</ul>
+<p style="font-size:1.2rem;color:var(--krds-light-color-text-subtle,#464c53);margin:1.6rem 0 0">Correlation ID: 01J8ZK3VQ2M7</p>
+</section>
+</aside>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ screenBoard }}" hint-placeholder-val="{{ false }}">
+<div style="max-width:152rem;margin:0 auto;padding:2.4rem" data-screen-label="전자상황판">
+<div style="display:flex;align-items:baseline;gap:1.2rem;flex-wrap:wrap;margin-bottom:1.6rem">
+<h1 style="font-size:2.2rem;font-weight:700;margin:0">2026년 안전한국훈련 — 집중호우 대응</h1>
+<span class="{{ modeBadgeClass }}">{{ modeBadgeText }}</span>
+<span class="krds-badge bg-light-primary">진행 중</span>
+<span style="font-size:1.4rem;color:#228738">실시간 · 10초마다 갱신</span>
+<span style="margin-left:auto;font-size:1.4rem;color:var(--krds-light-color-text-subtle,#464c53)">마지막 이벤트 2026. 8. 20. 16:42:18</span>
+</div>
+<div style="display:flex;gap:1.2rem;flex-wrap:wrap;margin-bottom:0.8rem">
+<sc-for list="{{ kpis }}" as="k" hint-placeholder-count="7">
+<div style="flex:1;min-width:11rem;background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:1.6rem 2rem">
+<div style="font-size:1.4rem;color:var(--krds-light-color-text-subtle,#464c53)">{{ k.label }}</div>
+<div style="font-size:3.2rem;font-weight:700;line-height:1.2;color:{{ k.color }}">{{ k.value }}</div>
+</div>
+</sc-for>
+</div>
+<p style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53);margin:0 0 1.6rem">이벤트 312건을 발생시각 기준으로 접었습니다. 기한·진행률은 임무 행의 현재 값입니다.</p>
+<sc-if value="{{ showDivergence }}" hint-placeholder-val="{{ false }}">
+<div class="krds-alert danger slim" style="margin-bottom:1.6rem">
+<i class="svg-icon ico-error-fill" aria-hidden="true"></i>
+<div class="alert-body">임무 1건에서 사실원장 재생과 저장된 상태가 다릅니다. 어딘가에서 상태가 이벤트 없이 바뀌었다는 뜻입니다 — 관리자에게 알리세요.</div>
+</div>
+</sc-if>
+<div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:2.4rem;align-items:start">
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<h2 style="font-size:1.9rem;font-weight:700;margin:0 0 1.6rem">임무 (24)</h2>
+<div class="krds-table-wrap">
+<table class="tbl col data">
+<caption>지연 → 기한 임박 순으로 정렬된 임무 목록</caption>
+<colgroup><col style="width:10%"><col><col style="width:16%"><col style="width:14%"><col style="width:10%"><col style="width:18%"></colgroup>
+<thead><tr><th scope="col">단계</th><th scope="col">임무</th><th scope="col">담당</th><th scope="col">상태</th><th scope="col">진행</th><th scope="col">기한</th></tr></thead>
+<tbody>
+<sc-for list="{{ tasks }}" as="t" hint-placeholder-count="7">
+<tr style="background:{{ t.rowBg }}">
+<td>{{ t.node }}</td>
+<td style="text-align:left">{{ t.title }}</td>
+<td>{{ t.owner }}</td>
+<td><span class="{{ t.badgeClass }}">{{ t.status }}</span></td>
+<td style="font-variant-numeric:tabular-nums">{{ t.pct }}</td>
+<td style="font-variant-numeric:tabular-nums">{{ t.due }}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</section>
+<div style="display:flex;flex-direction:column;gap:2.4rem">
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<h2 style="font-size:1.9rem;font-weight:700;margin:0 0 1.2rem">상황 판</h2>
+<p style="font-size:1.5rem;margin:0">Snapshot v4 · 확정 사실 38건 · 2026. 8. 20. 16:30 확정</p>
+<p style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53);margin:0.8rem 0 0">확정된 판과 사실원장에서 접은 값입니다. 화면에서 다시 계산하지 않습니다.</p>
+</section>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem">
+<h2 style="font-size:1.9rem;font-weight:700;margin:0 0 1.2rem">타임라인 (312)</h2>
+<ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column">
+<sc-for list="{{ events }}" as="e" hint-placeholder-count="6">
+<li style="display:flex;gap:1.2rem;padding:1rem 0;border-bottom:0.1rem solid #f1f3f5;font-size:1.4rem;align-items:baseline">
+<span style="color:var(--krds-light-color-text-subtle,#464c53);font-variant-numeric:tabular-nums;flex-shrink:0">{{ e.at }}</span>
+<span style="flex:1"><strong>{{ e.type }}</strong> · {{ e.detail }}</span>
+<span class="{{ e.badgeClass }}">{{ e.badge }}</span>
+</li>
+</sc-for>
+</ul>
+</section>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ screenJournal }}" hint-placeholder-val="{{ false }}">
+<div style="max-width:96rem;margin:0 auto;padding:2.4rem" data-screen-label="상황일지">
+<div style="display:flex;align-items:baseline;gap:1.2rem;flex-wrap:wrap;margin-bottom:0.8rem">
+<h1 style="font-size:2.2rem;font-weight:700;margin:0">상황일지 — 집중호우 대응 (8. 20. 06:00 ~ 18:00)</h1>
+<span class="{{ jBadgeClass }}">{{ jStatusLabel }}</span>
+</div>
+<p style="font-size:1.4rem;color:var(--krds-light-color-text-subtle,#464c53);margin:0 0 1.6rem">JRN-2026-0087 · 양식 상황보고서.hwpx · Snapshot v4 · 사실 해시 4c19d02a71fe…</p>
+<div class="krds-infobox secondary slim" style="margin-bottom:1.6rem">
+<div class="infobox-title"><i class="svg-icon ico-information-fill" aria-hidden="true"></i><strong>사실칸은 잠겨 있습니다</strong></div>
+<div class="infobox-conts">회색 값은 확정 판과 사실원장에서 접은 것으로 편집·AI 어느 쪽으로도 바꿀 수 없습니다. 아래 서술 문장만 고칠 수 있습니다.</div>
+</div>
+<sc-if value="{{ jDrifted }}" hint-placeholder-val="{{ false }}">
+<div class="krds-alert warning slim" style="margin-bottom:1.6rem">
+<i class="svg-icon ico-error-fill" aria-hidden="true"></i>
+<div class="alert-body">{{ jDriftMsg }}</div>
+</div>
+</sc-if>
+<sc-if value="{{ jAiNote }}" hint-placeholder-val="{{ false }}">
+<div class="krds-alert information slim" style="margin-bottom:1.6rem">
+<i class="svg-icon ico-information-fill" aria-hidden="true"></i>
+<div class="alert-body">지금 붙어 있는 문안 생성기는 시뮬레이션입니다(OB-03). 이 결과를 T3Q 지원으로 읽지 마십시오. 사람이 쓴 문장은 덮지 않았습니다.</div>
+</div>
+</sc-if>
+<sc-for list="{{ cells }}" as="c" hint-placeholder-count="3">
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem;margin-bottom:1.6rem">
+<h2 style="font-size:1.9rem;font-weight:700;margin:0 0 1.2rem">{{ c.title }}</h2>
+<div class="krds-table-wrap" style="margin-bottom:1.2rem">
+<table class="tbl col data">
+<caption>{{ c.caption }}</caption>
+<colgroup><col style="width:32%"><col></colgroup>
+<tbody>
+<sc-for list="{{ c.facts }}" as="f" hint-placeholder-count="3">
+<tr><th scope="row">{{ f.label }}</th><td style="background:var(--krds-color-light-gray-5,#f4f5f6);font-variant-numeric:tabular-nums;text-align:left">{{ f.value }}</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div class="form-group" style="margin:0">
+<div class="form-tit"><label for="{{ c.id }}">서술 문장</label></div>
+<div class="form-conts">
+<textarea id="{{ c.id }}" class="krds-input" rows="3" style="width:100%;box-sizing:border-box;min-height:8rem;resize:vertical" value="{{ c.text }}" onChange="{{ c.onChange }}" disabled="{{ jLocked }}"></textarea>
+</div>
+<p class="form-hint">{{ c.sourceLabel }}</p>
+</div>
+</section>
+</sc-for>
+<div style="display:flex;gap:0.8rem;flex-wrap:wrap;align-items:center;background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2rem;margin-bottom:1.6rem">
+<sc-if value="{{ jDraft }}" hint-placeholder-val="{{ true }}">
+<button type="button" class="krds-btn tertiary medium">문장 저장</button>
+<button type="button" class="krds-btn secondary medium" onClick="{{ jPropose }}">AI 문안 제안</button>
+<button type="button" class="krds-btn primary medium" onClick="{{ jSubmit }}" style="margin-left:auto">검토 요청</button>
+</sc-if>
+<sc-if value="{{ jReview }}" hint-placeholder-val="{{ false }}">
+<span style="font-size:1.5rem;color:var(--krds-light-color-text-subtle,#464c53)">검토자: 박상훈 팀장</span>
+<button type="button" class="krds-btn tertiary medium" onClick="{{ jReject }}" style="margin-left:auto">보완 요청</button>
+<button type="button" class="krds-btn primary medium" onClick="{{ jApprove }}">승인</button>
+</sc-if>
+<sc-if value="{{ jApproved }}" hint-placeholder-val="{{ false }}">
+<span style="font-size:1.5rem">승인됨 · 2026. 8. 20. 17:12 · 박상훈 팀장 · 사실 해시 4c19d02a71fe…</span>
+<button type="button" class="krds-btn primary medium" style="margin-left:auto"><i class="svg-icon ico-download" aria-hidden="true"></i> HWPX로 내보내기</button>
+</sc-if>
+</div>
+<sc-if value="{{ jNotApproved }}" hint-placeholder-val="{{ true }}">
+<p style="font-size:1.4rem;color:var(--krds-light-color-text-subtle,#464c53)">승인된 일지만 내보낼 수 있습니다. 검토·승인을 먼저 마치세요.</p>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ screenEval }}" hint-placeholder-val="{{ false }}">
+<div style="max-width:102.4rem;margin:0 auto;padding:2.4rem" data-screen-label="종료·평가">
+<div style="display:flex;align-items:baseline;gap:1.2rem;flex-wrap:wrap;margin-bottom:1.6rem">
+<h1 style="font-size:2.2rem;font-weight:700;margin:0">종료·평가 — 2026년 안전한국훈련 (집중호우 대응)</h1>
+<span class="{{ evBadgeClass }}">{{ evStatusLabel }}</span>
+</div>
+<sc-if value="{{ evOpen }}" hint-placeholder-val="{{ true }}">
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem;margin-bottom:1.6rem">
+<h2 style="font-size:1.9rem;font-weight:700;margin:0 0 0.8rem">정리할 미결 — 끝나지 않은 임무 2건</h2>
+<p style="font-size:1.5rem;color:var(--krds-light-color-text-subtle,#464c53);margin:0 0 1.6rem">사유를 적으면 미결을 그대로 두고 닫을 수 있습니다. 사유 없는 처분은 처분이 아닙니다.</p>
+<div style="display:flex;flex-direction:column;gap:1.6rem">
+<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1.6rem;align-items:center;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:0.8rem;padding:1.6rem">
+<div>
+<strong style="font-size:1.6rem">D-2 배수펌프장 복구 상태 확인</strong>
+<p style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53);margin:0.4rem 0 0">TASK-2093 · 진행 40% · 담당 시설관리팀</p>
+</div>
+<div class="form-group" style="margin:0">
+<div class="form-tit"><label for="reason1">처분 사유</label></div>
+<div class="form-conts"><input type="text" id="reason1" class="krds-input" placeholder="예: 훈련 종료 후 일상 점검으로 이관" value="{{ r1 }}" onChange="{{ onR1 }}"></div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1.6rem;align-items:center;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:0.8rem;padding:1.6rem">
+<div>
+<strong style="font-size:1.6rem">E-1 임시대피소 물품 반납</strong>
+<p style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53);margin:0.4rem 0 0">TASK-2101 · 진행 75% · 담당 복지정책과</p>
+</div>
+<div class="form-group" style="margin:0">
+<div class="form-tit"><label for="reason2">처분 사유</label></div>
+<div class="form-conts"><input type="text" id="reason2" class="krds-input" placeholder="예: 반납 일정 확정, 8. 22. 완료 예정" value="{{ r2 }}" onChange="{{ onR2 }}"></div>
+</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:1.2rem;margin-top:2rem">
+<span style="font-size:1.5rem;color:{{ readyColor }}">{{ readyMsg }}</span>
+<button type="button" class="krds-btn primary medium" disabled="{{ cannotClose }}" onClick="{{ doClose }}" style="margin-left:auto">훈련 종료</button>
+</div>
+</section>
+</sc-if>
+<section style="background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2.4rem;margin-bottom:1.6rem">
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.6rem">
+<h2 style="font-size:1.9rem;font-weight:700;margin:0">평가 지표</h2>
+<span style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">산출 시점 2026. 8. 20. 17:40 · 자동으로 갱신되지 않습니다</span>
+</div>
+<div style="display:flex;gap:1.2rem;flex-wrap:wrap">
+<sc-for list="{{ metrics }}" as="m" hint-placeholder-count="4">
+<div style="flex:1;min-width:16rem;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:0.8rem;padding:1.6rem 2rem">
+<div style="font-size:1.4rem;color:var(--krds-light-color-text-subtle,#464c53)">{{ m.label }}</div>
+<div style="font-size:2.8rem;font-weight:700;line-height:1.3">{{ m.value }}</div>
+<div style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53)">{{ m.note }}</div>
+</div>
+</sc-for>
+</div>
+<p style="font-size:1.3rem;color:var(--krds-light-color-text-subtle,#464c53);margin:1.6rem 0 0">만족도: 수집하지 않았습니다 — 훈련 참여기관 설문이 계획에 없었습니다.</p>
+</section>
+<sc-if value="{{ evClosed }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:1.2rem;background:#fff;border:0.1rem solid var(--krds-light-color-border-gray,#cdd1d5);border-radius:1.2rem;padding:2rem">
+<sc-if value="{{ evConfirmable }}" hint-placeholder-val="{{ false }}">
+<span style="font-size:1.5rem">훈련이 종료되었습니다. 지표를 검토한 뒤 평가를 확정하세요. 확정된 평가는 고칠 수 없습니다 — 정정은 새 평가입니다.</span>
+<button type="button" class="krds-btn primary medium" onClick="{{ doConfirm }}" style="margin-left:auto">평가 확정</button>
+</sc-if>
+<sc-if value="{{ evConfirmed }}" hint-placeholder-val="{{ false }}">
+<span style="font-size:1.5rem">평가가 확정되었습니다 · 2026. 8. 20. 17:55 · 확정된 평가는 고칠 수 없습니다.</span>
+<button type="button" class="krds-btn tertiary medium" style="margin-left:auto"><i class="svg-icon ico-download" aria-hidden="true"></i> 평가서 내려받기</button>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1520,&quot;height&quot;:1000},&quot;실행모드&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;훈련&quot;,&quot;options&quot;:[&quot;훈련&quot;,&quot;실제 상황&quot;,&quot;모의(발송 없음)&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;상황 운영&quot;},&quot;일지드리프트&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;상황 운영&quot;},&quot;상황판어긋남경고&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;상황 운영&quot;}}">
+class Component extends DCLogic {
+  state = {
+    screen: 'plan', planStep: 5, contentDone: false,
+    jStatus: 'DRAFT', jAiNote: false,
+    n1: '06:40 기상특보 접수 후 상황실을 가동하고, 침수 우려 지역 예찰을 시작함.',
+    n2: '흥업면·문막읍 저지대 주민을 마을회관 2개소로 대피 유도함. 양수기는 시설관리공단 보유분을 우선 투입함.',
+    n3: '',
+    r1: '', r2: '', evClosed: false, evConfirmed: false
+  };
+  renderVals() {
+    const s = this.state;
+    const set = (patch) => this.setState(patch);
+    const NAV = [['plan', '계획서 생성'], ['board', '전자상황판'], ['journal', '상황일지'], ['eval', '종료·평가']];
+    const nav = NAV.map(([key, label]) => ({
+      label,
+      go: () => set({ screen: key }),
+      weight: s.screen === key ? 700 : 400,
+      fg: s.screen === key ? '#256ef4' : '#464c53',
+      shadow: s.screen === key ? 'inset 0 -0.3rem 0 #256ef4' : 'none'
+    }));
+    const stepLabels = ['로그인', '계획서', '기준정보', 'HWPX 반입', '목차·본문 생성', 'Export'];
+    const pipe = stepLabels.map((label, i) => {
+      const n = i + 1;
+      const active = s.planStep === n;
+      const done = n <= 4 || (n === 5 && s.contentDone);
+      return {
+        label, go: () => set({ planStep: n }),
+        mark: done && !active ? '✓' : String(n),
+        bg: active ? '#256ef4' : done ? '#eef7f0' : '#fff',
+        fg: active ? '#fff' : done ? '#228738' : '#8a949e',
+        bd: active ? '#256ef4' : done ? '#b9dec3' : '#cdd1d5',
+        weight: active ? 700 : 400,
+        arrowOpacity: n === 6 ? 0 : 0.4
+      };
+    });
+    const jLabels = { DRAFT: '초안', REVIEW: '검토 중', CHANGES_REQUESTED: '보완 요청됨', APPROVED: '승인됨' };
+    const jBadge = { DRAFT: 'krds-badge bg-light-gray', REVIEW: 'krds-badge bg-light-primary', CHANGES_REQUESTED: 'krds-badge bg-light-warning', APPROVED: 'krds-badge bg-success' };
+    const jEditable = s.jStatus === 'DRAFT' || s.jStatus === 'CHANGES_REQUESTED';
+    const cells = [
+      { id: 'nr1', key: 'n1', title: '피해 현황', caption: '확정 판에서 접은 피해 사실', facts: [
+        { label: '인명 피해', value: '없음' }, { label: '주택 침수', value: '3동 (흥업면 2, 문막읍 1)' }, { label: '도로 통제', value: '2개소 (지방도 404호, 시도 12호)' }] },
+      { id: 'nr2', key: 'n2', title: '조치 사항', caption: '확정 판에서 접은 조치 사실', facts: [
+        { label: '대피소 운영', value: '2개소 · 대피 47명' }, { label: '양수기 투입', value: '12대' }, { label: '전파', value: '재난문자 3회 · 마을방송 6회' }] },
+      { id: 'nr3', key: 'n3', title: '향후 계획', caption: '확정 판에서 접은 계획 사실', facts: [
+        { label: '기상 전망', value: '8. 21. 06:00까지 시간당 30mm 지속' }, { label: '다음 판 확정', value: '18:00 예정 (v5)' }] }
+    ].map((c) => ({
+      ...c,
+      text: s[c.key],
+      onChange: (e) => set({ [c.key]: e.target.value }),
+      sourceLabel: c.key === 'n3' ? (s.jAiNote ? 'AI 제안을 반영함 (시뮬레이션)' : '아직 작성되지 않음') : '사람이 작성함'
+    }));
+    const r1ok = s.r1.trim().length >= 2, r2ok = s.r2.trim().length >= 2;
+    const missing = (r1ok ? 0 : 1) + (r2ok ? 0 : 1);
+    const runMode = this.props['실행모드'] ?? this.props.runMode ?? '훈련';
+    const modeMap = {
+      '실제 상황': { text: '● 실제 상황', cls: 'krds-badge bg-danger' },
+      '훈련': { text: '▲ 훈련', cls: 'krds-badge bg-secondary' },
+      '모의(발송 없음)': { text: '◆ 모의(발송 없음)', cls: 'krds-badge bg-gray' }
+    };
+    const mode = modeMap[runMode] ?? modeMap['훈련'];
+    const drifted = this.props['일지드리프트'] ?? this.props.journalDrifted ?? false;
+    const driftMsgs = {
+      DRAFT: '만든 뒤 상황이 더 진행됐습니다. [사실 갱신]을 누르면 사실칸만 다시 접고, 사람이 쓴 문장은 그대로 둡니다.',
+      CHANGES_REQUESTED: '만든 뒤 상황이 더 진행됐습니다. [사실 갱신]을 누르면 사실칸만 다시 접고, 사람이 쓴 문장은 그대로 둡니다.',
+      REVIEW: '검토 중에 바깥의 사실이 바뀌었습니다. 지금 승인하면 승인되는 것은 화면에 보이는 이 판입니다.',
+      APPROVED: '승인된 뒤 상황이 더 진행됐습니다. 이 일지는 승인 시점의 사실을 담고 있습니다 — 최신 사실은 새 일지로 만드세요.'
+    };
+    return {
+      nav, pipe,
+      modeBadgeText: mode.text, modeBadgeClass: mode.cls,
+      showDivergence: this.props['상황판어긋남경고'] ?? this.props.boardDivergence ?? false,
+      jDrifted: drifted, jDriftMsg: driftMsgs[s.jStatus],
+      screenPlan: s.screen === 'plan', screenBoard: s.screen === 'board',
+      screenJournal: s.screen === 'journal', screenEval: s.screen === 'eval',
+      s1: s.planStep === 1, s2: s.planStep === 2, s3: s.planStep === 3,
+      s4: s.planStep === 4, s5: s.planStep === 5, s6: s.planStep === 6,
+      contentRunning: !s.contentDone,
+      contentBadgeClass: s.contentDone ? 'krds-badge bg-success' : 'krds-badge bg-light-primary',
+      contentBadgeLabel: s.contentDone ? '완료' : '진행 중',
+      progressWidth: s.contentDone ? '100%' : '62%',
+      progressMsg: s.contentDone ? '42절 모두 생성됨 (100%) · 14:31 완료' : '42절 중 26절 생성됨 (62%) · 예상 남은 시간 약 3분',
+      finishContent: () => set({ contentDone: true }),
+      goExport: () => set({ planStep: 6 }),
+      exportBlocked: !s.contentDone, exportReady: s.contentDone,
+      logs: [
+        s.contentDone ? { at: '14:31', text: '본문 생성 완료 · 42절' } : { at: '14:24', text: '본문 생성 Job 시작 (JOB-8842)' },
+        { at: '14:21', text: '목차 v3 생성 완료 · 42절' },
+        { at: '14:08', text: 'HWPX 반입 검증 통과' },
+        { at: '14:02', text: '기준정보 Snapshot 확정 (SNAP-2026-0412)' },
+        { at: '13:55', text: '계획서 생성 시작' }
+      ],
+      kpis: [
+        { label: '전체', value: 24, color: '#33363d' }, { label: '미전파', value: 2, color: '#33363d' },
+        { label: '미수신', value: 3, color: '#9d5b00' }, { label: '진행', value: 8, color: '#256ef4' },
+        { label: '완료', value: 9, color: '#228738' }, { label: '수행불가', value: 1, color: '#d0290e' },
+        { label: '지연', value: 1, color: '#d0290e' }
+      ],
+      tasks: [
+        { node: 'C-3', title: '지방도 404호 교통 통제', owner: '건설과', status: '지연', badgeClass: 'krds-badge bg-danger', pct: '60%', due: '8. 20. 16:00 ⚠', rowBg: '#fdf2f0' },
+        { node: 'B-1', title: '재난문자 송출 (3차)', owner: '안전총괄과', status: '미수신', badgeClass: 'krds-badge bg-light-warning', pct: '0%', due: '8. 20. 17:00', rowBg: 'transparent' },
+        { node: 'C-1', title: '저지대 주민 대피 유도', owner: '흥업면', status: '진행', badgeClass: 'krds-badge bg-light-primary', pct: '80%', due: '8. 20. 17:30', rowBg: 'transparent' },
+        { node: 'C-2', title: '임시대피소 운영 (마을회관 2개소)', owner: '복지정책과', status: '진행', badgeClass: 'krds-badge bg-light-primary', pct: '70%', due: '8. 20. 18:00', rowBg: 'transparent' },
+        { node: 'D-1', title: '양수기 12대 배치·가동', owner: '시설관리공단', status: '진행', badgeClass: 'krds-badge bg-light-primary', pct: '90%', due: '8. 20. 18:00', rowBg: 'transparent' },
+        { node: 'A-2', title: '상황실 근무조 편성', owner: '안전총괄과', status: '완료', badgeClass: 'krds-badge bg-light-success', pct: '100%', due: '8. 20. 07:00', rowBg: 'transparent' },
+        { node: 'D-3', title: '급경사지 22개소 예찰', owner: '건설과', status: '수행불가', badgeClass: 'krds-badge bg-light-danger', pct: '30%', due: '8. 20. 15:00', rowBg: 'transparent' }
+      ],
+      events: [
+        { at: '16:42', type: 'TASK_PROGRESS', detail: 'C-1 저지대 주민 대피 유도 80%', badge: '진행', badgeClass: 'krds-badge bg-light-primary' },
+        { at: '16:38', type: 'TASK_COMPLETED', detail: 'A-2 상황실 근무조 편성', badge: '완료', badgeClass: 'krds-badge bg-light-success' },
+        { at: '16:31', type: 'EVENT_CORRECTED', detail: 'D-1 양수기 대수 10→12 정정', badge: '정정', badgeClass: 'krds-badge bg-light-warning' },
+        { at: '16:25', type: 'TASK_UNABLE', detail: 'D-3 급경사지 예찰 — 접근로 침수', badge: '수행불가', badgeClass: 'krds-badge bg-light-danger' },
+        { at: '16:10', type: 'DISPATCH_SENT', detail: 'B-1 재난문자 3차 송출 요청', badge: '전파', badgeClass: 'krds-badge bg-light-gray' },
+        { at: '16:02', type: 'SNAPSHOT_CONFIRMED', detail: '상황 판 v4 확정 · 사실 38건', badge: '판 확정', badgeClass: 'krds-badge bg-light-gray' }
+      ],
+      cells,
+      jStatusLabel: jLabels[s.jStatus], jBadgeClass: jBadge[s.jStatus],
+      jLocked: !jEditable, jAiNote: s.jAiNote,
+      jDraft: jEditable, jReview: s.jStatus === 'REVIEW', jApproved: s.jStatus === 'APPROVED',
+      jNotApproved: s.jStatus !== 'APPROVED',
+      jPropose: () => set({ jAiNote: true, n3: s.n3 || '기상 전망에 따라 8. 21. 06:00까지 예찰을 유지하고, 18:00 확정 예정인 다음 판(v5)에 맞춰 대피소 운영 연장 여부를 판단할 계획임.' }),
+      jSubmit: () => set({ jStatus: 'REVIEW' }),
+      jApprove: () => set({ jStatus: 'APPROVED' }),
+      jReject: () => set({ jStatus: 'CHANGES_REQUESTED' }),
+      evOpen: !s.evClosed,
+      evStatusLabel: s.evConfirmed ? '평가 확정됨' : s.evClosed ? '종료됨' : '진행 중 · 평가 작성 중',
+      evBadgeClass: s.evConfirmed ? 'krds-badge bg-gray' : s.evClosed ? 'krds-badge bg-success' : 'krds-badge bg-light-primary',
+      r1: s.r1, r2: s.r2,
+      onR1: (e) => set({ r1: e.target.value }), onR2: (e) => set({ r2: e.target.value }),
+      readyMsg: missing === 0 ? '모든 미결에 사유를 적었습니다. 그대로 두고 닫습니다.' : missing + '건에 사유가 없습니다. 사유 없는 처분은 처분이 아닙니다.',
+      readyColor: missing === 0 ? '#228738' : '#9d5b00',
+      cannotClose: missing > 0,
+      doClose: () => set({ evClosed: true }),
+      evClosed: s.evClosed,
+      evConfirmable: s.evClosed && !s.evConfirmed,
+      evConfirmed: s.evConfirmed,
+      doConfirm: () => set({ evConfirmed: true }),
+      metrics: [
+        { label: '임무 달성률', value: '87%', note: '완료 21 / 대상 24' },
+        { label: '평균 수신확인', value: '4분 12초', note: '전파 후 수신확인까지' },
+        { label: '평균 완료 시간', value: '52분', note: '착수 후 완료 제출까지' },
+        { label: '정정 이벤트', value: '3건', note: '원본 보존 · 최신본 유효' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

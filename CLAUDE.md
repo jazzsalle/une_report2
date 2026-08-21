@@ -1,137 +1,48 @@
-# UNE Disaster Document Platform
+# UNE 재난안전 AI 문서 POC
 
-## Mission
+## 지금 이 저장소는
 
-Build the UNE-owned parts of RS-2024-00407304 from the approved design baseline. Work in Korean for reports and comments unless code conventions require English.
+2026-08-19에 **전면 재구축**됐다. 이전의 NestJS·Postgres·RLS·Outbox 구현(ADR-19~51, CC-000~430)은 사용자 판단으로 과도하다고 보고 `git` 이력(커밋 `448eab9` 이전)에만 남기고 작업 트리에서 제거했다. 지금 코드는 `apps/poc/` 하나다.
 
-## Read first
+- 실행·구조·한계: `apps/poc/README.md`
+- 요구사항: `apps/poc/docs/01_요구사항정의서.md`
+- 인터페이스: `apps/poc/docs/02_인터페이스정의서.md`
+- 상황일지 기능정의서(개발팀 전달): `apps/poc/docs/UNE_상황일지_생성도구_기능정의서_v1.1.docx`
+- 마지막 세션 기록: `docs/handoff/SESSION_HANDOFF.md`
 
-Before modifying code, read:
+한국어로 보고·주석을 쓴다. 코드 관례가 요구할 때만 영어.
 
-1. `docs/handoff/IMPLEMENTATION_BASELINE.md`
-2. `docs/handoff/TECHNOLOGY_PROFILE.md` and `docs/adr/` (approved profile and post-baseline ADRs)
-3. the current item in `work-items/MASTER_WORK_ITEMS.yaml`
-4. relevant files under `docs/design-markdown/`
-5. relevant OpenAPI, JSON Schema, and SQL migrations
+## 목표
 
-Do not infer requirements only from filenames or previous chat history.
+개발팀에 넘길 **동작하는 POC**. 보안·암호화·멀티테넌트·감사·DB는 범위 밖. 단일 PC, `pnpm dev` 한 줄.
 
-## Source of truth
+### 재난안전계획서 생성 도구 (`/plan`)
+1. 2차년도 화면설계서(`화면설계서/*.pdf`, V0.2.6) 흐름 준수: 문서 저장 → 기준정보 → 목차 생성/편집 → 초안(목차별 진행 상태) → 편집 → 내보내기
+2. HWPX 템플릿(`templete/*.hwpx`)의 문단개요번호·기호·글꼴·크기·스타일을 rhwp로 분석해 목차·초안 생성과 내보내기에 적용
+3. 목차·초안은 **T3Q RPT-001/002**(`https://plf.mois-disaster.t3q.ai`, TLS 검증 해제 `T3Q_VERIFY_TLS=0`). 실패 시 유니 폴백
+4. 문단 선택 → 챗봇(유니) 수정 → 교체. 사용자 수정 문단은 재생성 보호
+5. HWPX 내보내기(rhwp) → rhwp 재로드 뷰 → `@rhwp/editor`에서 직접 편집 가능
 
-Priority when documents conflict:
+### 상황일지 생성 도구 (`/sit`)
+기획 화면 9장(`상황일지 기획 화면 예시/*.png`): 훈련상황 생성(**AI 챗봇 자연어 질의 + 근거 문서 카드** — 등록 문서 목록은 노출하지 않음) → 유니 SOP 생성/캔버스 편집 → 임무 전파 → 모바일 수신확인/완료보고 → 전자상황판(이벤트 투영) → 상황일지(사실 절 투영 + AI 서술 절) → HWPX.
 
-1. ADR v1.1
-2. Implementation baseline and approved change records
-3. API/DB/Sequence detailed design
-4. OpenAPI, JSON Schema, DB migrations
-5. Screen and scenario designs
-6. HWPX and UNI adapter detailed specifications
-7. Master design v0.9 and original requirements
+### 연동
+계획서(T3Q 생성) → 훈련(유니 SOP + 사실 기록) → 계획서 개정(훈련 결과 환류). 상황일지를 T3Q로 만들지 않는다 — 문서 성격이 다르다.
 
-Stop and create an ADR/change request when a conflict cannot be resolved by this order.
+## 외부 연동 (실측)
 
-## Scope boundary
+| | 주소 | 메모 |
+|---|---|---|
+| 유니 RAG API | `http://10.20.10.101:8088` | `:3101`은 웹 UI(API 아님). `/auth/login {account,password}` → `token`. `/chat/` 토큰 SSE, `/chat/json` 노드가 `{"__compn__":…}`로 감싸짐. 로그인 429 있음 — 토큰 재사용 |
+| T3Q | `https://plf.mois-disaster.t3q.ai/model-api/ae894/reports/plan/{toc,content}` | 인증서 체인 불완전 → POC는 검증 해제. `targetAudiences`는 중앙정부/지자체/내부보고/대민 |
+| rhwp | `@rhwp/core` 0.8.4 (MIT, WASM) 서버 내장 · `@rhwp/editor` iframe(외부 studio) | 문단 0 컨트롤은 `deleteControlAt`으로, 새 문단 정렬은 매번 `applyParaFormat`으로 |
+| 2차년도 사이트 | `https://ec2-43-200-234-120.ap-northeast-2.compute.amazonaws.com:7083/main` | 참고 |
 
-UNE owns:
+자격증명은 `infrastructure/.env`(gitignore). 유니·T3Q에 못 닿으면 `apps/poc/server/src/mock/*`로 폴백.
 
-- React/TypeScript document workspace
-- rhwp-based HWPX analysis, editing adapter, preservation serializer, export validation
-- plan workflow and T3Q RPT-001/002 adapter
-- SituationFact and immutable SituationSnapshot
-- UNI POC adapter and versioned UniSopMapper
-- SOP design, approval, run, task, propagation, Transactional Outbox
-- Append-only Execution Log, dashboard, journal projection, HWPX output
+## 작업 규칙
 
-T3Q owns LLM/RAG, TTS/STT, and external linkage APIs. Do not implement a duplicate chatbot, LLM, embedding pipeline, TTS/STT, or official data collection agent in UNE services.
-
-## Non-negotiable domain rules
-
-- Plan generation calls T3Q RPT-001/002 only. UNI calls in plan flow are prohibited.
-- Situation facts come from providers or users and become authoritative only after user confirmation in a SituationSnapshot.
-- LLM output is never an authoritative fact source.
-- Journal factual cells are projected from SituationSnapshot and Execution Log. AI may improve wording only after fact comparison.
-- Approved PlanContextSnapshot, SituationSnapshot, SOP Version, and Execution Event are immutable.
-- Corrections are new versions or correction events; never overwrite audit history.
-- Dispatch state change, Execution Event, and Outbox insert are one database transaction.
-- External provider payloads stay behind adapters and are retained as raw payloads for traceability.
-- Every retriable create/dispatch/export request uses an idempotency key.
-- Editing uses Revision, ETag/version number, ChangeSet, Diff, and Undo.
-- User-edited blocks are protected from regeneration.
-
-## HWPX rules
-
-- Import a specific rhwp tag/commit source archive into internal source control after URL, tag, commit, SHA-256, license, and SBOM are recorded.
-- Do not use a public fork as the project baseline.
-- Keep upstream source, UNE adapter, and unavoidable patches separate.
-- Preserve unsupported objects when surrounding content is edited.
-- Classify objects as NATIVE_EDIT, PRESERVE_ONLY, FLATTEN_EXPORT_ONLY, or REJECT.
-- Track A automated package/reference/semantic/style validation is required for every export.
-- Track B Hancom open-save-reopen testing is a release gate, not a runtime request path.
-
-## External sources and provider contracts
-
-- ProcessGPT references: `https://github.com/uengine-oss/process-gpt`, `https://github.com/uengine-oss/process-gpt-office-mcp`, and `https://docs.process-gpt.io`.
-- Treat ProcessGPT as reference architecture and optional POC only. Do not replace UNE SOP, Task, Execution Log, Outbox, Journal Projection, or HWPX IR.
-- rhwp upstream is `https://github.com/edwardkim/rhwp`. Never track floating main; record tag/commit, archive SHA-256, license, SBOM, and patch manifest.
-- UNI candidate host is `http://221.147.100.161:8000`; do not guess base path or auth. Use backend adapter only and never use UNI in plan flow.
-- T3Q current contract is `contracts/openapi/t3q-report-adapter-v0.8.5-une1.yaml`.
-- T3Q requested target contract is `contracts/openapi/t3q-plan-api-change-request-v1.yaml`.
-- Implement `LegacyT3qPlanAdapter` and `TargetV2T3qPlanAdapter` behind one `T3qPlanProvider` port.
-- Continue POC with current RPT-001/002 and target-v2 mocks. Do not wait for T3Q acceptance.
-- Never report target mock support as actual T3Q support. Track capability states separately.
-
-## Development workflow
-
-- Implement one Work Item at a time.
-- Start with a plan and list affected files, migrations, APIs, tests, and risks.
-- Do not change OpenAPI and implementation independently; update both in one change.
-- Add a forward-only migration for schema changes. Never edit an applied migration.
-- Add or update unit, integration, contract, and E2E tests as applicable.
-- Run the smallest relevant test set while editing, then the full gate for the Work Item.
-- Update `work-items/IMPLEMENTATION_STATUS.md` with evidence before claiming completion.
-- Record unresolved external fields in `docs/handoff/OPEN_BINDINGS.md`; do not invent them.
-
-## Completion evidence
-
-A task is complete only when all are true:
-
-- acceptance criteria pass
-- code builds and lint/type checks pass
-- required tests pass with commands and results recorded
-- API/DB/schema docs match implementation
-- error, permission, state, idempotency, concurrency, and audit paths are covered
-- no secrets or generated caches are committed
-- implementation status and change log are updated
-
-## Safety
-
-Never run destructive commands, push, deploy, rotate credentials, modify production resources, or delete data without explicit user approval. Never use `--dangerously-skip-permissions`. Do not bypass TLS verification in production code.
-
-## Target repository shape
-
-- `apps/web`: React/TypeScript operator workspace
-- `apps/field-web`: responsive field task UI
-- `services/api`: UNE domain API
-- `services/worker`: jobs, outbox, provider polling
-- `services/hwpx-engine`: HWPX analysis/serialization boundary
-- `packages/domain`: shared domain types and state rules
-- `packages/provider-adapters`: T3Q, UNI, official provider adapters
-- `contracts`: OpenAPI and JSON Schema
-- `database/migrations`: PostgreSQL migrations
-- `tests`: unit, contract, integration, E2E
-- `docs`: design, ADR, handoff, evidence
-
-## Implementation profile
-
-Approved at CC-000 (2026-07-30, `work-items/00_DECISIONS_TO_CONFIRM.yaml`, ADR-19):
-
-- frontend: React + TypeScript (Vite), pnpm workspaces; dev/demo deploys to Vercel
-- backend: NestJS (Node 20+, TypeScript) — ADR-19 supersedes the earlier ASP.NET Core 8 recommendation
-- database: PostgreSQL 16+
-- object storage: S3-compatible port (MinIO locally)
-- HWPX/POC workers: Python where useful, with a stable service contract
-- local infrastructure: Docker Compose (free path: WSL2 Docker Engine CE / Rancher Desktop / Podman)
-- CI: GitHub Actions
-- demos require public URLs (developer PCs have no fixed IP): frontend on Vercel, backend containers on a cloud host (OB-14); backend never runs as Vercel serverless functions
-
-Do not silently change the approved profile.
+- 새 기능은 `apps/poc/server/src/main.ts`(라우트)·`llm.ts`(프롬프트)·`hwpx.ts`(문서)·`web/src/{plan,sit}`에 바로 쓴다. 문서 작성은 요구사항·인터페이스 두 개만 갱신.
+- 외부 API 응답 모양은 **실호출로 확인**한 뒤 코드에 반영하고 그 사실을 주석에 남긴다(`실측 YYYY-MM-DD`).
+- 삭제·푸시·배포는 사용자 승인 후. 비밀값은 코드·문서·로그에 넣지 않는다.
+- 지우지 말 것: `화면설계서/`, `상황일지 기획 화면 예시/`, `templete/`, `설계 및 개발착수 문서/`.

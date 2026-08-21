@@ -1,0 +1,203 @@
+[
+ {
+  "__status__": "searching"
+ },
+ {
+  "__status__": "generating"
+ },
+ {
+  "__compn__": {
+   "compnSn": -1,
+   "compnTyCode": "104001",
+   "compnSj": "시작 · 훈련상황 발생 등록",
+   "compnAttrbSaveParamsList": [],
+   "endCompns": [
+    {
+     "compnSn": -2
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -2,
+   "compnTyCode": "104003",
+   "compnSj": "초기 상황 판단",
+   "compnAttrbSaveParamsList": [
+    {
+     "attrbSj": "기상특보 확인",
+     "attrbCn": "호우경보 발효 여부 및 하천 수위 확인"
+    },
+    {
+     "attrbSj": "상황단계 판단",
+     "attrbCn": "관심/주의/경계/심각 판단"
+    }
+   ],
+   "endCompns": [
+    {
+     "compnSn": -3
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -3,
+   "compnTyCode": "104003",
+   "compnSj": "재난안전대책본부 구성 요청",
+   "compnAttrbSaveParamsList": [
+    {
+     "attrbSj": "본부장 보고",
+     "attrbCn": "상황 요약 보고 및 본부 가동 승인"
+    }
+   ],
+   "endCompns": [
+    {
+     "compnSn": -4
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -4,
+   "compnTyCode": "104003",
+   "compnSj": "상황/임무 전파",
+   "compnAttrbSaveParamsList": [
+    {
+     "attrbSj": "부서별 임무 전파",
+     "attrbCn": "문자·알림톡으로 5개 부서 전파"
+    },
+    {
+     "attrbSj": "수신 확인 요청",
+     "attrbCn": "10분 내 수신 확인"
+    }
+   ],
+   "endCompns": [
+    {
+     "compnSn": -5
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -5,
+   "compnTyCode": "104003",
+   "compnSj": "현장 담당자 수신 확인",
+   "compnAttrbSaveParamsList": [],
+   "endCompns": [
+    {
+     "compnSn": -6
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -6,
+   "compnTyCode": "104003",
+   "compnSj": "침수 우려지역 현장 점검",
+   "compnAttrbSaveParamsList": [
+    {
+     "attrbSj": "도로 침수 확인",
+     "attrbCn": "저지대 도로 및 지하차도"
+    },
+    {
+     "attrbSj": "사진 첨부",
+     "attrbCn": "현장 사진 2매 이상"
+    }
+   ],
+   "endCompns": [
+    {
+     "compnSn": -7
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -7,
+   "compnTyCode": "104005",
+   "compnSj": "주민대피 필요 여부",
+   "compnAttrbSaveParamsList": [],
+   "endCompns": [
+    {
+     "compnSn": -8,
+     "arrwCn": "YES"
+    },
+    {
+     "compnSn": -9,
+     "arrwCn": "NO"
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -8,
+   "compnTyCode": "104003",
+   "compnSj": "주민대피 안내 및 유관기관 협조 요청",
+   "compnAttrbSaveParamsList": [
+    {
+     "attrbSj": "대피 안내문 발송",
+     "attrbCn": "마을방송·문자"
+    }
+   ],
+   "endCompns": [
+    {
+     "compnSn": -10
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -9,
+   "compnTyCode": "104003",
+   "compnSj": "모니터링 지속",
+   "compnAttrbSaveParamsList": [],
+   "endCompns": [
+    {
+     "compnSn": -10
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -10,
+   "compnTyCode": "104003",
+   "compnSj": "조치결과 수신",
+   "compnAttrbSaveParamsList": [],
+   "endCompns": [
+    {
+     "compnSn": -11
+    }
+   ]
+  }
+ },
+ {
+  "__compn__": {
+   "compnSn": -11,
+   "compnTyCode": "104003",
+   "compnSj": "상황일지 자동 기록",
+   "compnAttrbSaveParamsList": [],
+   "endCompns": [
+    {
+     "compnSn": -99
+    }
+   ]
+  }
+ },
+ {
+  "__sources__": [
+   {
+    "filename": "풍수해 위기관리 표준매뉴얼.pdf",
+    "score": 0.41,
+    "text": "경계 단계 발령 시 재난안전대책본부를 구성하고 관계 부서에 즉시 전파한다",
+    "doc_id": "mock"
+   }
+  ]
+ }
+]

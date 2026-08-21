@@ -1,0 +1,59 @@
+/** 서버 API 얇은 클라이언트. 실패는 Error로 던진다. */
+export async function api<T = unknown>(method: string, path: string, body?: unknown, form?: FormData): Promise<T> {
+  const r = await fetch(`/api${path}`, {
+    method,
+    headers: form ? undefined : body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: form ?? (body !== undefined ? JSON.stringify(body) : undefined),
+  });
+  const text = await r.text();
+  let json: unknown = null;
+  try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
+  if (!r.ok) throw new Error((json as { error?: string })?.error ?? `HTTP ${r.status}`);
+  return json as T;
+}
+export const get = <T,>(p: string) => api<T>('GET', p);
+export const post = <T,>(p: string, b?: unknown) => api<T>('POST', p, b);
+export const put = <T,>(p: string, b?: unknown) => api<T>('PUT', p, b);
+export const del = <T,>(p: string) => api<T>('DELETE', p);
+
+/** SSE 구독. event별 콜백. 반환값으로 중단. */
+export function sse(path: string, handlers: Record<string, (data: unknown) => void>): () => void {
+  const es = new EventSource(`/api${path}`);
+  for (const [ev, fn] of Object.entries(handlers)) es.addEventListener(ev, (e) => { try { fn(JSON.parse((e as MessageEvent).data)); } catch { fn((e as MessageEvent).data); } });
+  es.onerror = () => { handlers.error?.({ message: '연결 끊김' }); es.close(); };
+  const close = () => es.close();
+  es.addEventListener('done', close); es.addEventListener('cancelled', close); es.addEventListener('error', close);
+  return close;
+}
+
+// ── 타입 (서버와 동일) ──
+export interface User { id: string; name: string; dept: string; role: string }
+export interface Level { level: number; styleId: number | null; styleName: string | null; bullet: string; fontFamily: string | null; fontSizePt: number | null; bold: boolean; indentHu: number; sampleText: string }
+export interface Template { id: string; name: string; fileName: string; builtin: boolean; createdAt: string; levels: Level[]; bodyFontFamily: string | null; bodyFontSizePt: number | null; styleCount: number; pageCount: number; styleRuleText: string; profile?: { styles: { id: number; name: string }[]; numbering: { levelFormats: string[] }[]; paragraphs: { idx: number; text: string; styleName: string; fontSizePt: number | null; bold: boolean; bullet: string }[]; fontsUsed: string[] } }
+export interface PlanContext { subject: string; hazardType: string; managementPhase: string; place?: string; occurredAt?: string; reportedAt?: string; sources?: string; requiredElements?: string; writingGuide?: string; tone?: string; sentenceLimit?: string; outlineNumbering?: string; bodyStart?: string; purpose?: string; role?: string; audience?: string; templateId?: string | null; linkedExerciseId?: string | null }
+export interface TocNode { id: string; no: string; title: string; children: TocNode[] }
+export type SecStatus = '-' | '대기' | '진행중' | '취소대기' | '취소' | '완료' | '오류';
+export interface Section { tocId: string; status: SecStatus; markdown: string; userEdited: boolean; sources: { filename: string; score: number; text: string }[]; history: { at: string; paraId: string; before: string; after: string; instruction: string }[]; origin?: string; provider?: string; references?: unknown[] }
+export interface Plan { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; linkedExercises: string[] }
+export interface PlanSummary { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; hasToc: boolean; drafted: number; total: number; exported: boolean; linkedExercises: string[] }
+
+export type NodeType = 'START' | 'TASK' | 'DECISION' | 'DISPATCH' | 'FIELD_CHECK' | 'AUTO_LOG' | 'END';
+export interface SopNode { id: string; type: NodeType; title: string; dept?: string; assignee?: string; priority?: string; due?: string; channels?: string[]; tasks?: string[]; logRules?: string[] }
+export interface SopEdge { from: string; to: string; label?: string }
+export interface SopGraph { nodes: SopNode[]; edges: SopEdge[]; sources: { filename: string; score: number; text: string }[]; mapperVersion: string; warnings: string[] }
+export interface Sop { id: string; exerciseId: string; version: number; graph: SopGraph; createdAt: string }
+export type TaskStatus = '대기' | '전파완료' | '수신확인' | '수행중' | '완료' | '지연' | '미완료' | '지원요청';
+export interface Task { id: string; exerciseId: string; nodeId: string; seq: number; title: string; type: string; dept: string; assigneeId: string; assigneeName: string; due: string; priority: string; status: TaskStatus; instructions: string[]; message?: string; dispatchedAt?: string; ackedAt?: string; reportedAt?: string; memo?: string; receiptNo?: string; result?: string; exercise?: Exercise }
+export interface Event { id: string; exerciseId: string; at: string; kind: string; content: string; dept?: string; actor?: string; status?: string; source: string; taskId?: string }
+export interface Exercise { id: string; title: string; hazardType: string; phase: string; alertLevel: string; occurredAt: string; location: string; agency: string; dept: string; scenario: string; refData: string[]; options: string[]; status: 'DRAFT' | 'SOP_READY' | 'RUNNING' | 'CLOSED'; linkedPlanId: string | null; startedAt?: string; closedAt?: string; createdBy: string; analysis?: { suggestion: string; basis: string; at: string }; sop?: Sop | null; tasks?: Task[]; eventCount?: number; journal?: Journal | null; createdAt: string; updatedAt: string }
+export interface Journal { id: string; exerciseId: string; sections: { key: string; title: string; kind: 'fact' | 'narrative'; markdown: string; aiGenerated: boolean; reviewed: boolean }[]; export?: { fileName: string; at: string } }
+export interface Board { exercise: Exercise; elapsedMs: number; total: number; done: number; inProgress: number; delayed: number; waiting: number; dispatched: number; unacked: number; acked: number; reported: number; timeline: { kind: string; at: string | null }[]; active: Task[]; lastEventAt: string | null; autoLogged: number; aiCount: number; analysis: { suggestion: string; basis: string; at: string } | null }
+
+export const HAZARDS = ['폭염', '태풍/호우', '지진', '황사', '산불', '감염병', '가축질병', '다중밀집건축물붕괴대형사고', '정부주요시설', '학교시설'];
+export const fmtTime = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
+export const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
+export function ago(iso: string): string {
+  const d = (Date.now() - new Date(iso).getTime()) / 60000;
+  if (d < 1) return '방금 수정'; if (d < 60) return `${Math.floor(d)}분 전 수정`; if (d < 1440) return `${Math.floor(d / 60)}시간 전 수정`;
+  const dt = new Date(iso); return `${dt.getMonth() + 1}월 ${dt.getDate()}일 수정`;
+}
