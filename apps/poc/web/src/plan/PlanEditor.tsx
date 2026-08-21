@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { get, post, put, sse, pickSaveLocation, writeFileTo, ago, HAZARDS, type Plan, type PlanContext, type TocNode, type Template, type SecStatus, type Section } from '../api';
-import { Toast, renderMarkdown, useToast, useUser } from '../ui';
+import { Toast, renderMarkdown, useToast, useUser, type MdTableStyle } from '../ui';
 import { H1, Icon, KAlert, KBadge, KBtn, KCard, KField, KInput, KModal, KSelect, KTable, KTextarea, KV, Pipeline, statusToTone, type PipeStep } from '../krds';
 
 type Step = 'context' | 'toc' | 'draft' | 'preview';
 const emptyCtx = (): PlanContext => ({ subject: '', hazardType: '폭염', managementPhase: '대비', audience: '지자체', templateId: null, tone: '공문서체' });
+/** 템플릿 견본 표 → 웹 미리보기 표 스타일(머리행 배경·글꼴). HWPX 내보내기와 같은 값 */
+const mdTableStyle = (tpl: Template | null): MdTableStyle | null => (tpl?.tableStyle ? { headerBg: tpl.tableStyle.header.fillType !== 'none' ? tpl.tableStyle.header.fillColor : null, headerBold: tpl.tableStyle.header.font.bold, fontFamily: tpl.tableStyle.body.font.fontFamily, fontSizePt: tpl.tableStyle.body.font.fontSizePt } : null);
 interface Health { uni: { baseUrl: string; mock: boolean; lastFailure: string | null }; t3q: { baseUrl: string; verifyTls: boolean; lastFailure: string | null }; rhwp: { version: string } }
 
 export function PlanEditor() {
@@ -346,6 +348,7 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
   const curRunning = !!current && running.has(current);
   const md = current ? (curRunning ? live[current] ?? '' : cur?.markdown ?? '') : '';
   const bullets = tpl?.levels.map((l) => l.bullet) ?? ['□', 'ㅇ', '-', '*'];
+  const tableStyle = mdTableStyle(tpl);
   const levelStyle = (lv: number): React.CSSProperties => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, fontFamily: L?.fontFamily ? `"${L.fontFamily}", inherit` : undefined, paddingLeft: L?.indentHu ? L.indentHu / 100 * 2 : 0 }; };
   const revise = async () => {
     if (!selPara || !instruction.trim()) return; setRevising(true);
@@ -398,7 +401,7 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
             </div>
             {editRaw !== null ? <KTextarea value={editRaw} onChange={(e) => setEditRaw(e.target.value)} style={{ minHeight: 480, fontFamily: 'ui-monospace, monospace', fontSize: 13 }} aria-label="마크다운 직접 편집" /> : (
               <div className="doc-body" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
-                {md ? renderMarkdown(md, { paraPrefix: current, onParaClick: curRunning ? undefined : (id, text) => setSelPara({ id, text }), selectedId: selPara?.id, levelStyle, bullets }) : <p className="dim">{curRunning ? 'T3Q가 이 절을 생성하는 중입니다… (절 전체가 한 번에 도착합니다)' : '내용이 없습니다'}</p>}
+                {md ? renderMarkdown(md, { paraPrefix: current, onParaClick: curRunning ? undefined : (id, text) => setSelPara({ id, text }), selectedId: selPara?.id, levelStyle, bullets, tableStyle }) : <p className="dim">{curRunning ? 'T3Q가 이 절을 생성하는 중입니다… (절 전체가 한 번에 도착합니다)' : '내용이 없습니다'}</p>}
                 {curRunning && <span style={{ display: 'inline-block', width: 8, height: 16, background: '#256ef4', animation: 'blink 1s infinite' }} aria-hidden="true" />}
               </div>
             )}
@@ -488,7 +491,7 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
           <div style={{ background: '#f4f5f6', padding: 32 }}>
             <article className="page" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
               <h2 style={{ textAlign: 'center', fontSize: 22, fontWeight: 700, marginBottom: 32 }}>{plan.title}</h2>
-              <div className="doc-body">{renderMarkdown(md, { bullets, levelStyle: (lv) => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, marginTop: 14 }; } })}</div>
+              <div className="doc-body">{renderMarkdown(md, { bullets, tableStyle: mdTableStyle(tpl), levelStyle: (lv) => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, marginTop: 14 }; } })}</div>
             </article>
           </div>
         </section>

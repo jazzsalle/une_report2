@@ -56,12 +56,23 @@ async function seedTemplates() {
     catch (e) { console.error('템플릿 실패:', f, (e as Error).message); }
   }
 }
-const tplSummary = (t: TemplateRow) => ({ id: t.id, name: t.name, fileName: t.fileName, builtin: t.builtin, createdAt: t.createdAt, levels: t.profile.levels, bodyFontFamily: t.profile.bodyFontFamily, bodyFontSizePt: t.profile.bodyFontSizePt, styleCount: t.profile.styles.length, pageCount: t.profile.pageCount, styleRuleText: t.profile.styleRuleText });
+/** 프로파일 형식이 바뀐 뒤(글자모양 ID·표 스타일 추가) 등록된 적 없는 템플릿은 저장된 파일로 다시 분석한다 — 서버 시작 때 한 번 */
+async function refreshProfiles() {
+  for (const t of templates.all()) {
+    const stale = t.profile.tableStyle === undefined || !t.profile.levels.some((l) => l.charShapeId != null);
+    if (!stale) continue;
+    try { templates.update(t.id, { profile: await profileTemplate(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath)))) }); console.log('템플릿 재분석:', t.name); }
+    catch (e) { console.error('템플릿 재분석 실패:', t.name, (e as Error).message); }
+  }
+}
+const tplSummary = (t: TemplateRow) => ({ id: t.id, name: t.name, fileName: t.fileName, builtin: t.builtin, createdAt: t.createdAt, levels: t.profile.levels, bodyFontFamily: t.profile.bodyFontFamily, bodyFontSizePt: t.profile.bodyFontSizePt, styleCount: t.profile.styles.length, pageCount: t.profile.pageCount, styleRuleText: t.profile.styleRuleText, tableStyle: t.profile.tableStyle ?? null });
 app.get('/api/templates', (_req, res) => res.json(templates.all().map(tplSummary)));
 app.get('/api/templates/:id', (req, res) => { const t = templates.get(req.params.id); return t ? res.json({ ...tplSummary(t), profile: t.profile }) : bad(res, 404, '없음'); });
 app.post('/api/templates', upload.single('file'), async (req, res) => {
   if (!req.file) return bad(res, 400, 'file 필요');
-  try { const t = await registerTemplate((req.body?.name as string) || req.file.originalname.replace(/\.hwpx$/i, ''), req.file.originalname, new Uint8Array(req.file.buffer), false); res.json(tplSummary(t)); }
+  // multer는 파일명을 latin1로 넘긴다 — 한글 파일명이 깨지던 원인(2026-08-21)
+  const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+  try { const t = await registerTemplate((req.body?.name as string) || originalName.replace(/\.hwpx$/i, ''), originalName, new Uint8Array(req.file.buffer), false); res.json(tplSummary(t)); }
   catch (e) { bad(res, 422, `HWPX 분석 실패: ${(e as Error).message}`); }
 });
 app.get('/api/templates/:id/preview', async (req, res) => {
@@ -471,5 +482,6 @@ app.get('/api/link/plan/:planId/exercises', (req, res) => { const p = plans.get(
 const PORT = Number(process.env.POC_PORT ?? 3100);
 initRhwp().then(async () => {
   await seedTemplates();
+  await refreshProfiles();
   app.listen(PORT, '127.0.0.1', () => console.log(`poc-server :${PORT} | rhwp ${rhwpVersion()} | UNI ${uniStatus().baseUrl}${uniStatus().mock ? ' (MOCK)' : ''}`));
 }).catch((e) => { console.error('rhwp 초기화 실패', e); process.exit(1); });
