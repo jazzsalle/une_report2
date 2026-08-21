@@ -104,13 +104,18 @@ export async function t3qContent(ctx: PlanContext, sections: T3qSection[], parag
 export function t3qContentToMarkdown(content: string, symbols: string[]): string {
   const sym = symbols.filter(Boolean);
   const joined = sym.join('');
+  // 실측 2026-08-21: T3Q는 줄마다 요청한 기호 문자열("□ㅇ-*")을 통째로 앞에 붙여 돌려주며 줄 사이 위계가 없다.
+  // 그래서 각 줄을 2수준 항목("- ")으로 만든다 → 웹 렌더·HWPX 모두 템플릿의 2수준 기호(ㅇ)와 글자모양을 입힌다.
+  // (예전처럼 기호만 벗기면 평문단이 되어 내보낸 HWPX에 기호가 하나도 남지 않았다.)
   return content.split('\n').map((line) => {
     let l = line;
     if (joined && l.startsWith(joined)) l = l.slice(joined.length).trim();
     for (const s of sym) if (l.startsWith(s + ' ') || l.startsWith(s)) { l = l.slice(s.length).trim(); break; }
+    l = l.trim();
+    if (!l || /^[|#]/.test(l) || /^\s*([-*•·]|\d+[.)])\s/.test(l)) return l;
     const m = l.match(/^\(([^)]{1,30})\)\s*(.*)$/);
     if (m) l = `**(${m[1]})** ${m[2]}`;
-    return l;
+    return `- ${l}`;
   }).join('\n');
 }
 

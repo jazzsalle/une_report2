@@ -187,7 +187,7 @@ app.post('/api/plans/:id/export', async (req, res) => {
   const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음');
   try {
     const { bytes, profile } = await templateFor(p);
-    const out = await buildHwpx(bytes, profile, p.title, planMarkdown(p));
+    const out = await buildHwpx(bytes, profile, p.title, planMarkdown(p), { reportedAt: p.context?.reportedAt, reporter: p.updatedBy ?? p.createdBy });
     const fileName = `plan_${p.id}_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), out);
     const r = await renderHwpxHtml(out, 1);
     plans.update(p.id, { export: { fileName, at: now(), pages: r.pages } });

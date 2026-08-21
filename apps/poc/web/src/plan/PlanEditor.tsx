@@ -423,10 +423,9 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
 }
 
 // ── 4. 미리보기·내보내기 (SCR-CADM-404004) ───────────────────────────────
+// rhwp의 HTML 렌더(재로드 뷰)는 줄 위치가 어긋나게 나와 2026-08-21 화면에서 뺐다. 실제 모양은 다운로드한 HWPX를 한/글이나 rhwp 에디터에서 확인한다.
 function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | null; reload: () => Promise<Plan>; show: (m: string) => void }) {
-  const [tab, setTab] = useState<'doc' | 'hwpx'>('doc');
   const [busy, setBusy] = useState(false);
-  const [pages, setPages] = useState<{ pages: number; htmls: string[] } | null>(null);
   const bullets = tpl?.levels.map((l) => l.bullet) ?? ['□', 'ㅇ', '-', '*'];
   const md = plan.toc.map((n) => [`# ${n.no} ${n.title}`, plan.sections[n.id]?.markdown ?? '', ...n.children.flatMap((c) => [`## ${c.no} ${c.title}`, plan.sections[c.id]?.markdown ?? ''])].filter(Boolean).join('\n\n')).join('\n\n');
   const exportHwpx = async () => {
@@ -437,7 +436,6 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
       const r = await post<{ fileName: string; url: string; pages: number }>(`/plans/${plan.id}/export`, {}); await reload();
       if (handle === 'cancelled') show(`HWPX 생성 완료 (${r.pages}쪽) · 저장은 취소됨 — [다운로드]로 받을 수 있습니다`);
       else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, r.fileName); show(how === 'saved' ? `저장했습니다: ${r.fileName} (${r.pages}쪽)` : `HWPX 생성 완료 (${r.pages}쪽) · 브라우저 다운로드 폴더에 저장`); }
-      setTab('hwpx'); setPages(await get(`/plans/${plan.id}/export/preview`));
     }
     catch (e) { show((e as Error).message); } finally { setBusy(false); }
   };
@@ -448,7 +446,6 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
     try { const how = await writeFileTo(handle, `/api/files/${plan.export.fileName}`, plan.export.fileName); show(how === 'saved' ? `저장했습니다: ${plan.export.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); }
     catch (e) { show((e as Error).message); }
   };
-  useEffect(() => { if (tab === 'hwpx' && plan.export && !pages) get<{ pages: number; htmls: string[] }>(`/plans/${plan.id}/export/preview`).then(setPages).catch(() => {}); }, [tab, plan.export]);
   const edited = Object.values(plan.sections).filter((s) => s.userEdited).length;
   const sectionCount = Object.values(plan.sections).filter((s) => s.status === '완료').length;
   return (
@@ -463,24 +460,16 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
         </div>
         {plan.export && <KAlert kind="success">HWPX를 생성했습니다 — <strong>{plan.export.fileName}</strong> ({plan.export.pages}쪽) · {new Date(plan.export.at).toLocaleString('ko-KR')}.{tpl ? ` 템플릿 "${tpl.name}"의 개요 스타일을 수준별로 적용했습니다.` : ''}</KAlert>}
         <section className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div className="tabs no-print" style={{ padding: '0 16px' }} role="tablist">
-            <button type="button" role="tab" aria-selected={tab === 'doc'} onClick={() => setTab('doc')}>문서 미리보기</button>
-            <button type="button" role="tab" aria-selected={tab === 'hwpx'} onClick={() => setTab('hwpx')} disabled={!plan.export}>HWPX 재로드 뷰 (rhwp 렌더)</button>
+          <div className="row no-print" style={{ padding: '12px 24px', borderBottom: '1px solid #cdd1d5' }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700 }}>문서 미리보기</h2>
+            <span className="form-hint">웹 렌더입니다. 한/글에서의 실제 모양은 내보낸 HWPX 파일이나 [rhwp 에디터에서 열기]로 확인하세요.</span>
           </div>
-          {tab === 'doc' && (
-            <div style={{ background: '#f4f5f6', padding: 32 }}>
-              <article className="page" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
-                <h2 style={{ textAlign: 'center', fontSize: 22, fontWeight: 700, marginBottom: 32 }}>{plan.title}</h2>
-                <div className="doc-body">{renderMarkdown(md, { bullets, levelStyle: (lv) => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, marginTop: 14 }; } })}</div>
-              </article>
-            </div>
-          )}
-          {tab === 'hwpx' && (
-            <div style={{ background: '#f4f5f6', padding: 32, display: 'grid', gap: 16, justifyItems: 'center' }}>
-              {!pages ? <p className="card-desc" style={{ padding: 40 }}>rhwp로 HWPX를 다시 열어 렌더링하는 중…</p> : pages.htmls.map((h, i) => <div key={i} style={{ background: '#fff', border: '1px solid #cdd1d5' }} dangerouslySetInnerHTML={{ __html: h }} />)}
-              {pages && <p className="form-hint">내보낸 HWPX를 rhwp 엔진으로 다시 읽어 HTML로 렌더한 화면입니다 (총 {pages.pages}쪽). 한/글에서 열리는 모양에 가깝습니다.</p>}
-            </div>
-          )}
+          <div style={{ background: '#f4f5f6', padding: 32 }}>
+            <article className="page" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
+              <h2 style={{ textAlign: 'center', fontSize: 22, fontWeight: 700, marginBottom: 32 }}>{plan.title}</h2>
+              <div className="doc-body">{renderMarkdown(md, { bullets, levelStyle: (lv) => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, marginTop: 14 }; } })}</div>
+            </article>
+          </div>
         </section>
       </div>
       <aside className="rail">

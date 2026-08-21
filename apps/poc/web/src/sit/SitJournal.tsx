@@ -12,7 +12,6 @@ export function SitJournal() {
   const [cur, setCur] = useState('overview');
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{ pages: number; htmls: string[] } | null>(null);
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [linkPlan, setLinkPlan] = useState('');
   const [toast, show] = useToast();
@@ -31,7 +30,6 @@ export function SitJournal() {
       const r = await post<{ fileName: string; url: string }>(`/exercises/${id}/journal/export`, {}); await load();
       if (handle === 'cancelled') show('HWPX 생성 완료 · 저장은 취소됨 — [최근 파일 다운로드]로 받을 수 있습니다');
       else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, r.fileName); show(how === 'saved' ? `저장했습니다: ${r.fileName}` : 'HWPX 생성 완료 · 브라우저 다운로드 폴더에 저장'); }
-      setPreview(await get(`/exercises/${id}/journal/preview`));
     } catch (e) { show((e as Error).message); } finally { setBusy(false); }
   };
   const download = async () => {
@@ -82,7 +80,6 @@ export function SitJournal() {
         <Card title="내보내기">
           <Btn kind="dark" style={{ width: '100%', marginBottom: 6 }} disabled={!j || busy} onClick={() => void exportHwpx()}>HWPX 다운로드 (상황보고 템플릿)</Btn>
           {j?.export && <Btn style={{ width: '100%', marginBottom: 6 }} onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다">최근 파일 다운로드</Btn>}
-          {j?.export && <Btn style={{ width: '100%', marginBottom: 6 }} disabled={busy} onClick={async () => { setBusy(true); try { setPreview(await get(`/exercises/${id}/journal/preview`)); } finally { setBusy(false); } }}>{busy ? '렌더 중…' : 'rhwp 렌더 미리보기'}</Btn>}
           <Btn style={{ width: '100%' }} disabled title="후속 범위">DOCX / PDF (후속)</Btn>
         </Card>
         <Card title="계획서로 환류 (연동)">
@@ -92,7 +89,6 @@ export function SitJournal() {
           {linkPlan && <div style={{ marginTop: 6, fontSize: 11 }}><Link to={`/plan/${linkPlan}`}>계획서 열기 →</Link></div>}
         </Card>
       </div>
-      {preview && <Modal title={`HWPX 미리보기 (rhwp 렌더, ${preview.pages}쪽)`} onClose={() => setPreview(null)} width={900}><div style={{ background: '#e5e7eb', padding: 12, display: 'grid', gap: 12, justifyItems: 'center', maxHeight: '75vh', overflow: 'auto' }}>{preview.htmls.map((h, i) => <div key={i} style={{ background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,.15)', transform: 'scale(.8)', transformOrigin: 'top center', marginBottom: -200 }} dangerouslySetInnerHTML={{ __html: h }} />)}</div></Modal>}
       <Toast msg={toast} />
     </div>
   );
