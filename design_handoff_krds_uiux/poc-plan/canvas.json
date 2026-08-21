@@ -1,0 +1,80 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "01 문서 관리 — /plan",
+      "x": 0,
+      "y": 0,
+      "w": 1520,
+      "h": 1000
+    },
+    {
+      "file": "Templates.dc.html",
+      "title": "02 HWPX 템플릿 · 스타일 분석 — /plan/templates",
+      "x": 1640,
+      "y": 0,
+      "w": 1520,
+      "h": 1060
+    },
+    {
+      "file": "Context.dc.html",
+      "title": "03 기준정보 — /plan/:id (1단계)",
+      "x": 0,
+      "y": 1180,
+      "w": 1520,
+      "h": 1280
+    },
+    {
+      "file": "Toc.dc.html",
+      "title": "04 목차 — 2단계",
+      "x": 1640,
+      "y": 1180,
+      "w": 1520,
+      "h": 940
+    },
+    {
+      "file": "Draft.dc.html",
+      "title": "05 초안 + AI 문단 수정 — 3단계",
+      "x": 0,
+      "y": 2580,
+      "w": 1520,
+      "h": 980
+    },
+    {
+      "file": "Export.dc.html",
+      "title": "06 미리보기·내보내기 — 4단계",
+      "x": 1640,
+      "y": 2580,
+      "w": 1520,
+      "h": 1100
+    },
+    {
+      "file": "RhwpEditor.dc.html",
+      "title": "07 rhwp 에디터 — /plan/:id/editor",
+      "x": 0,
+      "y": 3800,
+      "w": 1520,
+      "h": 800
+    },
+    {
+      "file": "SaveModal.dc.html",
+      "title": "01-1 문서 저장 모달",
+      "x": 1640,
+      "y": 3800,
+      "w": 640,
+      "h": 420
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -320,
+      "w": 760,
+      "text": "계획서 생성 도구(/plan) — KRDS 디자인 초안\n화면 순서: 01 문서 관리 → 02 HWPX 템플릿 → 문서 작업 4단계(03 기준정보 → 04 목차 → 05 초안+AI 문단 수정 → 06 미리보기·내보내기) → 07 rhwp 에디터\n골격·토큰은 design_handoff_krds_uiux/README.md(KRDS v1.0.0) 기준, 화면 구성은 apps/poc/web/src/plan/*.tsx 기준.\n표 안의 수치·템플릿 글꼴·문서명은 예시 데이터입니다."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}
