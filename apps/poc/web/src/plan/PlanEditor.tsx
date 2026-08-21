@@ -294,36 +294,57 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
   const flat = useMemo(() => plan.toc.flatMap((n) => [{ node: n, depth: 1 }, ...n.children.map((c) => ({ node: c, depth: 2 }))]), [plan.toc]);
   const [current, setCurrent] = useState<string | null>(flat.find((f) => plan.sections[f.node.id]?.status === '완료')?.node.id ?? null);
   const [live, setLive] = useState<Record<string, string>>({});
-  const [running, setRunning] = useState<string | null>(null);
+  // 동시에 생성 중인 절들. T3Q는 절 하나를 통째로 15~20초 뒤에 돌려주므로 순차로 돌리면 11절에 3~4분 — 3절씩 병렬로 돌린다(2026-08-21).
+  const [running, setRunning] = useState<Set<string>>(new Set());
+  const runningRef = useRef<Set<string>>(new Set());
+  const finishers = useRef<Map<string, () => void>>(new Map());
   const [autoAll, setAutoAll] = useState(false);
-  const stopRef = useRef<(() => void) | null>(null);
+  const autoAllRef = useRef(false);
   const [selPara, setSelPara] = useState<{ id: string; text: string } | null>(null);
   const [instruction, setInstruction] = useState('');
   const [revising, setRevising] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [editRaw, setEditRaw] = useState<string | null>(null);
-  const status = (id: string): SecStatus => (running === id ? '진행중' : plan.sections[id]?.status ?? '-');
+  const status = (id: string): SecStatus => (running.has(id) ? '진행중' : plan.sections[id]?.status ?? '-');
+  const setRunningSync = (fn: (s: Set<string>) => Set<string>) => { runningRef.current = fn(runningRef.current); setRunning(new Set(runningRef.current)); };
 
   const draftOne = (tocId: string, force = false): Promise<void> => new Promise((resolve) => {
-    setRunning(tocId); setLive((l) => ({ ...l, [tocId]: '' })); setCurrent(tocId);
+    if (runningRef.current.has(tocId)) return resolve();
+    setRunningSync((s) => new Set(s).add(tocId)); setLive((l) => ({ ...l, [tocId]: '' }));
+    // 보고 있던 절이 생성 중이면 시선을 빼앗지 않고, 아니면 새로 시작한 절을 보여준다
+    setCurrent((c) => (c && runningRef.current.has(c) && c !== tocId ? c : tocId));
+    let done = false;
+    const finish = async () => { if (done) return; done = true; finishers.current.delete(tocId); close(); setRunningSync((s) => { const n = new Set(s); n.delete(tocId); return n; }); await reload(); resolve(); };
+    finishers.current.set(tocId, () => void finish());
     const close = sse(`/plans/${plan.id}/draft/${tocId}/stream${force ? '?force=1' : ''}`, {
       token: (d) => setLive((l) => ({ ...l, [tocId]: (l[tocId] ?? '') + (d as { text: string }).text })),
-      done: async (d) => { const x = d as { provider?: string; error?: string; protected?: boolean }; if (x.protected) show('사용자가 수정한 절은 보호됩니다 (재생성하려면 강제 재생성)'); else if (x.error) show('T3Q 실패 → 유니 폴백'); setRunning(null); await reload(); resolve(); },
-      cancelled: async () => { setRunning(null); show('초안 생성이 취소되었습니다'); await reload(); resolve(); },
-      error: async () => { setRunning(null); show('초안 생성에 오류가 발생했습니다'); await reload(); resolve(); },
+      done: async (d) => { const x = d as { provider?: string; error?: string; protected?: boolean }; if (x.protected) show('사용자가 수정한 절은 보호됩니다 (재생성하려면 강제 재생성)'); else if (x.error) show('T3Q 실패 → 유니 폴백'); await finish(); },
+      cancelled: async () => { show('초안 생성이 취소되었습니다'); await finish(); },
+      error: async () => { show('초안 생성에 오류가 발생했습니다'); await finish(); },
     });
-    stopRef.current = close;
   });
-  const cancel = async () => { if (!running) return; await post(`/plans/${plan.id}/draft/${running}/cancel`); stopRef.current?.(); };
-  const draftAll = async () => {
-    setAutoAll(true);
-    for (const f of flat) { if (plan.sections[f.node.id]?.status === '완료') continue; if (!autoAllRef.current) break; await draftOne(f.node.id); }
-    setAutoAll(false); show('초안이 작성되었습니다');
+  /** 생성 중인 절을 모두 취소 — 서버 플래그를 세우고 스트림을 닫는다 (T3Q는 절이 끝나야 플래그를 보므로 서버는 그때 '취소'로 기록) */
+  const cancel = async () => {
+    autoAllRef.current = false; setAutoAll(false);
+    const ids = [...runningRef.current];
+    await Promise.all(ids.map((id) => post(`/plans/${plan.id}/draft/${id}/cancel`).catch(() => {})));
+    for (const id of ids) finishers.current.get(id)?.();
   };
-  const autoAllRef = useRef(false); useEffect(() => { autoAllRef.current = autoAll; }, [autoAll]);
+  const CONCURRENCY = 3;
+  const draftAll = async () => {
+    setAutoAll(true); autoAllRef.current = true;
+    const queue = flat.filter((f) => plan.sections[f.node.id]?.status !== '완료').map((f) => f.node.id);
+    let next = 0;
+    const worker = async () => { while (autoAllRef.current && next < queue.length) { const id = queue[next++]; await draftOne(id); } };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
+    const wasCancelled = !autoAllRef.current;
+    setAutoAll(false); autoAllRef.current = false;
+    if (!wasCancelled) show('초안이 작성되었습니다');
+  };
   const cur = current ? plan.sections[current] : undefined;
   const curNode = flat.find((f) => f.node.id === current)?.node;
-  const md = current ? (running === current ? live[current] ?? '' : cur?.markdown ?? '') : '';
+  const curRunning = !!current && running.has(current);
+  const md = current ? (curRunning ? live[current] ?? '' : cur?.markdown ?? '') : '';
   const bullets = tpl?.levels.map((l) => l.bullet) ?? ['□', 'ㅇ', '-', '*'];
   const levelStyle = (lv: number): React.CSSProperties => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, fontFamily: L?.fontFamily ? `"${L.fontFamily}", inherit` : undefined, paddingLeft: L?.indentHu ? L.indentHu / 100 * 2 : 0 }; };
   const revise = async () => {
@@ -334,29 +355,29 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
   const revert = async () => { if (!selPara) return; await post(`/plans/${plan.id}/revert`, { paraId: selPara.id }); await reload(); show('원문으로 되돌렸습니다'); setSelPara(null); };
   const saveRaw = async () => { if (!current || editRaw === null) return; await put(`/plans/${plan.id}/sections/${current}`, { markdown: editRaw, userEdited: true }); setEditRaw(null); await reload(); show('저장되었습니다'); };
   const doneCount = flat.filter((f) => plan.sections[f.node.id]?.status === '완료').length;
-  const runningTitle = running ? flat.find((f) => f.node.id === running)?.node.no : null;
+  const runningNos = flat.filter((f) => running.has(f.node.id)).map((f) => f.node.no);
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr) 340px', height: '100%', background: '#fff' }}>
       {/* 목차 영역 */}
       <section style={{ borderRight: '1px solid #cdd1d5', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div className="row" style={{ padding: 12, borderBottom: '1px solid #cdd1d5' }}>
           <h2 style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>목차 <span className="num">{doneCount}/{flat.length}</span></h2>
-          {running ? <KBtn size="xs" kind="danger" onClick={() => void cancel()}><Icon name="stop" /> 생성 취소</KBtn> : <KBtn size="xs" kind="primary" onClick={() => void draftAll()} disabled={!!running}><Icon name="play" /> {doneCount ? '나머지 초안 작성' : '초안 작성하기'}</KBtn>}
+          {running.size ? <KBtn size="xs" kind="danger" onClick={() => void cancel()}><Icon name="stop" /> 생성 취소{running.size > 1 ? ` (${running.size}절)` : ''}</KBtn> : <KBtn size="xs" kind="primary" onClick={() => void draftAll()} disabled={doneCount === flat.length}><Icon name="play" /> {doneCount ? '나머지 초안 작성' : '초안 작성하기'}</KBtn>}
         </div>
         <ol style={{ listStyle: 'none', padding: 0, overflow: 'auto', flex: 1 }}>
-          {flat.map(({ node, depth }) => { const st = status(node.id); const sec = plan.sections[node.id]; const clickable = st === '완료' || running === node.id; return (
+          {flat.map(({ node, depth }) => { const st = status(node.id); const sec = plan.sections[node.id]; const clickable = st === '완료' || running.has(node.id); return (
             <li key={node.id} className={`draft-row${current === node.id ? ' cur' : ''}`} onClick={() => clickable && setCurrent(node.id)} style={{ paddingLeft: 12 + (depth - 1) * 18, cursor: clickable ? 'pointer' : 'default', opacity: clickable ? 1 : 0.6 }}>
               <span className="no">{node.no}</span>
               <span style={{ flex: 1, fontSize: depth === 1 ? 15 : 14, fontWeight: depth === 1 ? 700 : 400 }}>{node.title}</span>
               {sec?.userEdited && <span title="사용자 수정 · 재생성 보호" style={{ display: 'inline-flex', color: '#464c53' }}><Icon name="lock" size={16} /></span>}
               <KBadge tone={statusToTone(st)}>{st}</KBadge>
-              {/* 생성이 돌아가는 동안에는 행별 생성 버튼을 숨긴다 */}
-              {!running && <span onClick={(e) => e.stopPropagation()}><KBtn kind="icon" style={{ width: 28, height: 28 }} ariaLabel={st === '완료' ? (sec?.userEdited ? '강제 재생성' : '이 절 다시 생성') : '이 절 생성'} title={st === '완료' ? (sec?.userEdited ? '강제 재생성' : '이 절 다시 생성') : '이 절 생성'} onClick={() => void draftOne(node.id, !!sec?.userEdited)}><Icon name={st === '완료' ? 'refresh' : 'play'} size={16} /></KBtn></span>}
+              {/* 일괄 생성이 돌아가는 동안에는 행별 생성 버튼을 숨긴다 (개별 생성 중에는 다른 절도 추가로 시작할 수 있다) */}
+              {!autoAll && !running.has(node.id) && <span onClick={(e) => e.stopPropagation()}><KBtn kind="icon" style={{ width: 28, height: 28 }} ariaLabel={st === '완료' ? (sec?.userEdited ? '강제 재생성' : '이 절 다시 생성') : '이 절 생성'} title={st === '완료' ? (sec?.userEdited ? '강제 재생성' : '이 절 다시 생성') : '이 절 생성'} onClick={() => void draftOne(node.id, !!sec?.userEdited)}><Icon name={st === '완료' ? 'refresh' : 'play'} size={16} /></KBtn></span>}
             </li>); })}
         </ol>
         <div style={{ padding: 12, borderTop: '1px solid #f1f3f5' }}>
           <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={flat.length} aria-valuenow={doneCount} aria-label="초안 생성 진행"><span style={{ width: flat.length ? `${Math.round(doneCount / flat.length * 100)}%` : '0%' }} /></div>
-          <p className="form-hint" style={{ marginTop: 6 }}>{flat.length}절 중 {doneCount}절 완료{runningTitle ? ` · ${runningTitle} 생성 중 (T3Q RPT-002, 절당 약 15~20초)` : ''}</p>
+          <p className="form-hint" style={{ marginTop: 6 }}>{flat.length}절 중 {doneCount}절 완료{runningNos.length ? ` · ${runningNos.join(', ')} 생성 중 (동시 ${runningNos.length}절 · T3Q RPT-002, 절당 약 15~20초)` : ''}</p>
         </div>
       </section>
 
@@ -370,15 +391,15 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
             <div className="row" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
               <h2 style={{ fontSize: 19, fontWeight: 700 }}>{curNode?.no} {curNode?.title}</h2>
               {cur?.provider && (cur.provider === 't3q' ? <KBadge tone="light-success">T3Q</KBadge> : <KBadge tone="light-warning">유니</KBadge>)}
-              {running === current && <KBadge tone="light-primary">생성 중…</KBadge>}
+              {curRunning && <KBadge tone="light-primary">생성 중…</KBadge>}
               <div style={{ flex: 1 }} />
               {cur?.sources?.length ? <KBtn size="xs" onClick={() => setShowSources(true)}>근거 {cur.sources.length}</KBtn> : null}
-              {cur && running !== current && (editRaw === null ? <KBtn size="xs" onClick={() => setEditRaw(cur.markdown)}>직접 편집</KBtn> : <><KBtn size="xs" kind="primary" onClick={() => void saveRaw()}>저장</KBtn><KBtn size="xs" onClick={() => setEditRaw(null)}>취소</KBtn></>)}
+              {cur && !curRunning && (editRaw === null ? <KBtn size="xs" onClick={() => setEditRaw(cur.markdown)}>직접 편집</KBtn> : <><KBtn size="xs" kind="primary" onClick={() => void saveRaw()}>저장</KBtn><KBtn size="xs" onClick={() => setEditRaw(null)}>취소</KBtn></>)}
             </div>
             {editRaw !== null ? <KTextarea value={editRaw} onChange={(e) => setEditRaw(e.target.value)} style={{ minHeight: 480, fontFamily: 'ui-monospace, monospace', fontSize: 13 }} aria-label="마크다운 직접 편집" /> : (
               <div className="doc-body" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
-                {md ? renderMarkdown(md, { paraPrefix: current, onParaClick: running ? undefined : (id, text) => setSelPara({ id, text }), selectedId: selPara?.id, levelStyle, bullets }) : <p className="dim">{running === current ? '응답을 기다리는 중…' : '내용이 없습니다'}</p>}
-                {running === current && <span style={{ display: 'inline-block', width: 8, height: 16, background: '#256ef4', animation: 'blink 1s infinite' }} aria-hidden="true" />}
+                {md ? renderMarkdown(md, { paraPrefix: current, onParaClick: curRunning ? undefined : (id, text) => setSelPara({ id, text }), selectedId: selPara?.id, levelStyle, bullets }) : <p className="dim">{curRunning ? 'T3Q가 이 절을 생성하는 중입니다… (절 전체가 한 번에 도착합니다)' : '내용이 없습니다'}</p>}
+                {curRunning && <span style={{ display: 'inline-block', width: 8, height: 16, background: '#256ef4', animation: 'blink 1s infinite' }} aria-hidden="true" />}
               </div>
             )}
             <style>{`@keyframes blink{50%{opacity:0}}`}</style>
