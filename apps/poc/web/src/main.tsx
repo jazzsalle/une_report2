@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SitHome } from './sit/SitHome';
 import { Trash } from './Trash';
+import { WeatherPage } from './WeatherPage';
 import { Home } from './Home';
 import { PlanShell } from './plan/PlanShell';
 import { PlanList } from './plan/PlanList';
@@ -54,6 +55,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path=":id/journal" element={<SitJournal />} />
         </Route>
         <Route path="/m/:assigneeId" element={<Mobile />} />
+        <Route path="/weather" element={<WeatherPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

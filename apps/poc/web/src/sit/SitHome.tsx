@@ -4,7 +4,6 @@ import { del, get, ago, HAZARDS, type Exercise, type PlanSummary } from '../api'
 import { Toast, useToast, useUser } from '../ui';
 import { KBadge, KBtn, KCard, KInput, KModal, KSelect, KTable, Pager, SortTh, type Tone } from '../krds';
 import { HazardIcon, HeroBand, HeroCard, HeroNewCard } from '../plan/HeroCards';
-import { WarningsCard } from '../WeatherCard';
 
 const PAGE_SIZES = [30, 50, 70, 100];
 type SortKey = 'title' | 'hazardType' | 'status' | 'createdBy' | 'createdAt' | 'updatedAt';
@@ -56,7 +55,6 @@ export function SitHome() {
       </HeroBand>
       <div className="wrap" style={{ paddingTop: 8, paddingBottom: 24 }}>
         <div className="stack" style={{ gap: 24 }}>
-          <WarningsCard />
           <KCard title={<>훈련상황 전체 목록 <span className="dim" style={{ fontWeight: 400, fontSize: 15 }}>({filtered.length}/{list.length})</span></>} right={
             <div className="row">
               <KInput className="search" placeholder="훈련명 검색" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 200 }} aria-label="훈련명 검색" />

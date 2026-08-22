@@ -1,7 +1,7 @@
 /** KRDS 컴포넌트. 스타일은 krds.css(.krds 범위). 계획서 화면은 이 K* 부품을 직접 쓰고, 상황일지는 ui.tsx(같은 CSS 클래스를 입힌 예전 부품)를 쓴다. */
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { get, weatherPlace, setWeatherPlace, WEATHER_ICON, type User, type Weather, type Warnings } from './api';
+import { get, weatherPlace, WEATHER_ICON, type User, type Weather, type Warnings } from './api';
 import './krds.css';
 
 /** 공통 헤더: 로고 + GNB(계획서 생성 / 상황일지) + 사용자 선택(인증 대체) */
@@ -15,7 +15,9 @@ export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 's
   const [wrn, setWrn] = useState<Warnings | null>(null);
   const [place, setPlace] = useState(weatherPlace());
   useEffect(() => { let alive = true; const load = () => { get<Weather>(`/weather?place=${encodeURIComponent(place)}`).then((w) => { if (alive) setWx(w); }).catch(() => {}); get<Warnings>('/weather/warnings').then((w) => { if (alive) setWrn(w); }).catch(() => {}); }; load(); const t = setInterval(load, 10 * 60_000); return () => { alive = false; clearInterval(t); }; }, [place]);
-  const changePlace = () => { const p = window.prompt('날씨 지역 (시·도 또는 주요 도시명, 예: 원주·서울·강원)', place); if (p && p.trim()) { setWeatherPlace(p.trim()); setPlace(p.trim()); } };
+  // 상세는 새 창(/weather)에서 본다. 창에서 지역을 바꾸면 storage 이벤트로 헤더도 따라간다
+  const openWeather = () => { window.open('/weather', 'une-weather', 'width=980,height=900,resizable=yes,scrollbars=yes'); };
+  useEffect(() => { const on = (e: StorageEvent) => { if (e.key === 'poc.weatherPlace') setPlace(weatherPlace()); }; window.addEventListener('storage', on); return () => window.removeEventListener('storage', on); }, []);
   const wrnCount = wrn?.active.length ?? 0;
   return (
     <header className="hdr">
@@ -28,10 +30,10 @@ export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 's
         <div className="util">
           <button type="button" className="hdr-ico" title="알림 (목업)" aria-label="알림"><img src="/hdr/hdr-bell.svg" alt="" /></button>
           <button type="button" className="hdr-ico" title="설정 (목업)" aria-label="설정"><img src="/hdr/hdr-settings.svg" alt="" /></button>
-          <button type="button" className="hdr-weather" onClick={changePlace} title={wx ? `${wx.place} ${wx.condition} ${wx.temp}°${wx.humidity != null ? ` · 습도 ${wx.humidity}%` : ''}${wx.windMs != null ? ` · 바람 ${wx.windMs}m/s` : ''} · 출처 ${wx.source === 'mock' ? '목업' : wx.source}${wx.error ? ' (갱신 실패)' : ''} — 눌러서 지역 변경` : '날씨 불러오는 중'}>
+          <button type="button" className="hdr-weather" onClick={openWeather} title={wx ? `${wx.place} ${wx.condition} ${wx.temp}°${wx.humidity != null ? ` · 습도 ${wx.humidity}%` : ''}${wx.windMs != null ? ` · 바람 ${wx.windMs}m/s` : ''} · 출처 ${wx.source === 'mock' ? '목업' : wx.source}${wx.error ? ' (갱신 실패)' : ''} — 눌러서 상세 보기(새 창)` : '날씨 불러오는 중'}>
             <img src={`/hdr/wx-${WEATHER_ICON[wx?.condition ?? '맑음']}.svg`} alt={wx?.condition ?? ''} />{wx ? `${wx.place} ${wx.temp.toFixed(1)}°` : '…'}
           </button>
-          <Link to="/sit" className="hdr-wrn" title={wrn ? `발효 중 특보 ${wrnCount}건 — 상황일지 메인의 기상특보 종합 카드로` : '특보 불러오는 중'}><span className={`hdr-wrn-dot${wrnCount ? ' on' : ''}`} />특보 {wrnCount}</Link>
+          <button type="button" className="hdr-wrn" onClick={openWeather} title={wrn ? `발효 중 특보 ${wrnCount}건${wrn.active.length ? ': ' + wrn.active.map((a) => a.kind).join(', ') : ''} — 눌러서 기상특보 종합(새 창)` : '특보 불러오는 중'}><span className={`hdr-wrn-dot${wrnCount ? ' on' : ''}`} />특보 {wrnCount}</button>
           <div className="hdr-user">
             <label htmlFor="user-sel" className="sr-only">사용자</label>
             <select id="user-sel" value={user?.id ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); if (u) onUser(u); }}>
