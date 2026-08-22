@@ -92,3 +92,12 @@ export function ago(iso: string, verb = '수정'): string {
   if (d < 1) return `방금 ${verb}`; if (d < 60) return `${Math.floor(d)}분 전 ${verb}`; if (d < 1440) return `${Math.floor(d / 60)}시간 전 ${verb}`;
   const dt = new Date(iso); return `${dt.getMonth() + 1}월 ${dt.getDate()}일 ${verb}`;
 }
+
+// ── 날씨·기상특보 (server/src/weather.ts) ──
+export interface Weather { source: 'kma-api' | 'open-meteo' | 'mock'; place: string; temp: number; condition: '맑음' | '구름조금' | '구름많음' | '흐림' | '비' | '눈' | '소나기' | '안개' | '천둥번개'; humidity?: number; windMs?: number; fetchedAt: string; error?: string }
+export interface WarningItem { kind: string; level: '경보' | '주의보' | '기타'; regions: string }
+export interface Warnings { source: 'kma-api' | 'weather.go.kr' | 'mock'; announcedAt: string; effectiveAt: string; active: WarningItem[]; preliminary: WarningItem[]; bulletins: { id: string; kind: '특보' | '정보' | '속보' | '기타'; no: string; time: string; title: string }[]; fetchedAt: string; error?: string }
+/** 날씨 지역(환경설정 대신 브라우저 저장). 기본 서울 */
+export const weatherPlace = () => localStorage.getItem('poc.weatherPlace') || '서울';
+export const setWeatherPlace = (p: string) => localStorage.setItem('poc.weatherPlace', p);
+export const WEATHER_ICON: Record<Weather['condition'], string> = { '맑음': 'sunny', '구름조금': 'cloudy', '구름많음': 'cloudy', '흐림': 'overcast', '비': 'rain', '눈': 'snow', '소나기': 'shower', '안개': 'fog', '천둥번개': 'thunder' };

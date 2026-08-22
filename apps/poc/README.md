@@ -53,6 +53,7 @@ apps\poc\stop.cmd
 | `UNI_MOCK` | — | `1`이면 유니를 부르지 않고 `server/src/mock/*` 녹화 응답 재생 |
 | `T3Q_API_BASE_URL` | `https://plf.mois-disaster.t3q.ai` | T3Q 계획서 API |
 | `T3Q_MODEL_ID` | `ae894` | |
+| `KMA_SERVICE_KEY` | — | 기상청 공공데이터포털 일반 인증키(Decoding). 있으면 날씨·특보를 기상청 API로, 없으면 날씨는 Open-Meteo·특보는 날씨누리 화면 파싱(키 불필요) |
 | `T3Q_VERIFY_TLS` | `1` | **POC에서는 `0`** — T3Q 인증서 체인이 불완전해 검증을 끈다. 운영은 켠다 |
 | `POC_PORT` | `3100` | 서버 포트 |
 

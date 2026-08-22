@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { get, post, fmtTime, fmtDate, type Board, type Event, type Exercise, type PlanSummary } from '../api';
 import { Btn, C, Card, Chip, Empty, Stat, Table, Toast, statusTone, useToast } from '../ui';
+import { WarningsCard } from '../WeatherCard';
 
 const FLOW = ['T3Q·유니 연계', '훈련상황 생성', 'SOP 생성/편집', '임무 전파', '현장 확인', '상황내역 자동 기록', '상황일지 생성'];
 
@@ -57,6 +58,7 @@ export function SitDashboard() {
             <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>{board.delayed ? <div>· 완료기한 초과 임무 <b>{board.delayed}건</b></div> : null}{board.unacked ? <div>· 미확인 담당자 <b>{board.unacked}명</b> — 재전파 필요</div> : null}{!board.delayed && !board.unacked && <div style={{ color: C.muted }}>현재 주의 항목 없음</div>}</div>
             {board.unacked > 0 && <Btn small style={{ marginTop: 6, width: '100%' }} onClick={async () => { await post(`/exercises/${id}/redispatch`, {}); show('재전파했습니다'); }}>미확인자 재전파</Btn>}
           </Card>
+          <WarningsCard compact highlight={(ex.location ?? '').split(/[\s,]+/).map((t) => t.replace(/(특별자치도|특별시|광역시|도|시|군|구)$/, '')).find((t) => t.length >= 2)} />
         </div>
       </div>
       <Card title="시간별 상황내역" right={<div style={{ display: 'flex', gap: 6 }}><Link to={`/sit/${id}/board`}><Btn small>전자 상황판 열기</Btn></Link><Link to={`/sit/${id}/journal?generate=1`}><Btn small kind="dark">AI 상황일지 초안 생성</Btn></Link></div>}>
