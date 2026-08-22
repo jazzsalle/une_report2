@@ -5,20 +5,30 @@ import type { User } from './api';
 import './krds.css';
 
 /** 공통 헤더: 로고 + GNB(계획서 생성 / 상황일지) + 사용자 선택(인증 대체) */
+/**
+ * 상단 헤더 — Figma "Header"(1920×50, #222931) 구도: 좌 로고(심볼+서비스명) · GNB · 우 아이콘 버튼·날씨·사용자·인사말 (2026-08-22).
+ * 심볼·아이콘은 피그마 벡터를 SVG로 변환해 /public/hdr 에 둠. 알림·설정·날씨는 POC 목업(동작 없음).
+ */
 export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 'sit'; user: User | null; users: User[]; onUser: (u: User) => void }) {
   return (
     <header className="hdr">
       <div className="wrap hdr-in">
-        <Link to="/" className="logo"><span className="logo-mark">UNE</span><strong className="logo-tit">재난안전 AI 문서 POC</strong></Link>
+        <Link to="/" className="logo"><img className="logo-mark" src="/hdr/hdr-protecto.svg" alt="" /><strong className="logo-tit">재난안전 AI 문서</strong></Link>
         <nav className="gnb" aria-label="주요 메뉴">
           <Link to="/plan" aria-current={active === 'plan' ? 'page' : undefined}>계획서 생성</Link>
           <Link to="/sit" aria-current={active === 'sit' ? 'page' : undefined}>상황일지</Link>
         </nav>
         <div className="util">
-          <label htmlFor="user-sel" className="tiny">사용자</label>
-          <select id="user-sel" className="k-select" value={user?.id ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); if (u) onUser(u); }} style={{ width: 220, height: 32, fontSize: 13 }}>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.dept}</option>)}
-          </select>
+          <button type="button" className="hdr-ico" title="알림 (목업)" aria-label="알림"><img src="/hdr/hdr-bell.svg" alt="" /></button>
+          <button type="button" className="hdr-ico" title="설정 (목업)" aria-label="설정"><img src="/hdr/hdr-settings.svg" alt="" /></button>
+          <span className="hdr-weather" title="날씨·기상 (목업)"><img src="/hdr/hdr-sunny.svg" alt="맑음" />32.5°</span>
+          <div className="hdr-user">
+            <label htmlFor="user-sel" className="sr-only">사용자</label>
+            <select id="user-sel" value={user?.id ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); if (u) onUser(u); }}>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.dept}</option>)}
+            </select>
+            <span className="hdr-hello">{user ? `${user.name}님 환영합니다` : '환영합니다'}</span>
+          </div>
         </div>
       </div>
     </header>
