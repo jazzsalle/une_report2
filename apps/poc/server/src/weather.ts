@@ -74,17 +74,35 @@ async function fromWeatherGoKr(): Promise<Warnings> {
   return { source: 'weather.go.kr', announcedAt, effectiveAt, active, preliminary, bulletins, fetchedAt: new Date().toISOString() };
 }
 
-/** 공공데이터포털 기상특보 현황(getPwnStatus). 키가 있을 때만. 응답 모양은 키 발급 뒤 실측해 맞출 것(2026-08-22 미실측) */
-async function fromKmaApi(): Promise<Warnings> {
-  const u = `https://apis.data.go.kr/1360000/WthrWrnInfoService/getPwnStatus?serviceKey=${encodeURIComponent(KEY)}&numOfRows=100&pageNo=1&dataType=JSON`;
-  const r = await undiciFetch(u, { dispatcher, signal: AbortSignal.timeout(15_000) });
+/**
+ * 공공데이터포털 기상특보 현황(getPwnStatus) + 통보문 목록(getWthrWrnList). 키가 있을 때만.
+ * 실측 2026-08-22: getPwnStatus item = { t6: "o 강풍주의보 : 전라남도(…)
+o 풍랑주의보 : …", t7: "o 없음"(예비특보), other: "o 없음", tmFc: "202608222100", tmEf: "202608231100", tmSeq }
+ *               getWthrWrnList item = { stnId:"108", title:"[특보] 제08-284호 : 2026.08.22.21:00 / 강풍주의보 해제 (*)", tmFc, tmSeq }
+ */
+const kmaTime = (v?: string | number) => { const t = String(v ?? ''); const m = t.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/); return m ? `${m[1]}년 ${Number(m[2])}월 ${Number(m[3])}일 ${m[4]}:${m[5]}` : t; };
+const ymd = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+async function kmaJson<T>(path: string, q: string): Promise<T[]> {
+  const r = await undiciFetch(`https://apis.data.go.kr/1360000/${path}?serviceKey=${encodeURIComponent(KEY)}&dataType=JSON&${q}`, { dispatcher, signal: AbortSignal.timeout(15_000) });
   if (!r.ok) throw new Error(`KMA API HTTP ${r.status}`);
-  const j = (await r.json()) as { response?: { header?: { resultCode?: string; resultMsg?: string }; body?: { items?: { item?: { t6?: string; t7?: string; tmFc?: string; tmEf?: string }[] } } } };
+  const j = (await r.json()) as { response?: { header?: { resultCode?: string; resultMsg?: string }; body?: { items?: { item?: T[] } | '' } } };
   if (j.response?.header?.resultCode !== '00') throw new Error(`KMA API ${j.response?.header?.resultMsg ?? '응답 오류'}`);
-  const items = j.response?.body?.items?.item ?? [];
-  const first = items[0];
-  const text = items.map((i) => i.t6 ?? '').join(' ');
-  return { source: 'kma-api', announcedAt: first?.tmFc ?? '', effectiveAt: first?.tmEf ?? '', active: parseItems(text), preliminary: parseItems(items.map((i) => i.t7 ?? '').join(' ')), bulletins: [], fetchedAt: new Date().toISOString() };
+  const items = j.response?.body?.items; return items && typeof items === 'object' ? items.item ?? [] : [];
+}
+async function fromKmaApi(): Promise<Warnings> {
+  const st = await kmaJson<{ t6?: string; t7?: string; other?: string; tmFc?: string | number; tmEf?: string | number }>('WthrWrnInfoService/getPwnStatus', 'numOfRows=10&pageNo=1');
+  const first = st[0];
+  const norm = (t?: string) => (t ?? '').replace(/\s+/g, ' ').trim();
+  const none = (t: string) => !t || /^o?\s*없음/.test(t);
+  const active = none(norm(first?.t6)) ? [] : parseItems(norm(first?.t6));
+  const preliminary = none(norm(first?.t7)) ? [] : parseItems(norm(first?.t7));
+  let bulletins: Warnings['bulletins'] = [];
+  try {
+    const to = new Date(); const from = new Date(Date.now() - 86400_000);
+    const list = await kmaJson<{ title?: string; tmFc?: string | number; tmSeq?: string | number }>('WthrWrnInfoService/getWthrWrnList', `numOfRows=12&pageNo=1&stnId=108&fromTmFc=${ymd(from)}&toTmFc=${ymd(to)}`);
+    bulletins = list.map((i) => { const m = (i.title ?? '').match(/^\[([^\]]+)\]\s*(제[^:]+?)\s*:\s*([\d.]+:\d+)\s*\/?\s*(.*?)\s*(\(\*\))?\s*$/); const kind = m?.[1] === '특보' ? '특보' : m?.[1] === '정보' ? '정보' : m?.[1] === '속보' ? '속보' : '기타'; return { id: `kma:${i.tmFc}:${i.tmSeq}`, kind: kind as Warnings['bulletins'][number]['kind'], no: m?.[2] ?? '', time: m?.[3] ?? String(i.tmFc ?? ''), title: m?.[4] || (kind === '정보' ? '기상정보' : (i.title ?? '')) }; });
+  } catch { bulletins = []; }
+  return { source: 'kma-api', announcedAt: kmaTime(first?.tmFc), effectiveAt: first?.tmEf ? `${kmaTime(first.tmEf)} 이후` : '', active, preliminary, bulletins, fetchedAt: new Date().toISOString() };
 }
 
 const MOCK_WARNINGS: Warnings = { source: 'mock', announcedAt: '(목업) 발표시각 없음', effectiveAt: '', active: [{ kind: '폭염주의보', level: '주의보', regions: '강원도(원주, 횡성, 영월), 충청북도' }, { kind: '호우주의보', level: '주의보', regions: '경기도(가평, 양평)' }], preliminary: [], bulletins: [{ id: 'mock', kind: '특보', no: '제00-000호', time: '', title: '(목업) 외부 연결 불가 — 실제 특보 아님' }], fetchedAt: new Date().toISOString() };
