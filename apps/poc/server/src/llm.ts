@@ -289,12 +289,12 @@ export function mapUniSop(items: unknown[]): SopGraph {
 
 export interface ExerciseLike { title: string; hazardType: string; alertLevel: string; phase: string; location: string; agency: string; dept: string; scenario: string; occurredAt: string }
 
-export async function generateSop(ex: ExerciseLike, planExcerpt?: string, chatSummary?: string): Promise<SopGraph> {
+export async function generateSop(ex: ExerciseLike, planExcerpt?: string, chatSummary?: string, onStatus?: (status: string) => void): Promise<SopGraph> {
   const q = `${ex.hazardType} 재난 대응 표준행동절차(SOP)를 작성하라. 훈련명: ${ex.title}. 상황단계: ${ex.alertLevel}, 훈련단계: ${ex.phase}. 발생위치: ${ex.location}. 훈련기관: ${ex.agency}, 담당부서: ${ex.dept}.
 상황 시나리오: ${ex.scenario}
 ${chatSummary ? `담당자와 AI의 사전 질의응답 요약(이 내용을 절차에 반영하라):\n${chatSummary}\n` : ''}${planExcerpt ? `근거 계획서 발췌:\n${planExcerpt}\n위 계획서의 대응 체계·절차를 따르라.` : ''}
 절차는 시작 → 초기 상황판단 → 대책본부 구성 → 상황/임무 전파 → 현장 확인 → 판단 분기(주민대피 필요 여부 등) → 조치결과 수신 → 상황일지 기록 → 종료 순으로 8~12개 노드.`;
-  const items = await chatJson(q, { topK: 5 });
+  const items = await chatJson(q, { topK: 5, onStatus });
   const g = mapUniSop(items);
   if (g.nodes.length < 3) return defaultSop(ex);
   return g;

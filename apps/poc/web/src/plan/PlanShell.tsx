@@ -16,7 +16,7 @@ export function PlanShell() {
     setNewOpen(false); setTitle(''); nav(`/plan/${p.id}`);
   };
   // 문서 작업 화면(/plan/:id)은 자체 작업 콘솔 띠를 그리므로 LNB는 목록·템플릿 화면에서만
-  const showLnb = pathname === '/plan' || pathname === '/plan/templates' || pathname.startsWith('/plan/basis-templates');
+  const showLnb = pathname === '/plan' || pathname === '/plan/templates' || pathname === '/plan/trash' || pathname.startsWith('/plan/basis-templates');
   return (
     <div className="krds">
       <AppHeader active="plan" user={user} users={users} onUser={setUser} />
@@ -27,6 +27,7 @@ export function PlanShell() {
               <NavLink to="/plan" end>문서 관리</NavLink>
               <NavLink to="/plan/basis-templates">기준정보 템플릿</NavLink>
               <NavLink to="/plan/templates">HWPX 템플릿 · 스타일 분석</NavLink>
+              <NavLink to="/plan/trash">휴지통</NavLink>
             </nav>
             <KBtn kind="primary" size="sm" style={{ marginLeft: 'auto' }} onClick={() => setNewOpen(true)}><Icon name="plus" /> 새 문서 생성</KBtn>
           </div>

@@ -421,6 +421,16 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
 // rhwp의 HTML 렌더(재로드 뷰)는 줄 위치가 어긋나게 나와 2026-08-21 화면에서 뺐다. 실제 모양은 다운로드한 HWPX를 한/글이나 rhwp 에디터에서 확인한다.
 function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | null; reload: () => Promise<Plan>; show: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
+  // 미리보기 방식: 웹 렌더(마크다운) / HWPX 렌더(내보낸 파일을 rhwp SVG로). 내보내기 직후엔 HWPX 렌더로 바꿔 보여준다
+  const [mode, setMode] = useState<'web' | 'hwpx'>(plan.export ? 'hwpx' : 'web');
+  const [svgs, setSvgs] = useState<string[] | null>(null);
+  const [svgPages, setSvgPages] = useState(0);
+  useEffect(() => {
+    if (mode !== 'hwpx' || !plan.export) return;
+    let alive = true; setSvgs(null);
+    get<{ pages: number; svgs: string[] }>(`/plans/${plan.id}/export/preview`).then((r) => { if (alive) { setSvgs(r.svgs); setSvgPages(r.pages); } }).catch((e) => { if (alive) { setSvgs([]); show((e as Error).message); } });
+    return () => { alive = false; };
+  }, [mode, plan.id, plan.export?.fileName]);
   const bullets = tpl?.levels.map((l) => l.bullet) ?? ['□', 'ㅇ', '-', '*'];
   // 서버 planMarkdown과 같은 규칙: 하위 목차가 있는 장은 제목만
   const md = plan.toc.map((n) => [`# ${n.no} ${n.title}`, draftable(n) ? plan.sections[n.id]?.markdown ?? '' : '', ...n.children.flatMap((c) => [`## ${c.no} ${c.title}`, plan.sections[c.id]?.markdown ?? ''])].filter(Boolean).join('\n\n')).join('\n\n');
@@ -429,7 +439,7 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
     const handle = await pickSaveLocation(`${plan.title}.hwpx`);
     setBusy(true);
     try {
-      const r = await post<{ fileName: string; url: string; pages: number }>(`/plans/${plan.id}/export`, {}); await reload();
+      const r = await post<{ fileName: string; url: string; pages: number }>(`/plans/${plan.id}/export`, {}); await reload(); setMode('hwpx');
       if (handle === 'cancelled') show(`HWPX 생성 완료 (${r.pages}쪽) · 저장은 취소됨 — [다운로드]로 받을 수 있습니다`);
       else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, r.fileName); show(how === 'saved' ? `저장했습니다: ${r.fileName} (${r.pages}쪽)` : `HWPX 생성 완료 (${r.pages}쪽) · 브라우저 다운로드 폴더에 저장`); }
     }
@@ -458,14 +468,26 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
         <section className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="row no-print" style={{ padding: '12px 24px', borderBottom: '1px solid #cdd1d5' }}>
             <h2 style={{ fontSize: 15, fontWeight: 700 }}>문서 미리보기</h2>
-            <span className="form-hint">웹 렌더입니다. 한/글에서의 실제 모양은 내보낸 HWPX 파일이나 [rhwp 에디터에서 열기]로 확인하세요.</span>
+            {/* HWPX 렌더 = 내보낸 파일을 rhwp가 쪽 단위 SVG로 그린 것 — 한/글에서 보이는 모양과 같다(실측 2026-08-21). 웹 렌더는 편집용 근사치 */}
+            <div className="row" style={{ gap: 4, marginLeft: 8 }} role="tablist" aria-label="미리보기 방식">
+              <KBtn size="xs" kind={mode === 'web' ? 'primary' : 'tertiary'} onClick={() => setMode('web')}>웹 렌더</KBtn>
+              <KBtn size="xs" kind={mode === 'hwpx' ? 'primary' : 'tertiary'} onClick={() => setMode('hwpx')} disabled={!plan.export} title={plan.export ? '내보낸 HWPX 파일을 쪽 단위로 보여줍니다' : '먼저 HWPX로 내보내세요'}>HWPX 렌더{plan.export ? ` (${plan.export.pages}쪽)` : ''}</KBtn>
+            </div>
+            <span className="form-hint">{mode === 'web' ? '웹 렌더는 편집용 근사치입니다. 한/글에서의 실제 모양은 [HWPX 렌더]로 확인하세요.' : `내보낸 파일 ${plan.export?.fileName ?? ''}을 rhwp가 그린 쪽 이미지입니다.`}</span>
           </div>
+          {mode === 'hwpx' ? (
+            <div style={{ background: '#f4f5f6', padding: 24, display: 'grid', gap: 16 }}>
+              {svgs === null ? <p className="dim" style={{ textAlign: 'center', padding: 24 }}>쪽을 그리는 중…</p> : svgs.map((s, i) => <div key={i} className="hwp-page" dangerouslySetInnerHTML={{ __html: s }} />)}
+              {svgs && svgPages > svgs.length && <p className="dim tiny" style={{ textAlign: 'center' }}>{svgPages}쪽 중 {svgs.length}쪽까지 표시</p>}
+            </div>
+          ) : (
           <div style={{ background: '#f4f5f6', padding: 32 }}>
             <article className="page" style={{ fontFamily: tpl?.bodyFontFamily ? `"${tpl.bodyFontFamily}", inherit` : undefined }}>
               <h2 style={{ textAlign: 'center', fontSize: 22, fontWeight: 700, marginBottom: 32 }}>{plan.title}</h2>
               <div className="doc-body">{renderMarkdown(md, { bullets, tableStyle: mdTableStyle(tpl), levelStyle: (lv) => { const L = tpl?.levels[lv - 1]; return { fontSize: L?.fontSizePt ? Math.min(20, L.fontSizePt) : 16 - lv, fontWeight: L?.bold ? 800 : 700, marginTop: 14 }; } })}</div>
             </article>
           </div>
+          )}
         </section>
       </div>
       <aside className="rail">

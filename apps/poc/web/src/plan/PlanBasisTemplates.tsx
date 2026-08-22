@@ -40,7 +40,7 @@ export function PlanBasisTemplates() {
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' || key === 'createdBy' || key === 'updatedBy' || key === 'hazardType' ? 'asc' : 'desc' }));
   const th = (label: string, key: SortKey) => <SortTh label={label} active={sort.key === key} dir={sort.dir} onClick={() => toggleSort(key)} />;
   const toggle = (id: string, on: boolean) => { const s = new Set(checked); on ? s.add(id) : s.delete(id); setChecked(s); };
-  const remove = async (targets: PlanTemplate[]) => { for (const t of targets) await del(`/plan-templates/${t.id}`); setChecked(new Set()); setConfirmDel(null); show(`${targets.length}개 삭제되었습니다`); load(); };
+  const remove = async (targets: PlanTemplate[]) => { for (const t of targets) await del(`/plan-templates/${t.id}?by=${encodeURIComponent(user?.name ?? '')}`); setChecked(new Set()); setConfirmDel(null); show(`${targets.length}개를 휴지통으로 옮겼습니다`); load(); };
   const rename = async () => { if (!renaming?.name.trim()) return; await put(`/plan-templates/${renaming.id}`, { name: renaming.name.trim(), updatedBy: user?.name }); setRenaming(null); show('이름이 변경되었습니다'); load(); };
   return (
     <div className="wrap" style={{ paddingTop: 24, paddingBottom: 24 }}>
@@ -86,7 +86,7 @@ export function PlanBasisTemplates() {
       )}
       {confirmDel && (
         <KModal title="삭제하기" onClose={() => setConfirmDel(null)}>
-          <p style={{ fontSize: 15 }}>{confirmDel.length === 1 ? `템플릿 "${confirmDel[0].name}"을(를)` : `선택한 템플릿 ${confirmDel.length}개를`} 삭제합니다. 이 템플릿으로 이미 만든 문서에는 영향이 없으며, 되돌릴 수 없습니다.</p>
+          <p style={{ fontSize: 15 }}>{confirmDel.length === 1 ? `템플릿 "${confirmDel[0].name}"을(를)` : `선택한 템플릿 ${confirmDel.length}개를`} 휴지통으로 옮깁니다(30일 안에 복원 가능). 이 템플릿으로 이미 만든 문서에는 영향이 없으며, 되돌릴 수 없습니다.</p>
           <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={() => setConfirmDel(null)}>취소</KBtn><KBtn kind="danger" size="sm" onClick={() => void remove(confirmDel)}>삭제하기</KBtn></div>
         </KModal>
       )}

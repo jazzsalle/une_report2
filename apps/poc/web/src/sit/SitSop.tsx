@@ -1,7 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { get, post, put, type Exercise, type Sop, type SopGraph, type SopNode, type NodeType, type User } from '../api';
+import { get, post, put, sse, type Exercise, type Sop, type SopGraph, type SopNode, type NodeType, type User } from '../api';
 import { Btn, C, Card, Chip, Field, Input, Modal, Select, Textarea, Toast, useToast } from '../ui';
+
+/** 유니 /chat/json 진행 프레임(`__status__`) 라벨 — 실측 순서: searching → reranking → generating */
+const STAGE_LABEL: Record<string, string> = { requesting: '유니에 요청', searching: '근거 문서 검색', reranking: '근거 재정렬', generating: 'SOP 절차 생성' };
+const STAGES = ['requesting', 'searching', 'reranking', 'generating'];
+function SopProgress({ stage, elapsed }: { stage: string | null; elapsed: number }) {
+  const idx = Math.max(0, STAGES.indexOf(stage ?? 'requesting'));
+  return (
+    <div style={{ padding: '60px 24px', textAlign: 'center', color: C.muted }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>유니 SOP API(/chat/json)로 절차를 생성하고 있습니다 · {elapsed}초</div>
+      <div style={{ fontSize: 12, marginTop: 6 }}>훈련상황 + 챗봇 대화 요약 + 인용 근거를 전달 · 보통 60~80초 걸립니다</div>
+      <ol style={{ listStyle: 'none', padding: 0, margin: '20px auto 0', display: 'flex', gap: 8, justifyContent: 'center', maxWidth: 640 }} aria-label="진행 단계">
+        {STAGES.map((k, i) => <li key={k} style={{ flex: 1, padding: '8px 6px', borderRadius: 6, fontSize: 12.5, fontWeight: i === idx ? 700 : 500, background: i < idx ? C.greenBg : i === idx ? C.blueLight : '#fff', color: i < idx ? C.green : i === idx ? C.blue : C.muted, border: `1px solid ${i === idx ? C.blue : C.border}` }}>{i < idx ? '✓ ' : i === idx ? '● ' : ''}{STAGE_LABEL[k]}</li>)}
+      </ol>
+    </div>
+  );
+}
 
 const TYPES: { type: NodeType; label: string; icon: string; bg: string; fg: string }[] = [
   { type: 'START', label: '시작', icon: '▶', bg: '#1e2124', fg: '#fff' },
@@ -44,11 +60,19 @@ export function SitSop() {
   const [toast, show] = useToast();
   const load = async () => { const e = await get<Exercise>(`/exercises/${id}`); setEx(e); if (e.sop) { setGraph(e.sop.graph); setVersion(e.sop.version); } return e; };
   useEffect(() => { get<User[]>('/users').then(setUsers); void load().then((e) => { if (sp.get('generate') === '1' && !e.sop) { void generate(); setSp({}); } }); }, [id]);
-  const generate = async () => {
-    setBusy(true);
-    try { const s = await post<Sop>(`/exercises/${id}/sop/generate`, {}); setGraph(s.graph); setVersion(s.version); show(`SOP 초안 v0.${s.version} 생성 (${s.graph.nodes.length}노드, ${s.graph.mapperVersion})`); if (s.graph.warnings.length) console.info('SOP warnings', s.graph.warnings); await load(); }
-    catch (e) { show((e as Error).message); } finally { setBusy(false); }
-  };
+  // 유니 SOP는 60~80초 걸린다 — 진행 단계(`__status__`)와 경과 시간을 흘려 체감을 낫게 한다
+  const [stage, setStage] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => { if (!busy) return; const t0 = Date.now(); setElapsed(0); const t = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000); return () => clearInterval(t); }, [busy]);
+  const generate = () => new Promise<void>((resolve) => {
+    setBusy(true); setStage('requesting');
+    const finish = () => { setBusy(false); setStage(null); resolve(); };
+    sse(`/exercises/${id}/sop/generate/stream`, {
+      status: (d) => setStage((d as { status: string }).status),
+      done: (d) => { const s = d as Sop; setGraph(s.graph); setVersion(s.version); show(`SOP 초안 v0.${s.version} 생성 (${s.graph.nodes.length}노드, ${s.graph.mapperVersion})`); if (s.graph.warnings.length) console.info('SOP warnings', s.graph.warnings); void load(); finish(); },
+      error: (d) => { show((d as { error?: string; message?: string }).error ?? (d as { message?: string }).message ?? '생성 실패'); finish(); },
+    });
+  });
   const save = async () => { if (!graph) return; const s = await put<Sop>(`/exercises/${id}/sop`, { ...graph, mapperVersion: 'manual' }); setVersion(s.version); show(`SOP v0.${s.version} 저장`); await load(); };
   const start = async () => { await save(); const tasks = await post<unknown[]>(`/exercises/${id}/start`, {}); show(`임무 ${tasks.length}건 생성 — 훈련 실행`); nav(`/sit/${id}/dispatch`); };
   const pos = useMemo(() => (graph ? layout(graph) : new Map()), [graph]);
@@ -100,13 +124,13 @@ export function SitSop() {
           {graph && <Chip tone="purple">{graph.mapperVersion === 'uni-sop-2' ? 'AI 초안' : graph.mapperVersion === 'manual' ? '편집본' : '기본 SOP'} · v0.{version}</Chip>}
           {linkFrom && <Chip tone="orange">연결 대상 노드를 클릭 (다시 클릭하면 취소)</Chip>}
           <div style={{ flex: 1 }} />
-          <Btn small onClick={() => void generate()} disabled={busy}>{busy ? '유니 생성 중…' : graph ? 'AI로 재생성' : 'AI SOP 생성'}</Btn>
+          <Btn small onClick={() => void generate()} disabled={busy}>{busy ? `${STAGE_LABEL[stage ?? ''] ?? '생성 중'}… ${elapsed}초` : graph ? 'AI로 재생성' : 'AI SOP 생성'}</Btn>
           {allSources.length > 0 && <Btn small onClick={() => setShowSources(true)}>AI 생성 근거 {allSources.length}</Btn>}
           <Btn small disabled={!graph} onClick={() => void save()}>버전 저장</Btn>
           <Btn small kind="primary" disabled={!graph || ex.status === 'CLOSED'} onClick={() => void start()}>훈련 실행으로 이동 →</Btn>
         </div>
         <div style={{ flex: 1, overflow: 'auto', background: 'radial-gradient(#cdd1d5 1px, transparent 1px) 0 0/22px 22px, #f4f5f6' }}>
-          {busy && !graph && <div style={{ padding: 60, textAlign: 'center', color: C.muted }}>유니 SOP API(/chat/json)로 절차를 생성하고 있습니다… <div style={{ fontSize: 12, marginTop: 6 }}>훈련상황 + 챗봇 대화 요약 + 인용 근거를 전달</div></div>}
+          {busy && !graph && <SopProgress stage={stage} elapsed={elapsed} />}
           {!busy && !graph && <div style={{ padding: 60, textAlign: 'center', color: C.muted }}>[AI SOP 생성]을 누르세요.</div>}
           {graph && (
             <svg width={1280} height={Math.max(...[...pos.values()].map((p) => p.y), 100) + 120} style={{ display: 'block' }}>

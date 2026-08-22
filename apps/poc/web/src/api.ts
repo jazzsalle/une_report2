@@ -78,14 +78,15 @@ export type TaskStatus = '대기' | '전파완료' | '수신확인' | '수행중
 export interface Task { id: string; exerciseId: string; nodeId: string; seq: number; title: string; type: string; dept: string; assigneeId: string; assigneeName: string; due: string; priority: string; status: TaskStatus; instructions: string[]; message?: string; dispatchedAt?: string; ackedAt?: string; reportedAt?: string; memo?: string; receiptNo?: string; result?: string; exercise?: Exercise }
 export interface Event { id: string; exerciseId: string; at: string; kind: string; content: string; dept?: string; actor?: string; status?: string; source: string; taskId?: string }
 export interface Exercise { id: string; title: string; hazardType: string; phase: string; alertLevel: string; occurredAt: string; location: string; agency: string; dept: string; scenario: string; refData: string[]; options: string[]; status: 'DRAFT' | 'SOP_READY' | 'RUNNING' | 'CLOSED'; linkedPlanId: string | null; startedAt?: string; closedAt?: string; createdBy: string; analysis?: { suggestion: string; basis: string; at: string }; sop?: Sop | null; tasks?: Task[]; eventCount?: number; journal?: Journal | null; createdAt: string; updatedAt: string }
-export interface Journal { id: string; exerciseId: string; sections: { key: string; title: string; kind: 'fact' | 'narrative'; markdown: string; aiGenerated: boolean; reviewed: boolean }[]; export?: { fileName: string; at: string } }
+export interface Journal { id: string; exerciseId: string; sections: { key: string; title: string; kind: 'fact' | 'narrative'; markdown: string; aiGenerated: boolean; reviewed: boolean }[]; export?: { fileName: string; at: string; pages?: number; templateId?: string; templateName?: string } }
 export interface Board { exercise: Exercise; elapsedMs: number; total: number; done: number; inProgress: number; delayed: number; waiting: number; dispatched: number; unacked: number; acked: number; reported: number; timeline: { kind: string; at: string | null }[]; active: Task[]; lastEventAt: string | null; autoLogged: number; aiCount: number; analysis: { suggestion: string; basis: string; at: string } | null }
 
 export const HAZARDS = ['폭염', '태풍/호우', '지진', '황사', '산불', '감염병', '가축질병', '다중밀집건축물붕괴대형사고', '정부주요시설', '학교시설'];
 export const fmtTime = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
 export const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
-export function ago(iso: string): string {
+/** "3분 전 수정"처럼 상대 시각. verb를 바꾸면 "3분 전 삭제" (휴지통) */
+export function ago(iso: string, verb = '수정'): string {
   const d = (Date.now() - new Date(iso).getTime()) / 60000;
-  if (d < 1) return '방금 수정'; if (d < 60) return `${Math.floor(d)}분 전 수정`; if (d < 1440) return `${Math.floor(d / 60)}시간 전 수정`;
-  const dt = new Date(iso); return `${dt.getMonth() + 1}월 ${dt.getDate()}일 수정`;
+  if (d < 1) return `방금 ${verb}`; if (d < 60) return `${Math.floor(d)}분 전 ${verb}`; if (d < 1440) return `${Math.floor(d / 60)}시간 전 ${verb}`;
+  const dt = new Date(iso); return `${dt.getMonth() + 1}월 ${dt.getDate()}일 ${verb}`;
 }

@@ -18,6 +18,9 @@ app.use(express.json({ limit: '10mb' }));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const TEMPLATE_DIR = resolve(process.cwd(), '../../../templete');
 const now = () => new Date().toISOString();
+/** 휴지통: 삭제는 deletedAt만 찍는다(소프트 삭제). 목록은 alive만, 복원/완전 삭제는 /api/trash. 30일 지나면 기동 시 자동 완전 삭제 */
+const alive = <T extends Row>(r: T) => !r.deletedAt;
+const TRASH_DAYS = 30;
 const bad = (res: Response, code: number, error: string) => res.status(code).json({ error });
 
 // ── 사용자 (고정) ─────────────────────────────────────────────────────────
@@ -91,10 +94,10 @@ const planTemplates = col<Row & { name: string; context: PlanContext; createdBy:
 const cancelFlags = new Map<string, boolean>();
 
 const planSummary = (p: PlanRow) => ({ id: p.id, title: p.title, hazardType: p.context?.hazardType ?? p.hazardType, managementPhase: p.context?.managementPhase ?? p.managementPhase, createdBy: p.createdBy, updatedBy: p.updatedBy, createdAt: p.createdAt, updatedAt: p.updatedAt, hasToc: p.toc.length > 0, drafted: draftableIds(p.toc).filter((id) => p.sections[id]?.status === '완료').length, total: draftableIds(p.toc).length, exported: !!p.export, linkedExercises: p.linkedExercises });
-app.get('/api/plans', (_req, res) => res.json(plans.all().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(planSummary)));
+app.get('/api/plans', (_req, res) => res.json(plans.all().filter(alive).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(planSummary)));
 app.post('/api/plans', (req, res) => { const { title, createdBy } = req.body ?? {}; if (!title) return bad(res, 400, 'title 필요'); res.json(plans.insert({ title, createdBy: createdBy ?? '사용자', context: null, toc: [], sections: {}, linkedExercises: [] })); });
 app.get('/api/plans/:id', (req, res) => { const p = plans.get(req.params.id); return p ? res.json(p) : bad(res, 404, '없음'); });
-app.delete('/api/plans/:id', (req, res) => res.json({ ok: plans.remove(req.params.id) }));
+app.delete('/api/plans/:id', (req, res) => { const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음'); plans.update(p.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
 app.put('/api/plans/:id/context', (req, res) => { const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음'); const c = req.body as PlanContext; res.json(plans.update(p.id, { context: c, hazardType: c.hazardType, managementPhase: c.managementPhase, updatedBy: (req.body.updatedBy as string) ?? p.updatedBy })); });
 app.post('/api/plans/:id/save-as', (req, res) => { const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음'); res.json(plans.insert({ title: req.body?.title ?? `${p.title} 사본`, createdBy: p.createdBy, context: p.context, toc: [], sections: {}, linkedExercises: [] })); });
 
@@ -236,7 +239,7 @@ app.post('/api/plans/:id/import-hwpx', upload.single('file'), async (req, res) =
   plans.update(p.id, { export: { fileName, at: now(), pages: r.pages } });
   res.json({ fileName, url: `/api/files/${fileName}`, paragraphs: paras.filter(Boolean).length });
 });
-app.get('/api/plan-templates', (_req, res) => res.json(planTemplates.all()));
+app.get('/api/plan-templates', (_req, res) => res.json(planTemplates.all().filter(alive)));
 app.post('/api/plan-templates', (req, res) => res.json(planTemplates.insert({ name: req.body.name, context: req.body.context, createdBy: req.body.createdBy ?? '사용자' })));
 app.get('/api/plan-templates/:id', (req, res) => { const t = planTemplates.get(req.params.id); return t ? res.json(t) : bad(res, 404, '없음'); });
 app.put('/api/plan-templates/:id', (req, res) => {
@@ -249,7 +252,7 @@ app.put('/api/plan-templates/:id', (req, res) => {
   planTemplates.update(t.id, patch);
   res.json(planTemplates.get(t.id));
 });
-app.delete('/api/plan-templates/:id', (req, res) => res.json({ ok: planTemplates.remove(req.params.id) }));
+app.delete('/api/plan-templates/:id', (req, res) => { const t = planTemplates.get(req.params.id); if (!t) return bad(res, 404, '없음'); planTemplates.update(t.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
 
 // ── 훈련(상황일지) ────────────────────────────────────────────────────────
 type ExStatus = 'DRAFT' | 'SOP_READY' | 'RUNNING' | 'CLOSED';
@@ -259,7 +262,7 @@ interface SopRow extends Row { exerciseId: string; version: number; graph: SopGr
 type TaskStatus = '대기' | '전파완료' | '수신확인' | '수행중' | '완료' | '지연' | '미완료' | '지원요청';
 interface TaskRow extends Row { exerciseId: string; nodeId: string; seq: number; title: string; type: string; dept: string; assigneeId: string; assigneeName: string; due: string; priority: string; status: TaskStatus; instructions: string[]; message?: string; dispatchedAt?: string; ackedAt?: string; reportedAt?: string; memo?: string; receiptNo?: string; result?: string }
 interface EventRow extends Row { exerciseId: string; at: string; kind: string; content: string; dept?: string; actor?: string; status?: string; source: string; taskId?: string }
-interface JournalRow extends Row { exerciseId: string; sections: { key: string; title: string; kind: 'fact' | 'narrative'; markdown: string; aiGenerated: boolean; reviewed: boolean }[]; export?: { fileName: string; at: string } }
+interface JournalRow extends Row { exerciseId: string; sections: { key: string; title: string; kind: 'fact' | 'narrative'; markdown: string; aiGenerated: boolean; reviewed: boolean }[]; export?: { fileName: string; at: string; pages?: number; templateId?: string; templateName?: string } }
 const exercises = col<ExerciseRow>('exercises');
 const sops = col<SopRow>('sops');
 const tasks = col<TaskRow>('tasks');
@@ -279,7 +282,7 @@ function markOverdue(exId: string) {
   }
 }
 
-app.get('/api/exercises', (_req, res) => res.json(exercises.all().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))));
+app.get('/api/exercises', (_req, res) => res.json(exercises.all().filter(alive).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))));
 app.post('/api/exercises', (req, res) => {
   const b = req.body ?? {};
   const ex = exercises.insert({ title: b.title ?? '훈련', hazardType: b.hazardType ?? '태풍/호우', phase: b.phase ?? '대응', alertLevel: b.alertLevel ?? '경계', occurredAt: b.occurredAt ?? now(), location: b.location ?? '', agency: b.agency ?? '', dept: b.dept ?? '', scenario: b.scenario ?? '', refData: b.refData ?? [], options: b.options ?? [], status: 'DRAFT', linkedPlanId: b.linkedPlanId ?? null, createdBy: b.createdBy ?? '사용자', chat: Array.isArray(b.chat) ? b.chat : [], citedSources: Array.isArray(b.citedSources) ? b.citedSources : [] });
@@ -289,7 +292,25 @@ app.post('/api/exercises', (req, res) => {
 });
 app.get('/api/exercises/:id', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); markOverdue(ex.id); res.json({ ...ex, sop: latestSop(ex.id) ?? null, tasks: tasks.where((t) => t.exerciseId === ex.id).sort((a, b) => a.seq - b.seq), eventCount: events.where((e) => e.exerciseId === ex.id).length, journal: journals.where((j) => j.exerciseId === ex.id)[0] ?? null }); });
 app.put('/api/exercises/:id', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); res.json(exercises.update(ex.id, req.body)); });
-app.delete('/api/exercises/:id', (req, res) => { const id = req.params.id; for (const c of [sops, tasks, events, journals]) for (const r of (c as ReturnType<typeof col>).where((x) => x.exerciseId === id)) c.remove(r.id); res.json({ ok: exercises.remove(id) }); });
+const purgeExercise = (id: string) => { for (const c of [sops, tasks, events, journals]) for (const r of (c as ReturnType<typeof col>).where((x) => x.exerciseId === id)) c.remove(r.id); return exercises.remove(id); };
+app.delete('/api/exercises/:id', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); exercises.update(ex.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
+
+// ── 휴지통 ────────────────────────────────────────────────────────────────
+type TrashKind = 'plan' | 'planTemplate' | 'exercise';
+interface TrashItem { kind: TrashKind; id: string; title: string; sub: string; createdBy: string; deletedAt: string; deletedBy?: string }
+const trashItems = (): TrashItem[] => [
+  ...plans.where((p) => !alive(p)).map((p): TrashItem => ({ kind: 'plan', id: p.id, title: p.title, sub: [p.context?.hazardType ?? p.hazardType, p.context?.managementPhase ?? p.managementPhase].filter(Boolean).join(' · ') || '기준정보 없음', createdBy: p.createdBy, deletedAt: p.deletedAt as string, deletedBy: p.deletedBy as string | undefined })),
+  ...planTemplates.where((t) => !alive(t)).map((t): TrashItem => ({ kind: 'planTemplate', id: t.id, title: t.name, sub: [t.context.hazardType, t.context.managementPhase].filter(Boolean).join(' · '), createdBy: t.createdBy, deletedAt: t.deletedAt as string, deletedBy: t.deletedBy as string | undefined })),
+  ...exercises.where((e) => !alive(e)).map((e): TrashItem => ({ kind: 'exercise', id: e.id, title: e.title, sub: [e.hazardType, `상황단계 ${e.alertLevel}`, e.status].join(' · '), createdBy: e.createdBy, deletedAt: e.deletedAt as string, deletedBy: e.deletedBy as string | undefined })),
+].sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
+const trashCol = (kind: string) => (kind === 'plan' ? plans : kind === 'planTemplate' ? planTemplates : kind === 'exercise' ? exercises : null) as ReturnType<typeof col> | null;
+const purgeOne = (kind: TrashKind, id: string) => (kind === 'exercise' ? purgeExercise(id) : (trashCol(kind) as ReturnType<typeof col>).remove(id));
+app.get('/api/trash', (_req, res) => res.json({ items: trashItems(), days: TRASH_DAYS }));
+app.post('/api/trash/:kind/:id/restore', (req, res) => { const c = trashCol(req.params.kind); const r = c?.get(req.params.id); if (!c || !r || alive(r)) return bad(res, 404, '휴지통에 없음'); c.update(r.id, { deletedAt: undefined, deletedBy: undefined }); res.json({ ok: true }); });
+app.delete('/api/trash/:kind/:id', (req, res) => { const c = trashCol(req.params.kind); const r = c?.get(req.params.id); if (!c || !r || alive(r)) return bad(res, 404, '휴지통에 없음'); res.json({ ok: purgeOne(req.params.kind as TrashKind, r.id) }); });
+app.delete('/api/trash', (req, res) => { const kinds = req.query.kind ? String(req.query.kind).split(',') : ['plan', 'planTemplate', 'exercise']; let n = 0; for (const it of trashItems()) if (kinds.includes(it.kind) && purgeOne(it.kind, it.id)) n++; res.json({ ok: true, purged: n }); });
+/** 기동 시 1회: 휴지통에 30일 넘게 있던 항목은 완전 삭제 */
+function purgeOldTrash() { const limit = Date.now() - TRASH_DAYS * 86400_000; let n = 0; for (const it of trashItems()) if (new Date(it.deletedAt).getTime() < limit && purgeOne(it.kind, it.id)) n++; if (n) console.log(`휴지통 자동 비움: ${n}개 (${TRASH_DAYS}일 경과)`); }
 
 function planExcerptFor(planId: string | null): string | undefined {
   if (!planId) return undefined; const p = plans.get(planId); if (!p) return undefined;
@@ -327,15 +348,28 @@ function chatSummaryOf(ex: ExerciseRow): string | undefined {
   const c = ex.chat ?? []; if (!c.length) return undefined;
   return c.slice(-10).map((m) => `${m.role === 'user' ? 'Q' : 'A'}: ${m.text.slice(0, 400)}`).join('\n').slice(0, 3000);
 }
-app.post('/api/exercises/:id/sop/generate', async (req, res) => {
-  const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음');
-  const graph = await llm.generateSop(ex, planExcerptFor(ex.linkedPlanId), chatSummaryOf(ex));
+async function generateSopFor(ex: ExerciseRow, onStatus?: (status: string) => void) {
+  const graph = await llm.generateSop(ex, planExcerptFor(ex.linkedPlanId), chatSummaryOf(ex), onStatus);
   for (const s of ex.citedSources ?? []) if (!graph.sources.some((g) => (g as { filename?: string }).filename === s.filename)) graph.sources.push(s);
   const v = (latestSop(ex.id)?.version ?? 0) + 1;
   const sop = sops.insert({ exerciseId: ex.id, version: v, graph });
   exercises.update(ex.id, { status: 'SOP_READY' });
   logEvent(ex.id, '상황판단', `초기 상황판단 SOP 생성 (v${v}, ${graph.nodes.length}노드, ${graph.mapperVersion})`, { source: graph.mapperVersion === 'uni-sop-2' ? 'UNI RAG' : '기본 SOP', dept: ex.dept, status: '진행중' });
-  res.json(sop);
+  return sop;
+}
+app.post('/api/exercises/:id/sop/generate', async (req, res) => {
+  const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음');
+  res.json(await generateSopFor(ex));
+});
+/** SOP 생성 진행 상태 스트림 — 유니 `__status__`(searching/reranking/generating) 프레임을 `status` 이벤트로, 끝나면 `done`에 SOP. 60~80초 대기 체감용 */
+app.get('/api/exercises/:id/sop/generate/stream', async (req, res) => {
+  const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음');
+  res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Connection', 'keep-alive'); res.flushHeaders();
+  const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  send('status', { status: 'requesting' });
+  try { const sop = await generateSopFor(ex, (status) => send('status', { status })); send('done', sop); }
+  catch (e) { send('error', { error: (e as Error).message }); }
+  res.end();
 });
 app.put('/api/exercises/:id/sop', (req, res) => {
   const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음');
@@ -458,12 +492,15 @@ app.put('/api/exercises/:id/journal', (req, res) => { const prev = journals.wher
 app.post('/api/exercises/:id/journal/polish', async (req, res) => { const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!j) return bad(res, 404, '일지 없음'); const s = j.sections.find((x) => x.key === req.body.sectionKey); if (!s) return bad(res, 404, '절 없음'); s.markdown = await llm.polish(s.markdown); s.aiGenerated = true; s.reviewed = false; journals.update(j.id, { sections: j.sections }); res.json(s); });
 app.post('/api/exercises/:id/journal/export', async (req, res) => {
   const ex = exercises.get(req.params.id); const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!ex || !j) return bad(res, 404, '일지 없음');
-  const t = templates.where((x) => /상황보고/.test(x.fileName))[0] ?? templates.all()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  // 템플릿: 요청 body.templateId > 직전 내보내기 템플릿 > "상황보고" 내장 템플릿 (2026-08-22 선택 UI 추가)
+  const wanted = (req.body?.templateId as string | undefined) ?? j.export?.templateId;
+  const t = (wanted ? templates.get(wanted) : null) ?? templates.where((x) => /상황보고/.test(x.fileName))[0] ?? templates.all()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const md = j.sections.map((s) => `# ${s.title}\n\n${s.markdown}`).join('\n\n');
-  const out = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, `훈련 상황일지 — ${ex.title}`, md);
+  const out = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, `훈련 상황일지 — ${ex.title}`, md, { reportedAt: ex.occurredAt, reporter: ex.createdBy });
   const fileName = `journal_${ex.id}_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), out);
-  journals.update(j.id, { export: { fileName, at: now() } });
-  res.json({ fileName, url: `/api/files/${fileName}` });
+  const r = await renderHwpxSvg(out, 1);
+  journals.update(j.id, { export: { fileName, at: now(), pages: r.pages, templateId: t.id, templateName: t.name } });
+  res.json({ fileName, url: `/api/files/${fileName}`, pages: r.pages, templateName: t.name });
 });
 app.get('/api/exercises/:id/journal/preview', async (req, res) => { const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!j?.export) return bad(res, 404, '내보낸 파일 없음'); res.json(await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, j.export.fileName))), 30)); });
 
@@ -503,5 +540,6 @@ initRhwp().then(async () => {
   await seedTemplates();
   await refreshProfiles();
   cleanupT3qSections();
+  purgeOldTrash();
   app.listen(PORT, '127.0.0.1', () => console.log(`poc-server :${PORT} | rhwp ${rhwpVersion()} | UNI ${uniStatus().baseUrl}${uniStatus().mock ? ' (MOCK)' : ''}`));
 }).catch((e) => { console.error('rhwp 초기화 실패', e); process.exit(1); });
