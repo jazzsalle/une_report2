@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { del, get, ago, HAZARDS, type PlanSummary, type PlanTemplate } from '../api';
+import { del, get, ago, fmtDT, HAZARDS, type PlanSummary, type PlanTemplate } from '../api';
 import { Toast, useToast, useUser } from '../ui';
 import { KBadge, KBtn, KCard, KInput, KModal, KSelect, KTable, Pager, SortTh } from '../krds';
 
@@ -63,14 +63,14 @@ export function PlanList() {
               <KBtn size="xs" onClick={() => setChecked(new Set())}>선택 취소</KBtn>
             </div>
           )}
-          <KTable caption="기관의 계획서 문서 목록" widths={['40px', undefined, '10%', '10%', '14%', '8%', '8%', '13%', '9%', '9%']}
-            head={[<span className="sr-only">선택</span>, th('문서 명', 'title'), th('재난유형', 'hazardType'), '재난관리단계', '진행', th('생성자', 'createdBy'), th('수정자', 'updatedBy'), th('생성 일시', 'createdAt'), th('수정 일시', 'updatedAt'), '훈련 연동']}
+          <KTable caption="기관의 계획서 문서 목록" widths={['40px', undefined, '11%', '6%', '12%', '7%', '7%', '11%', '9%', '8%']}
+            head={[<span className="sr-only">선택</span>, th('문서 명', 'title'), th('재난유형', 'hazardType'), '단계', '진행', th('생성자', 'createdBy'), th('수정자', 'updatedBy'), th('생성 일시', 'createdAt'), th('수정 일시', 'updatedAt'), '훈련 연동']}
             rows={pageRows.map((p) => [
               <input type="checkbox" aria-label={`${p.title} 선택`} checked={checked.has(p.id)} onChange={(e) => toggle(p.id, e.target.checked)} style={{ width: 18, height: 18 }} />,
               <Link to={`/plan/${p.id}`} style={{ fontWeight: 700 }}>{p.title}</Link>,
               p.hazardType ? <span className="row" style={{ gap: 6, whiteSpace: 'nowrap' }}><HazardIcon hazard={p.hazardType} size={24} />{p.hazardType}</span> : '-', p.managementPhase ?? '-', progress(p),
               p.createdBy, p.updatedBy ?? p.createdBy,
-              <span className="num">{new Date(p.createdAt).toLocaleString('ko-KR')}</span>, <span className="num">{ago(p.updatedAt)}</span>,
+              <span className="num" style={{ whiteSpace: 'nowrap' }}>{fmtDT(p.createdAt)}</span>, <span className="num">{ago(p.updatedAt)}</span>,
               p.linkedExercises.length ? <Link to={`/sit/${p.linkedExercises[p.linkedExercises.length - 1]}`}><KBadge tone="navy">훈련 {p.linkedExercises.length}건</KBadge></Link> : '-',
             ])} />
           <Pager page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} />

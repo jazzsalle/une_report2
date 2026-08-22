@@ -84,9 +84,20 @@ export interface Board { exercise: Exercise; elapsedMs: number; total: number; d
 export const HAZARDS = ['폭염', '태풍/호우', '지진', '황사', '산불', '감염병', '가축질병', '다중밀집건축물붕괴대형사고', '정부주요시설', '학교시설'];
 export const fmtTime = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
 export const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
+/** 표용 짧은 일시 "2026-08-21 17:05" (toLocaleString은 "2026. 8. 21. 오후 5:05:39"로 길어 두 줄로 접힌다) */
+export function fmtDT(iso: string): string { const d = new Date(iso); const z = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; }
 /** "3분 전 수정"처럼 상대 시각. verb를 바꾸면 "3분 전 삭제" (휴지통) */
 export function ago(iso: string, verb = '수정'): string {
   const d = (Date.now() - new Date(iso).getTime()) / 60000;
   if (d < 1) return `방금 ${verb}`; if (d < 60) return `${Math.floor(d)}분 전 ${verb}`; if (d < 1440) return `${Math.floor(d / 60)}시간 전 ${verb}`;
   const dt = new Date(iso); return `${dt.getMonth() + 1}월 ${dt.getDate()}일 ${verb}`;
 }
+
+// ── 날씨·기상특보 (server/src/weather.ts) ──
+export interface Weather { source: 'kma-api' | 'open-meteo' | 'mock'; place: string; temp: number; condition: '맑음' | '구름조금' | '구름많음' | '흐림' | '비' | '눈' | '소나기' | '안개' | '천둥번개'; humidity?: number; windMs?: number; fetchedAt: string; error?: string }
+export interface WarningItem { kind: string; level: '경보' | '주의보' | '기타'; regions: string }
+export interface Warnings { source: 'kma-api' | 'weather.go.kr' | 'mock'; announcedAt: string; effectiveAt: string; active: WarningItem[]; preliminary: WarningItem[]; bulletins: { id: string; kind: '특보' | '정보' | '속보' | '기타'; no: string; time: string; title: string }[]; fetchedAt: string; error?: string }
+/** 날씨 지역(환경설정 대신 브라우저 저장). 기본 서울 */
+export const weatherPlace = () => localStorage.getItem('poc.weatherPlace') || '서울';
+export const setWeatherPlace = (p: string) => localStorage.setItem('poc.weatherPlace', p);
+export const WEATHER_ICON: Record<Weather['condition'], string> = { '맑음': 'sunny', '구름조금': 'cloudy', '구름많음': 'cloudy', '흐림': 'overcast', '비': 'rain', '눈': 'snow', '소나기': 'shower', '안개': 'fog', '천둥번개': 'thunder' };

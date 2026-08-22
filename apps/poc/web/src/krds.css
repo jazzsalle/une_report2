@@ -8,15 +8,33 @@
 .krds button,.krds input,.krds select,.krds textarea{font-family:inherit}
 .krds .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .krds .wrap{max-width:1520px;margin:0 auto;padding:0 24px}
-.krds .hdr{background:#fff;border-bottom:1px solid var(--border)}
-.krds .hdr-in{display:flex;align-items:center;gap:32px;height:64px}
-.krds .logo{display:flex;align-items:center;gap:10px;color:inherit}
-.krds .logo-mark{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;background:#256ef4;color:#fff;font-size:14px;font-weight:700}
-.krds .logo-tit{font-size:18px;font-weight:700;white-space:nowrap;color:var(--text)}
-.krds .gnb{display:flex;gap:4px;align-self:stretch}
-.krds .gnb a{display:flex;align-items:center;padding:0 16px;font-size:17px;color:#464c53;white-space:nowrap}
-.krds .gnb a[aria-current="page"]{color:#256ef4;font-weight:700;box-shadow:inset 0 -3px 0 #256ef4}
-.krds .util{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:15px;color:var(--subtle);white-space:nowrap}
+/* 상단 헤더 — Figma "Header" 컴포넌트(1920×50, #222931, 좌 로고 / 우 아이콘 버튼·날씨·인사말) 2026-08-22 적용 */
+.krds .hdr{background:#222931;border-bottom:0;box-shadow:0 6px 13px rgba(0,0,0,.13),0 0 3px rgba(0,0,0,.04);position:relative;z-index:2}
+.krds .hdr-in{display:flex;align-items:center;gap:20px;height:50px}
+.krds .logo{display:flex;align-items:center;gap:8px;color:#fff;text-decoration:none;height:40px;border-radius:8px;padding:0 4px}
+.krds .logo:hover{background:rgba(255,255,255,.08)}
+.krds .logo-mark{width:24px;height:24px;display:block}
+.krds .logo-tit{font-size:16px;font-weight:500;color:#fff;letter-spacing:-.02em;white-space:nowrap}
+.krds .gnb{display:flex;gap:4px;align-self:stretch;margin-left:12px}
+.krds .gnb a{display:flex;align-items:center;padding:0 14px;font-size:15px;color:#c9ccd1;white-space:nowrap;text-decoration:none}
+.krds .gnb a:hover{color:#fff}
+.krds .gnb a[aria-current="page"]{color:#fff;font-weight:700;box-shadow:inset 0 -3px 0 #4784f3}
+.krds .util{margin-left:auto;display:flex;align-items:center;gap:8px}
+.krds .hdr-ico{width:40px;height:40px;border-radius:8px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#fff}
+.krds .hdr-ico:hover{background:rgba(255,255,255,.1)}
+.krds .hdr-ico img{width:24px;height:24px;display:block}
+.krds .hdr-weather{display:inline-flex;align-items:center;gap:4px;height:32px;color:#dadbdd;font-size:14px;margin:0 4px 0 8px;white-space:nowrap;border:0;background:transparent;border-radius:6px;padding:0 6px;cursor:pointer;font:inherit}
+.krds .hdr-weather:hover{background:rgba(255,255,255,.1);color:#fff}
+.krds .hdr-wrn{border:0;cursor:pointer;font:inherit;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;background:rgba(255,255,255,.08);color:#dadbdd;font-size:13px;text-decoration:none;white-space:nowrap;margin-right:8px}
+.krds .hdr-wrn:hover{background:rgba(255,255,255,.16);color:#fff}
+.krds .hdr-wrn-dot{width:8px;height:8px;border-radius:50%;background:#6d7580}
+.krds .hdr-wrn-dot.on{background:#ff4d4f;box-shadow:0 0 0 3px rgba(255,77,79,.25)}
+.krds .hdr-weather img{width:32px;height:32px;display:block}
+.krds .hdr-user{display:inline-flex;align-items:center;gap:8px;margin-left:8px}
+.krds .hdr-user select{height:32px;font-size:13px;color:#fff;background:#2e3640;border:1px solid #3b4451;border-radius:6px;padding:0 28px 0 10px;width:200px}
+.krds .hdr-user select:focus{outline:2px solid #4784f3;outline-offset:1px}
+.krds .hdr-hello{font-size:14px;font-weight:500;color:#fff;white-space:nowrap}
+@media (max-width:1100px){.krds .hdr-weather,.krds .hdr-hello,.krds .hdr-wrn{display:none}}
 .krds .band{background:#fff;border-bottom:1px solid var(--border)}
 .krds .band-in{display:flex;align-items:center;gap:24px;min-height:56px}
 .krds .lnb{display:flex;gap:4px;align-self:stretch}

@@ -1,24 +1,46 @@
 /** KRDS 컴포넌트. 스타일은 krds.css(.krds 범위). 계획서 화면은 이 K* 부품을 직접 쓰고, 상황일지는 ui.tsx(같은 CSS 클래스를 입힌 예전 부품)를 쓴다. */
-import { Fragment, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import type { User } from './api';
+import { get, weatherPlace, WEATHER_ICON, type User, type Weather, type Warnings } from './api';
 import './krds.css';
 
 /** 공통 헤더: 로고 + GNB(계획서 생성 / 상황일지) + 사용자 선택(인증 대체) */
+/**
+ * 상단 헤더 — Figma "Header"(1920×50, #222931) 구도: 좌 로고(심볼+서비스명) · GNB · 우 아이콘 버튼·날씨·사용자·인사말 (2026-08-22).
+ * 심볼·아이콘은 피그마 벡터를 SVG로 변환해 /public/hdr 에 둠. 알림·설정·날씨는 POC 목업(동작 없음).
+ */
 export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 'sit'; user: User | null; users: User[]; onUser: (u: User) => void }) {
+  // 날씨(Open-Meteo/기상청)·특보 건수 — 10분마다. 지역은 브라우저 저장(poc.weatherPlace), 칩을 누르면 바꾼다
+  const [wx, setWx] = useState<Weather | null>(null);
+  const [wrn, setWrn] = useState<Warnings | null>(null);
+  const [place, setPlace] = useState(weatherPlace());
+  useEffect(() => { let alive = true; const load = () => { get<Weather>(`/weather?place=${encodeURIComponent(place)}`).then((w) => { if (alive) setWx(w); }).catch(() => {}); get<Warnings>('/weather/warnings').then((w) => { if (alive) setWrn(w); }).catch(() => {}); }; load(); const t = setInterval(load, 10 * 60_000); return () => { alive = false; clearInterval(t); }; }, [place]);
+  // 상세는 새 창(/weather)에서 본다. 창에서 지역을 바꾸면 storage 이벤트로 헤더도 따라간다
+  const openWeather = () => { window.open('/weather', 'une-weather', 'width=980,height=900,resizable=yes,scrollbars=yes'); };
+  useEffect(() => { const on = (e: StorageEvent) => { if (e.key === 'poc.weatherPlace') setPlace(weatherPlace()); }; window.addEventListener('storage', on); return () => window.removeEventListener('storage', on); }, []);
+  const wrnCount = wrn?.active.length ?? 0;
   return (
     <header className="hdr">
       <div className="wrap hdr-in">
-        <Link to="/" className="logo"><span className="logo-mark">UNE</span><strong className="logo-tit">재난안전 AI 문서 POC</strong></Link>
+        <Link to="/" className="logo"><img className="logo-mark" src="/hdr/hdr-protecto.svg" alt="" /><strong className="logo-tit">재난안전 AI 문서</strong></Link>
         <nav className="gnb" aria-label="주요 메뉴">
           <Link to="/plan" aria-current={active === 'plan' ? 'page' : undefined}>계획서 생성</Link>
           <Link to="/sit" aria-current={active === 'sit' ? 'page' : undefined}>상황일지</Link>
         </nav>
         <div className="util">
-          <label htmlFor="user-sel" className="tiny">사용자</label>
-          <select id="user-sel" className="k-select" value={user?.id ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); if (u) onUser(u); }} style={{ width: 220, height: 32, fontSize: 13 }}>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.dept}</option>)}
-          </select>
+          <button type="button" className="hdr-ico" title="알림 (목업)" aria-label="알림"><img src="/hdr/hdr-bell.svg" alt="" /></button>
+          <button type="button" className="hdr-ico" title="설정 (목업)" aria-label="설정"><img src="/hdr/hdr-settings.svg" alt="" /></button>
+          <button type="button" className="hdr-weather" onClick={openWeather} title={wx ? `${wx.place} ${wx.condition} ${wx.temp}°${wx.humidity != null ? ` · 습도 ${wx.humidity}%` : ''}${wx.windMs != null ? ` · 바람 ${wx.windMs}m/s` : ''} · 출처 ${wx.source === 'mock' ? '목업' : wx.source}${wx.error ? ' (갱신 실패)' : ''} — 눌러서 상세 보기(새 창)` : '날씨 불러오는 중'}>
+            <img src={`/hdr/wx-${WEATHER_ICON[wx?.condition ?? '맑음']}.svg`} alt={wx?.condition ?? ''} />{wx ? `${wx.place} ${wx.temp.toFixed(1)}°` : '…'}
+          </button>
+          <button type="button" className="hdr-wrn" onClick={openWeather} title={wrn ? `발효 중 특보 ${wrnCount}건${wrn.active.length ? ': ' + wrn.active.map((a) => a.kind).join(', ') : ''} — 눌러서 기상특보 종합(새 창)` : '특보 불러오는 중'}><span className={`hdr-wrn-dot${wrnCount ? ' on' : ''}`} />특보 {wrnCount}</button>
+          <div className="hdr-user">
+            <label htmlFor="user-sel" className="sr-only">사용자</label>
+            <select id="user-sel" value={user?.id ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); if (u) onUser(u); }}>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.dept}</option>)}
+            </select>
+            <span className="hdr-hello">{user ? `${user.name}님 환영합니다` : '환영합니다'}</span>
+          </div>
         </div>
       </div>
     </header>

@@ -12,11 +12,9 @@ export function SitDashboard() {
   const [board, setBoard] = useState<Board | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [plans, setPlans] = useState<PlanSummary[]>([]);
-  const [analyzing, setAnalyzing] = useState(false);
   const [toast, show] = useToast();
   useEffect(() => { get<Exercise[]>('/exercises').then((l) => { setList(l); }); get<PlanSummary[]>('/plans').then((p) => setPlans(p.filter((x) => x.hasToc))); }, [id]);
   useEffect(() => { if (!id) return; const load = () => { get<Board>(`/exercises/${id}/board`).then(setBoard).catch(() => setBoard(null)); get<Event[]>(`/exercises/${id}/events`).then(setEvents).catch(() => {}); }; load(); const t = setInterval(load, 4000); return () => clearInterval(t); }, [id]);
-  const analyze = async () => { setAnalyzing(true); try { await post(`/exercises/${id}/analyze`, {}); const b = await get<Board>(`/exercises/${id}/board`); setBoard(b); } finally { setAnalyzing(false); } };
   if (!id || !board) return (
     <div style={{ padding: 24 }}>
       <Card title="훈련상황 목록" right={<div style={{ display: 'flex', gap: 6 }}><Link to="/sit/new"><Btn small kind="primary">+ 훈련상황 생성</Btn></Link></div>}>
@@ -49,10 +47,6 @@ export function SitDashboard() {
           <Table small head={['순번', '임무명', '담당부서 / 담당자', '완료기한', '상태']} rows={board.active.map((t) => [String(t.seq).padStart(2, '0'), t.title, `${t.dept} / ${t.assigneeName}`, fmtTime(t.due), <Chip tone={statusTone(t.status)}>{t.status}</Chip>])} />
         </Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Card title={<span>AI 상황분석 제안 <Chip tone="purple">AI 생성</Chip></span>} style={{ background: C.blueLight, borderColor: '#c2d6ff' }}>
-            {board.analysis ? <><div style={{ fontSize: 14, lineHeight: 1.7 }}>{board.analysis.suggestion}</div><div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>근거: {board.analysis.basis || '-'} · {fmtTime(board.analysis.at)}</div></> : <div style={{ fontSize: 13, color: C.muted }}>상황판 요약을 유니에게 보내 조치 제안을 받습니다.</div>}
-            <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}><Btn small kind="primary" onClick={() => void analyze()} disabled={analyzing}>{analyzing ? '분석 중…' : board.analysis ? '다시 분석' : '상황 분석'}</Btn>{board.analysis && <Link to={`/sit/${id}/journal`}><Btn small>상황일지에 반영</Btn></Link>}<Link to={`/sit/${id}/sop`}><Btn small>SOP 추가 생성</Btn></Link></div>
-          </Card>
           <Card title="주의 알림" style={{ background: C.orangeBg, border: '1px solid #ffe0a3' }} pad={12}>
             <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>{board.delayed ? <div>· 완료기한 초과 임무 <b>{board.delayed}건</b></div> : null}{board.unacked ? <div>· 미확인 담당자 <b>{board.unacked}명</b> — 재전파 필요</div> : null}{!board.delayed && !board.unacked && <div style={{ color: C.muted }}>현재 주의 항목 없음</div>}</div>
             {board.unacked > 0 && <Btn small style={{ marginTop: 6, width: '100%' }} onClick={async () => { await post(`/exercises/${id}/redispatch`, {}); show('재전파했습니다'); }}>미확인자 재전파</Btn>}

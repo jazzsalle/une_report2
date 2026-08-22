@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { del, get, put, ago, HAZARDS, type PlanContext, type PlanTemplate, type Template } from '../api';
+import { del, get, put, ago, fmtDT, HAZARDS, type PlanContext, type PlanTemplate, type Template } from '../api';
 import { Toast, useToast, useUser } from '../ui';
 import { KBadge, KBtn, KCard, KField, KInput, KModal, KSelect, KTable, Pager, SortTh } from '../krds';
 import { NewDocModal, type NewDocSource } from './NewDocModal';
@@ -61,15 +61,15 @@ export function PlanBasisTemplates() {
             <KBtn size="xs" onClick={() => setChecked(new Set())}>선택 취소</KBtn>
           </div>
         )}
-        <KTable caption="기준정보 템플릿 목록" widths={['40px', undefined, undefined, '8%', '8%', '7%', '11%', '7%', '7%', '11%', '8%', '20%']} emptyText="저장된 기준정보 템플릿이 없습니다. 기준정보 입력 화면의 [템플릿 등록하기]로 만들 수 있습니다."
-          head={[<span className="sr-only">선택</span>, th('템플릿명', 'name'), '문서 주제', th('재난유형', 'hazardType'), '재난관리단계', '타깃 독자', 'HWPX 템플릿', th('생성자', 'createdBy'), th('수정자', 'updatedBy'), th('생성 일시', 'createdAt'), th('수정 일시', 'updatedAt'), <span className="sr-only">작업</span>]}
+        <KTable caption="기준정보 템플릿 목록" widths={['40px', '15%', '16%', '8%', '5%', '6%', '9%', '5%', '5%', '7%', '8%', '14%']} emptyText="저장된 기준정보 템플릿이 없습니다. 기준정보 입력 화면의 [템플릿 등록하기]로 만들 수 있습니다."
+          head={[<span className="sr-only">선택</span>, th('템플릿명', 'name'), '문서 주제', th('재난유형', 'hazardType'), '단계', '타깃 독자', 'HWPX 템플릿', th('생성자', 'createdBy'), th('수정자', 'updatedBy'), th('생성 일시', 'createdAt'), th('수정 일시', 'updatedAt'), <span className="sr-only">작업</span>]}
           rows={pageRows.map((t) => [
             <input type="checkbox" aria-label={`${t.name} 선택`} checked={checked.has(t.id)} onChange={(e) => toggle(t.id, e.target.checked)} style={{ width: 18, height: 18 }} />,
             <Link to={`/plan/basis-templates/${t.id}`} style={{ fontWeight: 700 }}>{t.name}</Link>,
             <span className="dim">{t.context.subject || '-'}</span>,
             <span className="row" style={{ gap: 6, whiteSpace: 'nowrap' }}><HazardIcon hazard={t.context.hazardType} size={24} />{t.context.hazardType}</span>, t.context.managementPhase, t.context.audience ?? '-', hwpxName(t.context),
-            t.createdBy, t.updatedBy ?? t.createdBy, <span className="num">{new Date(t.createdAt).toLocaleString('ko-KR')}</span>, <span className="num">{ago(t.updatedAt)}</span>,
-            <span className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
+            t.createdBy, t.updatedBy ?? t.createdBy, <span className="num" style={{ whiteSpace: 'nowrap' }} title={fmtDT(t.createdAt)}>{fmtDT(t.createdAt).slice(0, 10)}</span>, <span className="num" style={{ whiteSpace: 'nowrap' }}>{ago(t.updatedAt)}</span>,
+            <span className="row" style={{ gap: 4, justifyContent: 'flex-end', whiteSpace: 'nowrap', flexWrap: 'nowrap' }}>
               <KBtn size="xs" kind="secondary" onClick={() => setNewDoc({ id: t.id, name: t.name, context: t.context })}>새 문서</KBtn>
               <KBtn size="xs" onClick={() => setRenaming({ id: t.id, name: t.name })}>이름 변경</KBtn>
               <KBtn size="xs" kind="danger" onClick={() => setConfirmDel([t])}>삭제</KBtn>

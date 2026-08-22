@@ -10,6 +10,7 @@ import { uniStatus, listDocuments, chatStream } from './uni.js';
 import { t3qStatus, t3qContentToMarkdown } from './t3q.js';
 import { initRhwp, rhwpVersion, profileTemplate, buildHwpx, renderHwpxSvg, extractParagraphs, PROFILE_VERSION, type TemplateProfile } from './hwpx.js';
 import * as llm from './llm.js';
+import { getWeather, getWarnings, weatherStatus } from './weather.js';
 import type { PlanContext, TocNode, SopGraph } from './llm.js';
 
 const app = express();
@@ -33,7 +34,10 @@ export const USERS = [
   { id: 'u6', name: '정하늘', dept: '안전총괄과', role: '계획 작성자' },
 ];
 app.get('/api/users', (_req, res) => res.json(USERS));
-app.get('/api/health', (_req, res) => res.json({ ok: true, uni: uniStatus(), t3q: t3qStatus(), rhwp: { version: rhwpVersion() }, time: now() }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, uni: uniStatus(), t3q: t3qStatus(), rhwp: { version: rhwpVersion() }, weather: weatherStatus(), time: now() }));
+// 날씨·기상특보 (weather.ts): 10분 캐시, 외부 실패 시 마지막 값→목업 폴백(source로 구분)
+app.get('/api/weather', async (req, res) => res.json(await getWeather(req.query.place as string | undefined)));
+app.get('/api/weather/warnings', async (_req, res) => res.json(await getWarnings()));
 app.get('/api/files/:name', (req, res) => {
   const p = join(FILES_DIR, req.params.name.replace(/[\\/]/g, ''));
   if (!existsSync(p)) return bad(res, 404, '파일 없음');
