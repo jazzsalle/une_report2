@@ -4,10 +4,10 @@ import { get, post, put, sse, type Exercise, type Sop, type SopGraph, type SopNo
 import { Btn, C, Card, Chip, Field, Input, Modal, Select, Textarea, Toast, useToast } from '../ui';
 
 /** 유니 /chat/json 진행 프레임(`__status__`) 라벨 — 실측 순서: searching → reranking → generating */
-const STAGE_LABEL: Record<string, string> = { requesting: '유니에 요청', searching: '근거 문서 검색', reranking: '근거 재정렬', generating: 'SOP 절차 생성' };
+const STAGE_LABEL: Record<string, string> = { requesting: '유니에 요청', searching: '근거 문서 검색', reranking: '근거 재정렬', generating: 'SOP 절차 생성', end: '마무리' }; // end: 유니가 마지막에 보내는 프레임(실측 2026-08-22)
 const STAGES = ['requesting', 'searching', 'reranking', 'generating'];
 function SopProgress({ stage, elapsed }: { stage: string | null; elapsed: number }) {
-  const idx = Math.max(0, STAGES.indexOf(stage ?? 'requesting'));
+  const idx = stage === 'end' ? STAGES.length : Math.max(0, STAGES.indexOf(stage ?? 'requesting'));
   return (
     <div style={{ padding: '60px 24px', textAlign: 'center', color: C.muted }}>
       <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>유니 SOP API(/chat/json)로 절차를 생성하고 있습니다 · {elapsed}초</div>
