@@ -84,6 +84,8 @@ export interface Board { exercise: Exercise; elapsedMs: number; total: number; d
 export const HAZARDS = ['폭염', '태풍/호우', '지진', '황사', '산불', '감염병', '가축질병', '다중밀집건축물붕괴대형사고', '정부주요시설', '학교시설'];
 export const fmtTime = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
 export const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
+/** 표용 짧은 일시 "2026-08-21 17:05" (toLocaleString은 "2026. 8. 21. 오후 5:05:39"로 길어 두 줄로 접힌다) */
+export function fmtDT(iso: string): string { const d = new Date(iso); const z = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; }
 /** "3분 전 수정"처럼 상대 시각. verb를 바꾸면 "3분 전 삭제" (휴지통) */
 export function ago(iso: string, verb = '수정'): string {
   const d = (Date.now() - new Date(iso).getTime()) / 60000;
