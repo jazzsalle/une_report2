@@ -40,7 +40,7 @@ export function PlanBasisTemplateDetail() {
     catch (e) { show((e as Error).message); } finally { setSaving(false); }
   };
   const cancel = () => { setName(tpl.name); setCtx(tpl.context); setEditing(false); };
-  const remove = async () => { await del(`/plan-templates/${id}`); show('삭제되었습니다'); nav('/plan/basis-templates'); };
+  const remove = async () => { await del(`/plan-templates/${id}?by=${encodeURIComponent(user?.name ?? '')}`); show('휴지통으로 옮겼습니다'); nav('/plan/basis-templates'); };
   return (
     <div className="wrap" style={{ paddingTop: 24, paddingBottom: 24 }}>
       <div className="stack" style={{ maxWidth: 1100 }}>
@@ -79,7 +79,7 @@ export function PlanBasisTemplateDetail() {
       </div>
       {confirmDel && (
         <KModal title="삭제하기" onClose={() => setConfirmDel(false)}>
-          <p style={{ fontSize: 15 }}>템플릿 "{tpl.name}"을(를) 삭제합니다. 이 템플릿으로 이미 만든 문서에는 영향이 없으며, 되돌릴 수 없습니다.</p>
+          <p style={{ fontSize: 15 }}>템플릿 "{tpl.name}"을(를) 휴지통으로 옮깁니다. 이 템플릿으로 이미 만든 문서에는 영향이 없으며, 휴지통에서 30일 안에 복원할 수 있습니다.</p>
           <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={() => setConfirmDel(false)}>취소</KBtn><KBtn kind="danger" size="sm" onClick={() => void remove()}>삭제하기</KBtn></div>
         </KModal>
       )}

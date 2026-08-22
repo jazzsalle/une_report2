@@ -134,8 +134,8 @@ export async function chatText(query: string, opts: { topK?: number; model?: str
  * SOP JSON 생성. UNI /chat/json 은 SSE로 노드 객체들을 흘린다.
  * 모든 data 페이로드를 모아 배열로 돌려준다 (매핑은 sop.ts가 한다).
  */
-export async function chatJson(query: string, opts: { topK?: number } = {}): Promise<unknown[]> {
-  if (FORCE_MOCK) return mockJson();
+export async function chatJson(query: string, opts: { topK?: number; onStatus?: (status: string) => void } = {}): Promise<unknown[]> {
+  if (FORCE_MOCK) return mockJson(opts.onStatus);
   try {
     const r = await authed('/chat/json', {
       method: 'POST',
@@ -147,7 +147,11 @@ export async function chatJson(query: string, opts: { topK?: number } = {}): Pro
     const items: unknown[] = [];
     await readSse(r.body, (payload) => {
       try {
-        items.push(JSON.parse(payload));
+        const j = JSON.parse(payload) as unknown;
+        // {"__status__": "searching|reranking|generating"} 진행 프레임(실측 2026-08-19) — 화면에 흘릴 수 있게 알린다
+        const st = j && typeof j === 'object' && typeof (j as { __status__?: unknown }).__status__ === 'string' ? (j as { __status__: string }).__status__ : null;
+        if (st) opts.onStatus?.(st);
+        items.push(j);
       } catch {
         /* 문자열 토큰 등은 무시 */
       }
@@ -213,8 +217,12 @@ async function mockStream(key: string, h: StreamHandlers): Promise<string> {
   return text;
 }
 
-function mockJson(): unknown[] {
+function mockJson(onStatus?: (s: string) => void): unknown[] {
   const raw = mockFile('sop.json');
-  if (raw) return JSON.parse(raw) as unknown[];
+  if (raw) {
+    const items = JSON.parse(raw) as unknown[];
+    for (const j of items) { const st = j && typeof j === 'object' ? (j as { __status__?: unknown }).__status__ : null; if (typeof st === 'string') onStatus?.(st); }
+    return items;
+  }
   return [];
 }

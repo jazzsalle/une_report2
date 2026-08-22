@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { get, post, put, fmtDate, pickSaveLocation, writeFileTo, type Exercise, type Journal, type Task, type PlanSummary } from '../api';
+import { get, post, put, fmtDate, pickSaveLocation, writeFileTo, type Exercise, type Journal, type Task, type PlanSummary, type Template } from '../api';
 import { Btn, C, Card, Chip, Modal, Select, Textarea, Toast, renderMarkdown, useToast } from '../ui';
 
 export function SitJournal() {
@@ -14,6 +14,13 @@ export function SitJournal() {
   const [edit, setEdit] = useState<string | null>(null);
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [linkPlan, setLinkPlan] = useState('');
+  // HWPX 템플릿 선택(기본: 직전 내보내기 템플릿 → "상황보고" 내장) + 내보낸 파일의 rhwp SVG 미리보기 (2026-08-22)
+  const [tpls, setTpls] = useState<Template[]>([]);
+  const [tplId, setTplId] = useState('');
+  const [preview, setPreview] = useState<{ pages: number; svgs: string[] } | null>(null);
+  useEffect(() => { get<Template[]>('/templates').then(setTpls).catch(() => {}); }, []);
+  useEffect(() => { if (!tplId && tpls.length) setTplId(j?.export?.templateId ?? tpls.find((t) => /상황보고/.test(t.fileName))?.id ?? tpls[0].id); }, [tpls, j?.export?.templateId]);
+  const openPreview = async () => { try { setPreview(await get(`/exercises/${id}/journal/preview`)); } catch (e) { show((e as Error).message); } };
   const [toast, show] = useToast();
   const load = async () => { const e = await get<Exercise>(`/exercises/${id}`); setEx(e); setJ(e.journal ?? null); setTasks(e.tasks ?? []); return e; };
   useEffect(() => { void load().then((e) => { if (sp.get('generate') === '1' || (!e.journal && (e.eventCount ?? 0) > 0)) { void generate(); setSp({}); } }); get<PlanSummary[]>('/plans').then((p) => { setPlans(p); }); }, [id]);
@@ -27,7 +34,7 @@ export function SitJournal() {
     const handle = await pickSaveLocation(`${ex?.title ?? '훈련'}_상황일지.hwpx`);
     setBusy(true);
     try {
-      const r = await post<{ fileName: string; url: string }>(`/exercises/${id}/journal/export`, {}); await load();
+      const r = await post<{ fileName: string; url: string; pages?: number; templateName?: string }>(`/exercises/${id}/journal/export`, { templateId: tplId || undefined }); await load();
       if (handle === 'cancelled') show('HWPX 생성 완료 · 저장은 취소됨 — [최근 파일 다운로드]로 받을 수 있습니다');
       else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, r.fileName); show(how === 'saved' ? `저장했습니다: ${r.fileName}` : 'HWPX 생성 완료 · 브라우저 다운로드 폴더에 저장'); }
     } catch (e) { show((e as Error).message); } finally { setBusy(false); }
@@ -78,7 +85,11 @@ export function SitJournal() {
         <Card title="자동 기록 원천">{origins.map(([k, v]) => <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '4px 0' }}><span>{k}</span><b>{v}건</b></div>)}</Card>
         <Card title="검토 필요 알림" style={{ background: C.orangeBg, border: '1px solid #ffe0a3' }}><div style={{ fontSize: 12.5, lineHeight: 1.9 }}>· 미확인 담당자 <b>{unacked}</b>명<br />· 지연 임무 <b>{delayed}</b>건<br />· AI 생성 문장 검토 필요 <b>{aiNeed}</b>건</div></Card>
         <Card title="내보내기">
-          <Btn kind="primary" style={{ width: '100%', marginBottom: 6 }} disabled={!j || busy} onClick={() => void exportHwpx()}>HWPX 다운로드 (상황보고 템플릿)</Btn>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>HWPX 템플릿</div>
+          <Select value={tplId} onChange={(e) => setTplId(e.target.value)} style={{ marginBottom: 8, width: '100%' }} aria-label="HWPX 템플릿">{tpls.map((t) => <option key={t.id} value={t.id}>{t.name}{/상황보고/.test(t.fileName) ? ' (기본)' : ''}</option>)}</Select>
+          <Btn kind="primary" style={{ width: '100%', marginBottom: 6 }} disabled={!j || busy} onClick={() => void exportHwpx()}>{busy ? 'HWPX 생성 중…' : 'HWPX 다운로드'}</Btn>
+          {j?.export && <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>최근: {j.export.templateName ?? '상황보고'} 템플릿{j.export.pages ? ` · ${j.export.pages}쪽` : ''} · {fmtDate(j.export.at)}</div>}
+          {j?.export && <Btn style={{ width: '100%', marginBottom: 6 }} onClick={() => void openPreview()} title="내보낸 HWPX를 쪽 단위로 보여줍니다(rhwp SVG)">HWPX 미리보기</Btn>}
           {j?.export && <Btn style={{ width: '100%', marginBottom: 6 }} onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다">최근 파일 다운로드</Btn>}
           <Btn style={{ width: '100%' }} disabled title="후속 범위">DOCX / PDF (후속)</Btn>
         </Card>
@@ -89,6 +100,13 @@ export function SitJournal() {
           {linkPlan && <div style={{ marginTop: 6, fontSize: 11 }}><Link to={`/plan/${linkPlan}`}>계획서 열기 →</Link></div>}
         </Card>
       </div>
+      {preview && j?.export && (
+        <Modal title={`HWPX 미리보기 — ${j.export.fileName} (${preview.pages}쪽 중 ${preview.svgs.length}쪽)`} onClose={() => setPreview(null)} width={900}>
+          <div style={{ background: '#f4f5f6', padding: 16, display: 'grid', gap: 16, maxHeight: '75vh', overflow: 'auto' }}>
+            {preview.svgs.map((s, i) => <div key={i} className="hwp-page" dangerouslySetInnerHTML={{ __html: s }} />)}
+          </div>
+        </Modal>
+      )}
       <Toast msg={toast} />
     </div>
   );

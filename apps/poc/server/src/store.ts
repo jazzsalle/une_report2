@@ -14,6 +14,9 @@ export interface Row {
   id: string;
   createdAt: string;
   updatedAt: string;
+  /** 휴지통(소프트 삭제): 찍혀 있으면 목록에서 빠진다. main.ts의 /api/trash가 복원·완전 삭제 */
+  deletedAt?: string;
+  deletedBy?: string;
   [k: string]: unknown;
 }
 

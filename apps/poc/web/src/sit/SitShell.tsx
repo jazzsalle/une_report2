@@ -9,7 +9,7 @@ export function SitShell() {
   const [user, setUser, users] = useUser();
   const loc = useLocation();
   const m = loc.pathname.match(/^\/sit\/([^/]+)/);
-  const exId = m && !['new', 'data', 'settings'].includes(m[1]) ? m[1] : null;
+  const exId = m && !['new', 'data', 'settings', 'trash'].includes(m[1]) ? m[1] : null;
   const [ex, setEx] = useState<Exercise | null>(null);
   const [clock, setClock] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
@@ -24,7 +24,8 @@ export function SitShell() {
       <div className="band">
         <div className="wrap band-in">
           <nav className="lnb" aria-label="상황일지 메뉴">
-            {item(exId ? `/sit/${exId}` : '/sit', '대시보드')}
+            {item('/sit', '훈련상황 목록')}
+            {item(`/sit/${exId}`, '대시보드', true)}
             {item('/sit/new', '훈련상황 생성')}
             {item(`/sit/${exId}/sop`, 'SOP 생성/편집', true)}
             {item(`/sit/${exId}/dispatch`, '상황/임무 전파', true)}
@@ -32,6 +33,7 @@ export function SitShell() {
             {item(`/sit/${exId}/journal`, '상황일지 관리', true)}
             {item('/sit/data', '연계 데이터')}
             {item('/sit/settings', '환경설정')}
+            {item('/sit/trash', '휴지통')}
           </nav>
           <Link to={`/m/${user?.id ?? 'u2'}`} className="k-btn tertiary xs" style={{ marginLeft: 'auto' }} title="현장 담당자 모바일 화면"><Icon name="external" /> 모바일 임무 확인</Link>
         </div>

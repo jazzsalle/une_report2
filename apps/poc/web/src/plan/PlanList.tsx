@@ -7,7 +7,7 @@ import { KBadge, KBtn, KCard, KInput, KModal, KSelect, KTable, Pager, SortTh } f
 const PAGE_SIZES = [30, 50, 70, 100]; // 설계서 302001 "N개 보기" — 기준정보 템플릿 목록과 같은 방식
 type SortKey = 'title' | 'hazardType' | 'createdBy' | 'updatedBy' | 'createdAt' | 'updatedAt';
 import { EMPTY_DOC, NewDocModal, type NewDocSource } from './NewDocModal';
-import { HeroCards } from './HeroCards';
+import { HazardIcon, HeroCards } from './HeroCards';
 
 /** 문서 관리 메인: 히어로 + 기준정보 템플릿 카드(2차년도 홈 화면) + 문서 목록(SCR-CADM-302001) */
 export function PlanList() {
@@ -36,7 +36,7 @@ export function PlanList() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'createdAt' || key === 'updatedAt' ? 'desc' : 'asc' }));
   const th = (label: string, key: SortKey) => <SortTh label={label} active={sort.key === key} dir={sort.dir} onClick={() => toggleSort(key)} />;
-  const removeChecked = async () => { for (const id of checked) await del(`/plans/${id}`); setChecked(new Set()); setConfirmDel(false); show('삭제되었습니다'); load(); };
+  const removeChecked = async () => { for (const id of checked) await del(`/plans/${id}?by=${encodeURIComponent(user?.name ?? '')}`); setChecked(new Set()); setConfirmDel(false); show(`${checked.size}개를 휴지통으로 옮겼습니다`); load(); };
   const toggle = (id: string, on: boolean) => { const s = new Set(checked); on ? s.add(id) : s.delete(id); setChecked(s); };
   const progress = (p: PlanSummary) => {
     if (!p.hasToc) return <KBadge>기준정보</KBadge>;
@@ -68,7 +68,7 @@ export function PlanList() {
             rows={pageRows.map((p) => [
               <input type="checkbox" aria-label={`${p.title} 선택`} checked={checked.has(p.id)} onChange={(e) => toggle(p.id, e.target.checked)} style={{ width: 18, height: 18 }} />,
               <Link to={`/plan/${p.id}`} style={{ fontWeight: 700 }}>{p.title}</Link>,
-              p.hazardType ?? '-', p.managementPhase ?? '-', progress(p),
+              p.hazardType ? <span className="row" style={{ gap: 6, whiteSpace: 'nowrap' }}><HazardIcon hazard={p.hazardType} size={24} />{p.hazardType}</span> : '-', p.managementPhase ?? '-', progress(p),
               p.createdBy, p.updatedBy ?? p.createdBy,
               <span className="num">{new Date(p.createdAt).toLocaleString('ko-KR')}</span>, <span className="num">{ago(p.updatedAt)}</span>,
               p.linkedExercises.length ? <Link to={`/sit/${p.linkedExercises[p.linkedExercises.length - 1]}`}><KBadge tone="navy">훈련 {p.linkedExercises.length}건</KBadge></Link> : '-',
@@ -80,7 +80,7 @@ export function PlanList() {
       {fromTpl && <NewDocModal source={fromTpl} onClose={() => setFromTpl(null)} />}
       {confirmDel && (
         <KModal title="삭제하기" onClose={() => setConfirmDel(false)}>
-          <p style={{ fontSize: 15 }}>선택한 문서 {checked.size}개를 삭제합니다. 되돌릴 수 없습니다.</p>
+          <p style={{ fontSize: 15 }}>선택한 문서 {checked.size}개를 휴지통으로 옮깁니다. 휴지통(문서 관리 메뉴)에서 30일 안에 복원할 수 있습니다.</p>
           <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={() => setConfirmDel(false)}>취소</KBtn><KBtn kind="danger" size="sm" onClick={() => void removeChecked()}>삭제하기</KBtn></div>
         </KModal>
       )}

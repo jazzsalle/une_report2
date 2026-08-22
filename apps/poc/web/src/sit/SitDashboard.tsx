@@ -14,7 +14,7 @@ export function SitDashboard() {
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [toast, show] = useToast();
-  useEffect(() => { get<Exercise[]>('/exercises').then((l) => { setList(l); if (!id && l.length) nav(`/sit/${l[0].id}`, { replace: true }); }); get<PlanSummary[]>('/plans').then((p) => setPlans(p.filter((x) => x.hasToc))); }, [id]);
+  useEffect(() => { get<Exercise[]>('/exercises').then((l) => { setList(l); }); get<PlanSummary[]>('/plans').then((p) => setPlans(p.filter((x) => x.hasToc))); }, [id]);
   useEffect(() => { if (!id) return; const load = () => { get<Board>(`/exercises/${id}/board`).then(setBoard).catch(() => setBoard(null)); get<Event[]>(`/exercises/${id}/events`).then(setEvents).catch(() => {}); }; load(); const t = setInterval(load, 4000); return () => clearInterval(t); }, [id]);
   const analyze = async () => { setAnalyzing(true); try { await post(`/exercises/${id}/analyze`, {}); const b = await get<Board>(`/exercises/${id}/board`); setBoard(b); } finally { setAnalyzing(false); } };
   if (!id || !board) return (
