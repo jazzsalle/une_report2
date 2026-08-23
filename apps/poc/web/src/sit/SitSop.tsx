@@ -76,7 +76,7 @@ function laneLayout(g: SopGraph, lanes: string[]): Map<string, { x: number; y: n
   const depth = depthOf(g);
   const order = [...g.nodes].sort((a, b) => (depth.get(a.id) ?? 0) - (depth.get(b.id) ?? 0));
   // 시작·종료는 첫 띠에 둔다(협업기능이 없다고 '기타' 띠로 보내면 선이 화면을 가로지른다 — 2026-08-23 캡처). 접힌 단계 막대는 전체 폭 중앙
-  order.forEach((n, i) => { const col = n.type === 'START' || n.type === 'END' ? 0 : Math.max(0, lanes.indexOf(n.coop ?? '기타')); pos.set(n.id, { x: isGroup(n) ? (lanes.length * LANE_W) / 2 : col * LANE_W + LANE_W / 2, y: LANE_HEAD + 40 + i * LANE_ROW }); });
+  order.forEach((n, i) => { const col = n.type === 'START' || n.type === 'END' ? 0 : Math.max(0, lanes.indexOf(n.coop ?? '기타')); pos.set(n.id, { x: isGroup(n) ? Math.max((lanes.length * LANE_W) / 2, GROUP_W / 2 + 12) : col * LANE_W + LANE_W / 2, y: LANE_HEAD + 40 + i * LANE_ROW }); }); // 띠가 하나뿐이면(부산처럼 협업기능 없는 코드) 막대가 왼쪽으로 삐져나가지 않게
   return pos;
 }
 /**
@@ -184,7 +184,7 @@ export function SitSop() {
   // 단계 변경·집중 보기 전환 뒤 현재 단계 구간으로 스크롤
   useEffect(() => { if (!scrollReq.current || !vgraph) return; scrollReq.current = false; const first = order.find((nid) => vgraph.nodes.find((x) => x.id === nid)?.stage === curStage); const p = first ? pos.get(first) : null; const el = canvasRef.current; if (p && el) el.scrollTo({ top: Math.max(0, (p.y - 140) * zoom), behavior: 'smooth' }); }, [pos, order, vgraph, curStage, zoom]);
   const toggleFocus = () => { const v = !focus; setFocus(v); localStorage.setItem('poc.sop.focus', v ? '1' : '0'); setExpanded([]); scrollReq.current = v; };
-  const svgW = view === 'lane' ? Math.max(900, lanes.length * LANE_W + 40) : Math.max(900, ...[...pos.values()].map((p) => p.x + NODE_W / 2 + 40));
+  const svgW = view === 'lane' ? Math.max(900, lanes.length * LANE_W + 40, GROUP_W + 40) : Math.max(900, ...[...pos.values()].map((p) => p.x + NODE_W / 2 + 40));
   const svgH = Math.max(...[...pos.values()].map((p) => p.y), 100) + 120;
   const hoverId = hover ?? sel; // 선택된 노드는 카드를 고정 표시
   const hoverNode = hoverId && !hoverId.startsWith('g_') ? graph?.nodes.find((n) => n.id === hoverId) ?? null : null;
@@ -338,10 +338,11 @@ export function SitSop() {
                       <text x={i * LANE_W + LANE_W / 2} y={36} textAnchor="middle" fontSize={11} fill="#464c53">{laneName(c)}</text>
                     </g>
                   ))}
+                  {/* 간선: 순서도는 곡선, 스윔레인은 꺾은선(아래 → 옆 띠 → 아래) — 띠를 비스듬히 가로지르는 곡선은 어느 띠로 가는지 읽기 어렵다(사용자 제안 2026-08-23) */}
                   {/* 단계 구분선 — 매뉴얼 단계(징후감지→…→수습복구)가 바뀌는 행 위에 점선과 라벨. 긴 SOP에서 "지금 어느 단계인가"를 바로 읽게 한다 */}
                   {stageBreaks.map((b) => <g key={b.y} onClick={() => { if (canFocus && focus && b.stage !== curStage) setExpanded((e) => e.filter((x) => x !== b.stage)); }} style={{ cursor: canFocus && focus && b.stage !== curStage ? 'pointer' : undefined }}><title>{canFocus && focus && b.stage !== curStage ? '클릭하면 이 단계를 접습니다' : ''}</title><line x1={0} y1={b.y} x2={svgW} y2={b.y} stroke="#9aa3ad" strokeDasharray="6 5" /><rect x={8} y={b.y - 11} width={b.label.length * 12 + 14} height={22} rx={11} fill={b.stage === curStage ? C.blue : '#1e2124'} /><text x={15} y={b.y + 4} fontSize={11.5} fontWeight={800} fill="#fff">{b.label}</text></g>)}
                   {vgraph!.edges.map((e, i) => { const a = pos.get(e.from); const b = pos.get(e.to); if (!a || !b) return null; const na = vgraph!.nodes.find((x) => x.id === e.from); const nb = vgraph!.nodes.find((x) => x.id === e.to); const y1 = a.y + hOf(na) / 2; const y2 = b.y - hOf(nb) / 2; const ax = view === 'lane' && na && isGroup(na) ? LANE_W / 2 : a.x; const bx = view === 'lane' && nb && isGroup(nb) ? LANE_W / 2 : b.x; /* 스윔레인에서 접힌 막대는 첫 띠 쪽으로 선을 잇는다(긴 사선 방지) */ const mid = (y1 + y2) / 2; return (
-                    <g key={i}><path d={`M${ax},${y1} C${ax},${mid} ${bx},${mid} ${bx},${y2}`} stroke="#8a949e" strokeWidth={1.6} fill="none" markerEnd="url(#arr)" />
+                    <g key={i}><path d={view === 'lane' ? `M${ax},${y1} V${mid} H${bx} V${y2}` : `M${ax},${y1} C${ax},${mid} ${bx},${mid} ${bx},${y2}`} stroke="#8a949e" strokeWidth={1.6} fill="none" strokeLinejoin="round" markerEnd="url(#arr)" />
                       {e.label && <text x={(ax + bx) / 2 + (bx > ax ? 14 : bx < ax ? -14 : 12)} y={mid} fontSize={11} fontWeight={800} fill={e.label === 'YES' ? '#228738' : '#d0290e'} textAnchor="middle">{e.label}</text>}</g>); })}
                   {vgraph!.nodes.map(renderNode)}
                 </svg>

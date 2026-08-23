@@ -12,7 +12,7 @@ const toLocalInput = (iso: string) => { const d = new Date(iso); if (Number.isNa
 const URL_RE = /(https?:\/\/\S+)/;
 const PDF_GUIDE = ['서버 PC에 Chrome 또는 Edge가 있어야 PDF를 만들 수 있습니다(Edge는 Windows 10/11에 기본 포함).', 'Chrome 설치: https://www.google.com/chrome/ → 설치 후 서버 재기동.', '다른 경로에 설치돼 있으면 infrastructure/.env 에 CHROME_PATH=<chrome.exe 또는 msedge.exe 전체 경로> 를 적고 서버를 재기동합니다.', 'PDF 없이도 HWPX·DOCX 내보내기와 미리보기는 그대로 됩니다.'];
 const STATUS_TONE: Record<Report['status'], 'gray' | 'blue' | 'green'> = { 초안: 'gray', 검토중: 'blue', 최종: 'green' };
-const MODE_HINT: Record<string, string> = { immediate: '실제상황·도상훈련', interim: '실제상황·도상훈련', final: '실제상황·도상훈련', journal: '모든 모드', drillResult: '안전한국훈련·도상훈련' };
+const MODE_HINT: Record<string, string> = { immediate: '실제상황·도상훈련', interim: '실제상황·도상훈련', final: '실제상황·도상훈련', journal: '모든 모드', drillResult: '안전한국훈련·도상훈련', recovery: '실제상황·도상훈련(수습복구 단계)', evaluation: '모든 모드(종료 후)' };
 
 export function SitReports() {
   const { id = '' } = useParams();
@@ -50,6 +50,7 @@ export function SitReports() {
       // ?generate=1 (상황판·대시보드의 "AI 상황일지 초안 생성")은 상황일지 보고서를 만든다(이미 있으면 그것을 연다)
       const j = l.find((x) => x.type === 'journal');
       if (sp.get('generate') === '1' && !j) { void create('journal'); setSp({}); }
+      else if (sp.get('report') && l.some((x) => x.id === sp.get('report'))) setRid(sp.get('report')); // ?report=<id> 로 특정 보고서를 바로 연다
       else if (l[0]) setRid(j?.id ?? l[0].id);
     });
   }, [id]);

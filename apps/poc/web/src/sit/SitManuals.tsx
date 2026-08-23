@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { del, get, post, put, sse, MANUAL_STAGES, HAZARDS, coopIndex, type ActionCard, type ExtractProgress, type Manual, type ManualStage, type Org, type SopTemplateSummary } from '../api';
 import { Btn, C, Card, Chip, Field, Input, Modal, Select, Textarea, Toast, useToast, useUser } from '../ui';
 
@@ -15,7 +16,8 @@ export function SitManuals() {
   const [toast, show] = useToast();
   const [list, setList] = useState<Manual[]>([]);
   const [org, setOrg] = useState<Org | null>(null);
-  const [selId, setSelId] = useState<string | null>(null);
+  const [sp] = useSearchParams();
+  const [selId, setSelId] = useState<string | null>(() => sp.get('manual')); // ?manual=<id> 로 특정 매뉴얼을 바로 연다(링크·캡처용)
   const [cards, setCards] = useState<ActionCard[]>([]);
   const [templates, setTemplates] = useState<SopTemplateSummary[]>([]);
   const [prog, setProg] = useState<ExtractProgress | null>(null);
@@ -51,8 +53,8 @@ export function SitManuals() {
   const removeManual = async (m: Manual) => { await del(`/manuals/${m.id}?by=${encodeURIComponent(user?.name ?? '')}`); show('매뉴얼을 휴지통으로 옮겼습니다'); setSelId(null); void loadList(); };
   const removeTemplate = async (t: SopTemplateSummary) => { await del(`/sop-templates/${t.id}?by=${encodeURIComponent(user?.name ?? '')}`); show('템플릿을 휴지통으로 옮겼습니다'); void loadTemplates(); void loadList(); };
 
-  const coopsPresent = useMemo(() => [...new Set(cards.map((c) => c.coop))].sort((a, b) => coopIndex(a) - coopIndex(b)), [cards]);
-  const shown = cards.filter((c) => (!fStage || (fStage === '미상' ? !c.stage : c.stage === fStage)) && (!fCoop || c.coop === fCoop) && (!fUnreviewed || !c.reviewed) && (!fQ || [c.code, c.title, c.content, c.lead, ...c.support, ...c.partner].join(' ').includes(fQ)));
+  const coopsPresent = useMemo(() => [...new Set(cards.map((c) => c.coop).filter(Boolean))].sort((a, b) => coopIndex(a) - coopIndex(b)), [cards]);
+  const shown = cards.filter((c) => (!fStage || (fStage === '미상' ? !c.stage : c.stage === fStage)) && (!fCoop || (fCoop === '__none' ? !c.coop : c.coop === fCoop)) && (!fUnreviewed || !c.reviewed) && (!fQ || [c.code, c.title, c.content, c.lead, ...c.support, ...c.partner].join(' ').includes(fQ)));
   const stats = { total: cards.length, reviewed: cards.filter((c) => c.reviewed).length, truncated: cards.filter((c) => c.truncated).length, noStage: cards.filter((c) => !c.stage).length };
 
   return (
@@ -101,7 +103,7 @@ export function SitManuals() {
               <Chip tone="blue">카드 {stats.total}</Chip><Chip tone="green">검수 {stats.reviewed}</Chip>{stats.truncated ? <Chip tone="orange">잘림 {stats.truncated}</Chip> : null}{stats.noStage ? <Chip tone="gray">단계 미상 {stats.noStage}</Chip> : null}
               <div style={{ flex: 1 }} />
               <Select value={fStage} onChange={(e) => setFStage(e.target.value)} style={{ width: 130, height: 32 }}><option value="">단계 전체</option>{MANUAL_STAGES.map((s) => <option key={s}>{s}</option>)}<option value="미상">단계 미상</option></Select>
-              <Select value={fCoop} onChange={(e) => setFCoop(e.target.value)} style={{ width: 200, height: 32 }}><option value="">협업기능 전체</option>{coopsPresent.map((c) => <option key={c} value={c}>{c} {coopName(c)}</option>)}</Select>
+              <Select value={fCoop} onChange={(e) => setFCoop(e.target.value)} style={{ width: 200, height: 32 }}><option value="">협업기능 전체</option>{cards.some((c) => !c.coop) && <option value="__none">협업기능 없음</option>}{coopsPresent.map((c) => <option key={c} value={c}>{c} {coopName(c)}</option>)}</Select>
               <Input value={fQ} onChange={(e) => setFQ(e.target.value)} placeholder="코드·조치·부서 검색" style={{ width: 200, height: 32 }} />
               <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}><input type="checkbox" checked={fUnreviewed} onChange={(e) => setFUnreviewed(e.target.checked)} />미검수만</label>
             </div>
@@ -114,7 +116,7 @@ export function SitManuals() {
                     <td style={{ textAlign: 'center' }}><input type="checkbox" checked={c.reviewed} onChange={(e) => void saveCard(c, { reviewed: e.target.checked })} title="검수 완료" /></td>
                     <td style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{c.code}{c.truncated && <span title="청크 경계에 잘린 카드 — 원문 확인" style={{ color: C.orange, marginLeft: 3 }}>⚠</span>}</td>
                     <td><Select value={c.stage ?? ''} onChange={(e) => void saveCard(c, { stage: (e.target.value || null) as ManualStage | null })} style={{ height: 28, fontSize: 12, padding: '0 2px 0 4px', width: 100, borderColor: c.stage ? undefined : C.orange }}><option value="">미상</option>{MANUAL_STAGES.map((s) => <option key={s}>{s}</option>)}</Select></td>
-                    <td style={{ fontSize: 11.5 }}><Chip tone={STAGE_TONE[c.stage ?? ''] ?? 'gray'} style={{ marginRight: 4 }}>{c.coop}</Chip>{coopName(c.coop)}</td>
+                    <td style={{ fontSize: 11.5 }}>{c.coop ? <><Chip tone={STAGE_TONE[c.stage ?? ''] ?? 'gray'} style={{ marginRight: 4 }}>{c.coop}</Chip>{coopName(c.coop)}</> : <span style={{ color: C.muted }}>(코드에 협업기능 없음)</span>}</td>
                     <td><div style={{ fontWeight: 700 }}>{c.content || '(조치내용 없음)'}</div><div style={{ fontSize: 11, color: C.muted }}>{c.title}{c.checklist.length ? ` · 세부 ${c.checklist.length}` : ''}</div></td>
                     <td style={{ fontSize: 12 }}>{c.lead || '-'}</td>
                     <td style={{ fontSize: 11.5, color: C.muted }}>{c.support.length ? <div>ⓢ {c.support.join(', ')}</div> : null}{c.partner.length ? <div>ⓒ {c.partner.join(', ')}</div> : null}</td>
@@ -188,7 +190,7 @@ function CardEditModal({ card, onClose, onSave }: { card: ActionCard; onClose: (
 
 function TemplateModal({ manual, cards, coopName, onClose, onSaved }: { manual: Manual; cards: ActionCard[]; coopName: (c: string) => string; onClose: () => void; onSaved: (t: { name: string; graph: { nodes: unknown[] } }) => void }) {
   const [user] = useUser();
-  const coops = [...new Set(cards.map((c) => c.coop))].sort((a, b) => coopIndex(a) - coopIndex(b));
+  const coops = [...new Set(cards.map((c) => c.coop).filter(Boolean))].sort((a, b) => coopIndex(a) - coopIndex(b)); // 부산처럼 숫자 코드(협업기능 없음)는 필터에서 제외
   const [f, setF] = useState({ name: `${manual.hazard} 현장조치 SOP (${manual.org || manual.name})`, stages: [] as string[], coops: [] as string[], onlyReviewed: false, maxNodes: 0 });
   const pick = cards.filter((c) => (!f.onlyReviewed || c.reviewed) && (!f.coops.length || f.coops.includes(c.coop)) && (c.stage ? !f.stages.length || f.stages.includes(c.stage) : true));
   const toggle = (k: 'stages' | 'coops', v: string) => setF((x) => ({ ...x, [k]: x[k].includes(v) ? x[k].filter((y) => y !== v) : [...x[k], v] }));
