@@ -17,7 +17,8 @@ export function SitShell() {
   const [clock, setClock] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => { if (exId) get<Exercise>(`/exercises/${exId}`).then(setEx).catch(() => setEx(null)); else setEx(null); }, [exId, loc.pathname, tick]);
-  const onMeetingSaved = (_m: Meeting) => { setMeeting(false); setTick((t) => t + 1); };
+  // 회의 저장 → 띠 갱신 + 열린 화면(SOP 편집 등)에 알림: 단계가 바뀌면 SOP가 그 단계 구간을 자동으로 펼친다
+  const onMeetingSaved = (_m: Meeting) => { setMeeting(false); setTick((t) => t + 1); window.dispatchEvent(new CustomEvent('poc:exercise-updated', { detail: exId })); };
   const item = (to: string, label: string, needEx = false) => needEx && !exId
     ? <span key={label} className="lnb-disabled" title="훈련상황을 먼저 선택하세요">{label}</span>
     : <NavLink key={label} to={to} end={to === '/sit' || to === `/sit/${exId}`}>{label}</NavLink>;

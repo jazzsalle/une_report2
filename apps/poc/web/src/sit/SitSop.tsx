@@ -75,9 +75,32 @@ function laneLayout(g: SopGraph, lanes: string[]): Map<string, { x: number; y: n
   const pos = new Map<string, { x: number; y: number }>();
   const depth = depthOf(g);
   const order = [...g.nodes].sort((a, b) => (depth.get(a.id) ?? 0) - (depth.get(b.id) ?? 0));
-  // 시작·종료는 첫 띠에 둔다(협업기능이 없다고 '기타' 띠로 보내면 선이 화면을 가로지른다 — 2026-08-23 캡처)
-  order.forEach((n, i) => { const col = n.type === 'START' || n.type === 'END' ? 0 : Math.max(0, lanes.indexOf(n.coop ?? '기타')); pos.set(n.id, { x: col * LANE_W + LANE_W / 2, y: LANE_HEAD + 40 + i * LANE_ROW }); });
+  // 시작·종료는 첫 띠에 둔다(협업기능이 없다고 '기타' 띠로 보내면 선이 화면을 가로지른다 — 2026-08-23 캡처). 접힌 단계 막대는 전체 폭 중앙
+  order.forEach((n, i) => { const col = n.type === 'START' || n.type === 'END' ? 0 : Math.max(0, lanes.indexOf(n.coop ?? '기타')); pos.set(n.id, { x: isGroup(n) ? (lanes.length * LANE_W) / 2 : col * LANE_W + LANE_W / 2, y: LANE_HEAD + 40 + i * LANE_ROW }); });
   return pos;
+}
+/**
+ * 현재 단계만 보기 (사용성 제안 수용, 2026-08-23): 상황이 전개되면 "지금 단계의 임무"만 보여야 빠르다.
+ * 접을 단계의 노드들을 단계당 하나의 묶음 노드(g_<단계>)로 치환한 축약 그래프를 만든다. 간선은 묶음으로 옮기고 중복·자기 간선은 버린다.
+ */
+const GROUP_H = 40, GROUP_W = NODE_W + 120;
+const isGroup = (n: SopNode) => n.id.startsWith('g_');
+const hOf = (n: SopNode | undefined) => (n ? (isGroup(n) ? GROUP_H : nodeH(n.type)) : NODE_H);
+function condense(g: SopGraph, collapsed: string[]): { graph: SopGraph; groups: Map<string, { stage: string; ids: string[] }> } {
+  const groups = new Map<string, { stage: string; ids: string[] }>();
+  if (!collapsed.length) return { graph: g, groups };
+  const idOf = (n: SopNode) => (n.stage && collapsed.includes(n.stage) ? `g_${n.stage}` : n.id);
+  const nodes: SopNode[] = [];
+  for (const n of g.nodes) {
+    const gid = idOf(n);
+    if (gid === n.id) { nodes.push(n); continue; }
+    const cur = groups.get(gid);
+    if (cur) cur.ids.push(n.id); else { groups.set(gid, { stage: n.stage!, ids: [n.id] }); nodes.push({ id: gid, type: 'TASK', title: `${n.stage} 단계`, stage: n.stage, tasks: [] }); }
+  }
+  const seen = new Set<string>(); const edges: SopGraph['edges'] = [];
+  const map = new Map(g.nodes.map((n) => [n.id, idOf(n)]));
+  for (const e of g.edges) { const from = map.get(e.from) ?? e.from; const to = map.get(e.to) ?? e.to; if (from === to) continue; const k = `${from}>${to}`; if (seen.has(k)) continue; seen.add(k); edges.push({ from, to, label: from.startsWith('g_') || to.startsWith('g_') ? undefined : e.label }); }
+  return { graph: { ...g, nodes, edges }, groups };
 }
 
 export function SitSop() {
@@ -107,8 +130,15 @@ export function SitSop() {
   const [cardsOpen, setCardsOpen] = useState(false);
   const [srcOpen, setSrcOpen] = useState(false);
   const [templates, setTemplates] = useState<SopTemplateSummary[]>([]);
+  // 현재 단계만 보기: 기본 켬(localStorage). expanded = 사용자가 추가로 펼친 단계. 단계가 바뀌면 비우고 새 단계 구간으로 스크롤
+  const [focus, setFocus] = useState(() => localStorage.getItem('poc.sop.focus') !== '0');
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const prevStage = useRef<string | null>(null);
+  const scrollReq = useRef(false);
   const [toast, show] = useToast();
   const load = async () => { const e = await get<Exercise>(`/exercises/${id}`); setEx(e); if (e.sop) { setGraph(e.sop.graph); setVersion(e.sop.version); } return e; };
+  // 셸의 상황판단회의 저장 → 상황 다시 읽기(단계·경보 갱신)
+  useEffect(() => { const h = () => { void load(); }; window.addEventListener('poc:exercise-updated', h); return () => window.removeEventListener('poc:exercise-updated', h); }, [id]);
   useEffect(() => {
     get<User[]>('/users').then(setUsers); get<Org>('/org').then(setOrg).catch(() => {});
     void load().then((e) => { get<SopTemplateSummary[]>(`/sop-templates?hazard=${encodeURIComponent(e.hazardType)}`).then(setTemplates).catch(() => {}); if (sp.get('generate') === '1' && !e.sop) { void generate(); setSp({}); } });
@@ -132,19 +162,32 @@ export function SitSop() {
   // 스윔레인 열: 그래프에 있는 협업기능(①~⑬ 순) + 없는 노드는 '기타'
   const lanes = useMemo(() => { if (!graph) return []; const s = [...new Set(graph.nodes.map((n) => n.coop).filter(Boolean) as string[])].sort((a, b) => coopIndex(a) - coopIndex(b)); return graph.nodes.some((n) => !n.coop && n.type !== 'START' && n.type !== 'END') ? [...s, '기타'] : s; }, [graph]);
   const laneName = (c: string) => (c === '기타' ? '미지정' : org?.coopFunctions.find((x) => x.code === c)?.name ?? '');
-  const pos = useMemo(() => (graph ? (view === 'lane' ? laneLayout(graph, lanes) : layout(graph)) : new Map<string, { x: number; y: number }>()), [graph, view, lanes]);
-  const order = useMemo(() => (graph ? orderOf(graph, graph && view === 'lane' ? layout(graph) : pos) : []), [graph, pos, view]);
-  // 단계 구분선 위치: 흐름 순서(order)로 훑으며 단계가 바뀌는 첫 노드의 위쪽
+  const curStage = ex?.stage ?? '초기대응';
+  const stagesInGraph = useMemo(() => (graph ? [...new Set(graph.nodes.map((n) => n.stage).filter(Boolean) as string[])] : []), [graph]);
+  const canFocus = stagesInGraph.length > 1; // 단계 정보가 둘 이상일 때만 의미 있음(유니 생성 SOP는 단계가 없다)
+  const collapsed = canFocus && focus ? stagesInGraph.filter((st) => st !== curStage && !expanded.includes(st)) : [];
+  // 선택 노드가 접힌 구간에 있으면 그 구간을 펼친다(?node= 링크·표에서 선택)
+  useEffect(() => { if (!graph || !sel) return; const n = graph.nodes.find((x) => x.id === sel); if (n?.stage && collapsed.includes(n.stage)) setExpanded((e) => [...e, n.stage!]); }, [sel, graph]);
+  // 단계가 바뀌면(상황판단회의) 펼침을 초기화하고 새 단계 구간으로 이동
+  useEffect(() => { if (!ex) return; if (prevStage.current && prevStage.current !== curStage) { setExpanded([]); scrollReq.current = true; show(`대응 단계 ${prevStage.current} → ${curStage}: 해당 구간을 펼쳤습니다`); } prevStage.current = curStage; }, [curStage, ex]);
+  const { graph: vgraph, groups } = useMemo(() => (graph ? condense(graph, collapsed) : { graph: null, groups: new Map<string, { stage: string; ids: string[] }>() }), [graph, collapsed.join('|')]);
+  const pos = useMemo(() => (vgraph ? (view === 'lane' ? laneLayout(vgraph, lanes) : layout(vgraph)) : new Map<string, { x: number; y: number }>()), [vgraph, view, lanes]);
+  const order = useMemo(() => (vgraph ? orderOf(vgraph, view === 'lane' ? layout(vgraph) : pos) : []), [vgraph, pos, view]);
+  const fullOrder = useMemo(() => (graph ? orderOf(graph, layout(graph)) : []), [graph]); // 표 보기는 전체
+  // 단계 구분선 위치: 흐름 순서(order)로 훑으며 단계가 바뀌는 첫 노드의 위쪽(접힌 묶음은 막대 자체가 라벨이라 제외)
   const stageBreaks = useMemo(() => {
-    if (!graph) return [] as { y: number; label: string }[];
-    const out: { y: number; label: string }[] = []; let cur: string | undefined;
-    for (const nid of order) { const n = graph.nodes.find((x) => x.id === nid); const p = pos.get(nid); if (!n || !p || !n.stage || n.stage === cur) continue; cur = n.stage; out.push({ y: p.y - nodeH(n.type) / 2 - (view === 'lane' ? 18 : 26), label: `${n.stage} 단계` }); }
+    if (!vgraph) return [] as { y: number; label: string; stage: string }[];
+    const out: { y: number; label: string; stage: string }[] = []; let cur: string | undefined;
+    for (const nid of order) { const n = vgraph.nodes.find((x) => x.id === nid); const p = pos.get(nid); if (!n || !p || !n.stage) continue; if (isGroup(n)) { cur = n.stage; continue; } if (n.stage === cur) continue; cur = n.stage; out.push({ y: p.y - nodeH(n.type) / 2 - (view === 'lane' ? 18 : 26), label: `${n.stage} 단계${n.stage === curStage ? ' · 현재' : ''}`, stage: n.stage }); }
     return out;
-  }, [graph, order, pos, view]);
+  }, [vgraph, order, pos, view, curStage]);
+  // 단계 변경·집중 보기 전환 뒤 현재 단계 구간으로 스크롤
+  useEffect(() => { if (!scrollReq.current || !vgraph) return; scrollReq.current = false; const first = order.find((nid) => vgraph.nodes.find((x) => x.id === nid)?.stage === curStage); const p = first ? pos.get(first) : null; const el = canvasRef.current; if (p && el) el.scrollTo({ top: Math.max(0, (p.y - 140) * zoom), behavior: 'smooth' }); }, [pos, order, vgraph, curStage, zoom]);
+  const toggleFocus = () => { const v = !focus; setFocus(v); localStorage.setItem('poc.sop.focus', v ? '1' : '0'); setExpanded([]); scrollReq.current = v; };
   const svgW = view === 'lane' ? Math.max(900, lanes.length * LANE_W + 40) : Math.max(900, ...[...pos.values()].map((p) => p.x + NODE_W / 2 + 40));
   const svgH = Math.max(...[...pos.values()].map((p) => p.y), 100) + 120;
   const hoverId = hover ?? sel; // 선택된 노드는 카드를 고정 표시
-  const hoverNode = graph?.nodes.find((n) => n.id === hoverId) ?? null;
+  const hoverNode = hoverId && !hoverId.startsWith('g_') ? graph?.nodes.find((n) => n.id === hoverId) ?? null : null;
   const hoverPos = hoverId ? pos.get(hoverId) ?? null : null;
   const node = graph?.nodes.find((n) => n.id === sel) ?? null;
   const upd = (patch: Partial<SopNode>) => { if (!graph || !sel) return; setGraph({ ...graph, nodes: graph.nodes.map((n) => (n.id === sel ? { ...n, ...patch } : n)) }); };
@@ -193,7 +236,19 @@ export function SitSop() {
   if (!ex) return <div style={{ padding: 24 }}>불러오는 중…</div>;
   const allSources = graph?.sources ?? [];
   const fromTemplate = graph?.mapperVersion.startsWith('template');
+  const renderGroup = (n: SopNode) => {
+    const p = pos.get(n.id); const g = groups.get(n.id); if (!p || !g) return null;
+    const w = view === 'lane' ? Math.max(GROUP_W, lanes.length * LANE_W - 40) : GROUP_W;
+    return (
+      <g key={n.id} transform={`translate(${p.x},${p.y})`} onClick={() => setExpanded((e) => [...e, g.stage])} style={{ cursor: 'pointer' }}>
+        <title>{`${g.stage} 단계 임무 ${g.ids.length}개 — 클릭하면 펼칩니다`}</title>
+        <rect x={-w / 2} y={-GROUP_H / 2} width={w} height={GROUP_H} rx={8} fill="#f4f5f6" stroke="#9aa3ad" strokeDasharray="5 4" />
+        <text x={-w / 2 + 14} y={5} fontSize={12.5} fontWeight={800} fill="#464c53">▸ {g.stage} 단계 · 임무 {g.ids.length}개 (접힘)</text>
+        <text x={w / 2 - 14} y={5} textAnchor="end" fontSize={11.5} fontWeight={700} fill={C.blue}>펼치기</text>
+      </g>);
+  };
   const renderNode = (n: SopNode) => {
+    if (isGroup(n)) return renderGroup(n);
     const p = pos.get(n.id); if (!p) return null; const t = T(n.type); const isSel = sel === n.id; const pill = n.type === 'START' || n.type === 'END'; const h = nodeH(n.type); const lines = pill ? [n.title.length > 28 ? n.title.slice(0, 27) + '…' : n.title] : wrapText(n.title, n.code ? 16 : 18);
     const badges: { text: string; bg: string; fg: string }[] = [];
     if (n.tasks?.length) badges.push({ text: `세부 ${n.tasks.length}`, bg: '#eff5ff', fg: '#0b50d0' });
@@ -221,7 +276,7 @@ export function SitSop() {
         <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8 }}>컴포넌트</div>
         {TYPES.map((t) => <div key={t.type} onClick={() => addNode(t.type)} style={{ padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6, fontSize: 12.5, cursor: 'pointer', background: t.bg, color: t.fg, fontWeight: 600 }} title={sel ? '선택 노드 아래에 추가' : '끝에 추가'}>{t.icon} {t.label}</div>)}
         <div onClick={() => setCardsOpen(true)} style={{ padding: '8px 10px', border: `1px dashed ${C.green}`, borderRadius: 8, marginBottom: 6, fontSize: 12.5, cursor: 'pointer', background: '#eef7f0', color: '#1a6b2c', fontWeight: 700 }} title="매뉴얼 조치카드를 골라 노드로 추가">⊕ 매뉴얼 카드에서</div>
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>노드를 선택한 뒤 클릭하면 그 아래에 이어집니다. 노드 클릭 → 우측에서 속성 편집. Ctrl+휠로 확대/축소, 빈 바탕을 끌어 이동.</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>노드를 선택한 뒤 클릭하면 그 아래에 이어집니다. 노드 클릭 → 우측에서 속성 편집. Ctrl+휠로 확대/축소, 빈 바탕을 끌어 이동. [현재 단계만]이 켜져 있으면 다른 단계는 막대로 접히고, 상황판단회의로 단계가 바뀌면 그 구간이 자동으로 열립니다.</div>
         {graph?.warnings?.length ? <details style={{ marginTop: 10, fontSize: 11, color: C.muted }}><summary>매퍼 경고 {graph.warnings.length}</summary>{graph.warnings.map((w, i) => <div key={i}>· {w}</div>)}</details> : null}
       </div>
       {/* 캔버스 */}
@@ -239,6 +294,7 @@ export function SitSop() {
             <button type="button" onClick={() => zoomTo(zoom * 1.1)} style={{ border: 0, background: 'none', cursor: 'pointer', fontSize: 14, padding: '2px 6px' }} title="확대 (Ctrl+휠)">+</button>
             <button type="button" onClick={fit} style={{ border: 0, background: 'none', cursor: 'pointer', fontSize: 11.5, padding: '2px 6px', color: C.blue, fontWeight: 700 }} title="전체가 보이게 맞춤">맞춤</button>
           </div>}
+          {canFocus && view !== 'table' && <button type="button" onClick={toggleFocus} aria-pressed={focus} title={focus ? `현재 대응 단계(${curStage}) 구간만 펼치고 다른 단계는 막대로 접습니다 — 끄면 전체` : '현재 단계 구간만 펼쳐 보기'} style={{ border: `1px solid ${focus ? C.blue : C.border}`, background: focus ? C.blueLight : '#fff', color: focus ? C.blue : C.muted, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{focus ? '● ' : '○ '}현재 단계만 · {curStage}</button>}
           <div style={{ flex: 1 }} />
           {templates.length > 0 && <Select value="" onChange={(e) => void applyTemplate(e.target.value)} style={{ height: 32, width: 200, fontSize: 12 }} title="매뉴얼 조치카드로 만든 템플릿을 새 버전으로 적용"><option value="">템플릿에서 생성…</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.nodes})</option>)}</Select>}
           <Btn small onClick={() => void generate()} disabled={busy}>{busy ? `${STAGE_LABEL[stage ?? ''] ?? '생성 중'}… ${elapsed}초` : graph ? 'AI로 재생성' : 'AI SOP 생성'}</Btn>
@@ -251,13 +307,13 @@ export function SitSop() {
           {!busy && !graph && <div style={{ padding: 60, textAlign: 'center', color: C.muted }}>[AI SOP 생성]을 누르거나{templates.length ? ' 템플릿을 고르세요.' : ' 매뉴얼 템플릿을 만들어 적용하세요.'}</div>}
           {graph && view === 'table' && (
             <div style={{ padding: 16 }}>
-              <Table small caption="SOP 임무 표" head={['순번', '유형', '코드', '임무명', '담당부서', '담당자', '우선순위', '기한', '채널', '세부 임무', '다음', '기록 규칙']} rows={order.map((nid, i) => {
+              <Table small caption="SOP 임무 표" head={['순번', '유형', '코드', '임무명', '담당부서', '담당자', '우선순위', '기한', '채널', '세부 임무', '다음', '기록 규칙']} rows={fullOrder.map((nid, i) => {
                 const n = graph.nodes.find((x) => x.id === nid)!; const t = T(n.type); const nexts = graph.edges.filter((e) => e.from === nid).map((e) => { const to = graph.nodes.find((x) => x.id === e.to); return `${e.label ? e.label + ' → ' : ''}${to?.title ?? e.to}`; });
                 const isSel = sel === nid;
                 return [
                   <span style={{ fontWeight: 700 }}>{String(i + 1).padStart(2, '0')}</span>,
                   <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 4, background: t.bg, color: t.fg, border: `1px solid ${C.border}`, fontSize: 11, whiteSpace: 'nowrap' }}>{t.icon} {t.label}</span>,
-                  n.code ? <span style={{ fontSize: 11, fontWeight: 800, color: '#1a6b2c', whiteSpace: 'nowrap' }}>{n.code}</span> : <span style={{ color: C.muted }}>-</span>,
+                  <span style={{ whiteSpace: 'nowrap' }}>{n.code ? <span style={{ fontSize: 11, fontWeight: 800, color: '#1a6b2c' }}>{n.code}</span> : <span style={{ color: C.muted }}>-</span>}{n.stage && <div style={{ fontSize: 10.5, color: n.stage === curStage ? C.blue : C.muted, fontWeight: n.stage === curStage ? 800 : 500 }}>{n.stage}{n.stage === curStage ? ' ●' : ''}</div>}</span>,
                   <button type="button" onClick={() => setSel(isSel ? null : nid)} style={{ border: 0, background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: isSel ? C.blue : C.text, cursor: 'pointer', textAlign: 'left', minWidth: 200, display: 'block' }}>{n.title}</button>,
                   <span style={{ fontSize: 12 }}>{n.dept ?? n.lead ?? '-'}{n.support?.length ? <div style={{ fontSize: 11, color: C.muted }}>ⓢ {n.support.join(', ')}</div> : null}{n.partner?.length ? <div style={{ fontSize: 11, color: C.muted }}>ⓒ {n.partner.join(', ')}</div> : null}</span>,
                   n.assignee ?? <span style={{ color: C.muted }}>(자동)</span>, n.priority ?? '보통', n.due ?? '-', (n.channels ?? []).join('·') || '-',
@@ -283,11 +339,11 @@ export function SitSop() {
                     </g>
                   ))}
                   {/* 단계 구분선 — 매뉴얼 단계(징후감지→…→수습복구)가 바뀌는 행 위에 점선과 라벨. 긴 SOP에서 "지금 어느 단계인가"를 바로 읽게 한다 */}
-                  {stageBreaks.map((b) => <g key={b.y}><line x1={0} y1={b.y} x2={svgW} y2={b.y} stroke="#9aa3ad" strokeDasharray="6 5" /><rect x={8} y={b.y - 11} width={b.label.length * 12 + 14} height={22} rx={11} fill="#1e2124" /><text x={15} y={b.y + 4} fontSize={11.5} fontWeight={800} fill="#fff">{b.label}</text></g>)}
-                  {graph.edges.map((e, i) => { const a = pos.get(e.from); const b = pos.get(e.to); if (!a || !b) return null; const na = graph.nodes.find((x) => x.id === e.from); const nb = graph.nodes.find((x) => x.id === e.to); const y1 = a.y + nodeH(na?.type ?? 'TASK') / 2; const y2 = b.y - nodeH(nb?.type ?? 'TASK') / 2; const mid = (y1 + y2) / 2; return (
-                    <g key={i}><path d={`M${a.x},${y1} C${a.x},${mid} ${b.x},${mid} ${b.x},${y2}`} stroke="#8a949e" strokeWidth={1.6} fill="none" markerEnd="url(#arr)" />
-                      {e.label && <text x={(a.x + b.x) / 2 + (b.x > a.x ? 14 : b.x < a.x ? -14 : 12)} y={mid} fontSize={11} fontWeight={800} fill={e.label === 'YES' ? '#228738' : '#d0290e'} textAnchor="middle">{e.label}</text>}</g>); })}
-                  {graph.nodes.map(renderNode)}
+                  {stageBreaks.map((b) => <g key={b.y} onClick={() => { if (canFocus && focus && b.stage !== curStage) setExpanded((e) => e.filter((x) => x !== b.stage)); }} style={{ cursor: canFocus && focus && b.stage !== curStage ? 'pointer' : undefined }}><title>{canFocus && focus && b.stage !== curStage ? '클릭하면 이 단계를 접습니다' : ''}</title><line x1={0} y1={b.y} x2={svgW} y2={b.y} stroke="#9aa3ad" strokeDasharray="6 5" /><rect x={8} y={b.y - 11} width={b.label.length * 12 + 14} height={22} rx={11} fill={b.stage === curStage ? C.blue : '#1e2124'} /><text x={15} y={b.y + 4} fontSize={11.5} fontWeight={800} fill="#fff">{b.label}</text></g>)}
+                  {vgraph!.edges.map((e, i) => { const a = pos.get(e.from); const b = pos.get(e.to); if (!a || !b) return null; const na = vgraph!.nodes.find((x) => x.id === e.from); const nb = vgraph!.nodes.find((x) => x.id === e.to); const y1 = a.y + hOf(na) / 2; const y2 = b.y - hOf(nb) / 2; const ax = view === 'lane' && na && isGroup(na) ? LANE_W / 2 : a.x; const bx = view === 'lane' && nb && isGroup(nb) ? LANE_W / 2 : b.x; /* 스윔레인에서 접힌 막대는 첫 띠 쪽으로 선을 잇는다(긴 사선 방지) */ const mid = (y1 + y2) / 2; return (
+                    <g key={i}><path d={`M${ax},${y1} C${ax},${mid} ${bx},${mid} ${bx},${y2}`} stroke="#8a949e" strokeWidth={1.6} fill="none" markerEnd="url(#arr)" />
+                      {e.label && <text x={(ax + bx) / 2 + (bx > ax ? 14 : bx < ax ? -14 : 12)} y={mid} fontSize={11} fontWeight={800} fill={e.label === 'YES' ? '#228738' : '#d0290e'} textAnchor="middle">{e.label}</text>}</g>); })}
+                  {vgraph!.nodes.map(renderNode)}
                 </svg>
                 {hoverNode && hoverPos && (
                   <div style={{ position: 'absolute', left: hoverPos.x + NODE_W / 2 + 12 + 300 > svgW ? hoverPos.x - NODE_W / 2 - 12 - 300 : hoverPos.x + NODE_W / 2 + 12, top: Math.max(8, hoverPos.y - 40), width: 300, background: '#fff', border: `1px solid ${sel === hoverNode.id ? C.blue : C.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.14)', padding: '10px 12px', fontSize: 12.5, lineHeight: 1.6, pointerEvents: 'none', zIndex: 5 }}>
