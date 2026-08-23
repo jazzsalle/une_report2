@@ -102,7 +102,11 @@ function ContextStep({ plan, templates, health, onSaved, show, user }: { plan: P
     try { await put(`/plans/${plan.id}/context`, { ...c, updatedBy: user }); show('저장되었습니다'); await onSaved(goToc); }
     finally { setSaving(false); }
   };
-  const registerTpl = async () => { await post('/plan-templates', { name: tplName, context: c, createdBy: user }); setTplModal(false); show('저장되었습니다'); };
+  const registerTpl = async () => { await post('/plan-templates', { name: tplName.trim(), context: c, createdBy: user }); setTplModal(false); show('저장되었습니다'); };
+  // 중복 이름 경고(정책 가, 2026-08-23): 등록은 막지 않는다
+  const [tplAll, setTplAll] = useState<{ id: string; name: string; createdBy: string }[]>([]);
+  useEffect(() => { if (tplModal) get<{ id: string; name: string; createdBy: string }[]>('/plan-templates').then(setTplAll).catch(() => {}); }, [tplModal]);
+  const tplDup = tplAll.filter((t) => t.name.trim() === tplName.trim());
   return (
     <div className="wrap" style={{ paddingTop: 24, paddingBottom: 24, display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) 360px', gap: 24, alignItems: 'start' }}>
       <div className="stack">
@@ -127,7 +131,8 @@ function ContextStep({ plan, templates, health, onSaved, show, user }: { plan: P
       {tplModal && (
         <KModal title="기준정보 템플릿 등록" onClose={() => setTplModal(false)}>
           <KField label="템플릿 명" required htmlFor="tpl-name"><KInput id="tpl-name" autoFocus maxLength={20} value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="템플릿 명 (최대 20자)" /></KField>
-          <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={() => setTplModal(false)}>취소</KBtn><KBtn kind="primary" size="sm" disabled={!tplName.trim()} onClick={() => void registerTpl()}>등록하기</KBtn></div>
+          {tplDup.length > 0 && <p role="alert" style={{ margin: '-6px 0 10px', fontSize: 13, color: '#c2410c' }}>같은 이름의 템플릿이 이미 {tplDup.length}건 있습니다 ({tplDup.slice(0, 2).map((t) => t.createdBy).join(', ')} 등록). 그대로 등록할 수 있지만 목록에서 구분하기 어려울 수 있습니다.</p>}
+          <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={() => setTplModal(false)}>취소</KBtn><KBtn kind="primary" size="sm" disabled={!tplName.trim()} onClick={() => void registerTpl()}>{tplDup.length ? '그래도 등록하기' : '등록하기'}</KBtn></div>
         </KModal>
       )}
       {loadModal && (

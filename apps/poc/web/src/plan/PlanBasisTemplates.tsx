@@ -81,6 +81,7 @@ export function PlanBasisTemplates() {
       {renaming && (
         <KModal title="템플릿 이름 변경" onClose={() => setRenaming(null)}>
           <KField label="템플릿 명" required htmlFor="tpl-rename"><KInput id="tpl-rename" autoFocus maxLength={20} value={renaming.name} onChange={(e) => setRenaming({ ...renaming, name: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') void rename(); }} /></KField>
+          {list.some((t) => t.id !== renaming.id && t.name.trim() === renaming.name.trim()) && <p role="alert" style={{ margin: '-6px 0 10px', fontSize: 13, color: '#c2410c' }}>같은 이름의 템플릿이 이미 있습니다. 그대로 바꿀 수 있지만 목록에서 구분하기 어려울 수 있습니다.</p>}
           <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={() => setRenaming(null)}>취소</KBtn><KBtn kind="primary" size="sm" disabled={!renaming.name.trim()} onClick={() => void rename()}>저장하기</KBtn></div>
         </KModal>
       )}

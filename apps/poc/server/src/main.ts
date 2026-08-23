@@ -18,6 +18,22 @@ import type { PlanContext, TocNode, SopGraph } from './llm.js';
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+/**
+ * 수정자 기록 (2026-08-23): 화면이 보내는 X-User(현재 선택 사용자)를 계획서·기준정보 템플릿의 쓰기 요청이 성공할 때 updatedBy에 남긴다.
+ * 예전엔 기준정보 저장 때만 수정자가 바뀌어 "수정 일시는 방금인데 수정자는 옛 사람"이 생겼다. save-as(사본)는 원본을 고치는 게 아니라 제외.
+ */
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'OPTIONS') return next();
+  let who = ''; try { who = decodeURIComponent(String(req.header('x-user') ?? '')).trim(); } catch { who = ''; }
+  const m = /^\/api\/(plans|plan-templates)\/([^/]+)(?:\/(.*))?$/.exec(req.path);
+  if (!who || !m || m[3] === 'save-as') return next();
+  res.on('finish', () => {
+    if (res.statusCode >= 300) return;
+    const c = m[1] === 'plans' ? plans : planTemplates; const row = c.get(m[2]) as (Row & { updatedBy?: string; deletedAt?: string }) | undefined;
+    if (row && !row.deletedAt && row.updatedBy !== who) c.update(row.id, { updatedBy: who } as never);
+  });
+  next();
+});
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const TEMPLATE_DIR = resolve(process.cwd(), '../../../templete');
 const now = () => new Date().toISOString();
@@ -135,6 +151,8 @@ const planSummary = (p: PlanRow) => ({ id: p.id, title: p.title, hazardType: p.c
 app.get('/api/plans', (_req, res) => res.json(plans.all().filter(alive).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(planSummary)));
 app.post('/api/plans', (req, res) => { const { title, createdBy } = req.body ?? {}; if (!title) return bad(res, 400, 'title 필요'); res.json(plans.insert({ title, createdBy: createdBy ?? '사용자', context: null, toc: [], sections: {}, linkedExercises: [] })); });
 app.get('/api/plans/:id', (req, res) => { const p = plans.get(req.params.id); return p ? res.json(p) : bad(res, 404, '없음'); });
+/** 문서명 변경 (2026-08-23 — 그동안 제목은 만들 때 정한 그대로였다). 중복 이름은 허용하고 화면에서 경고만 한다(공문서 관례: 연도·차수별 같은 제목이 흔함) */
+app.put('/api/plans/:id', (req, res) => { const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음'); const title = String(req.body?.title ?? '').trim(); if (!title) return bad(res, 400, 'title 필요'); res.json(plans.update(p.id, { title: title.slice(0, 20) })); });
 app.delete('/api/plans/:id', (req, res) => { const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음'); plans.update(p.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
 app.put('/api/plans/:id/context', (req, res) => { const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음'); const c = req.body as PlanContext; res.json(plans.update(p.id, { context: c, hazardType: c.hazardType, managementPhase: c.managementPhase, updatedBy: (req.body.updatedBy as string) ?? p.updatedBy })); });
 app.post('/api/plans/:id/save-as', (req, res) => { const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음'); res.json(plans.insert({ title: req.body?.title ?? `${p.title} 사본`, createdBy: p.createdBy, context: p.context, toc: [], sections: {}, linkedExercises: [] })); });
@@ -848,7 +866,8 @@ app.post('/api/link/exercise-to-plan', (req, res) => {
   if (!target) { target = { id: `t${nanoid(6)}`, no: String(toc.length + 1), title: '개선사항 및 보완계획', children: [] }; toc.push(target); }
   const prev = p.sections[target.id];
   const sec: Section = { tocId: target.id, status: '완료', markdown: prev?.markdown ? `${prev.markdown}\n\n${md}` : md, userEdited: false, sources: [{ filename: `훈련 ${ex.title}`, score: 1, text: '훈련 환류' }], history: prev?.history ?? [], origin: '훈련 환류' };
-  plans.update(p.id, { toc, sections: { ...p.sections, [target.id]: sec }, linkedExercises: [...new Set([...p.linkedExercises, ex.id])] });
+  let who = ''; try { who = decodeURIComponent(String(req.header('x-user') ?? '')).trim(); } catch { who = ''; }
+  plans.update(p.id, { toc, sections: { ...p.sections, [target.id]: sec }, linkedExercises: [...new Set([...p.linkedExercises, ex.id])], ...(who ? { updatedBy: who } : {}) });
   res.json({ ok: true, tocId: target.id, title: target.title, markdown: sec.markdown });
 });
 app.get('/api/link/plan/:planId/exercises', (req, res) => { const p = plans.get(req.params.planId); if (!p) return bad(res, 404, '없음'); res.json(p.linkedExercises.map((id) => exercises.get(id)).filter(Boolean)); });
