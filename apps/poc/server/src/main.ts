@@ -12,6 +12,7 @@ import { initRhwp, rhwpVersion, profileTemplate, buildHwpx, renderHwpxSvg, extra
 import * as llm from './llm.js';
 import { getWeather, getWarnings, weatherStatus } from './weather.js';
 import { extractCards, buildTemplateGraph, MANUAL_STAGES, type ActionCard, type ManualStage } from './manuals.js';
+import { reportTemplates, reportTemplate, buildSections, refreshFacts, reportMarkdown, hwpxToPdf, markdownToDocx, pdfStatus, BrowserNotFound, type ReportTemplate, type ReportHeader, type ReportSection, type FactSource, type BlockKind } from './reports.js';
 import type { PlanContext, TocNode, SopGraph } from './llm.js';
 
 const app = express();
@@ -67,7 +68,7 @@ const members = () => ensureOrg().members;
 app.get('/api/users', (_req, res) => res.json(members()));
 app.get('/api/org', (_req, res) => res.json(ensureOrg()));
 app.put('/api/org', (req, res) => { const o = ensureOrg(); const b = req.body ?? {}; delete b.id; delete b.createdAt; res.json(orgs.update(o.id, b)); });
-app.get('/api/health', (_req, res) => res.json({ ok: true, uni: uniStatus(), t3q: t3qStatus(), rhwp: { version: rhwpVersion() }, weather: weatherStatus(), time: now() }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, uni: uniStatus(), t3q: t3qStatus(), rhwp: { version: rhwpVersion() }, weather: weatherStatus(), pdf: pdfStatus(), time: now() }));
 // 날씨·기상특보 (weather.ts): 10분 캐시, 외부 실패 시 마지막 값→목업 폴백(source로 구분)
 app.get('/api/weather', async (req, res) => res.json(await getWeather(req.query.place as string | undefined)));
 app.get('/api/weather/warnings', async (_req, res) => res.json(await getWarnings()));
@@ -713,6 +714,118 @@ app.post('/api/exercises/:id/sop/from-template', (req, res) => {
   res.json(sop);
 });
 
+// ── 보고서 센터 (범용화 ③, 2026-08-23) ───────────────────────────────────────
+/** 보고서 = 템플릿(type) 하나로 만든 문서 한 건. 같은 종류는 차수(seq), 같은 차수는 버전(version)으로 쌓인다. 기존 journals는 기동 시 type 'journal' 보고서로 1회 복사(원본 유지) */
+interface ReportRow extends Row { exerciseId: string; type: string; seq: number; version: number; title: string; header: ReportHeader; sections: ReportSection[]; status: '초안' | '검토중' | '최종'; reviewedBy?: string; createdBy?: string; fromJournalId?: string; export?: Partial<Record<'hwpx' | 'pdf' | 'docx', { fileName: string; at: string; pages?: number; templateId?: string; templateName?: string }>> }
+const reports = col<ReportRow>('reports');
+function factSource(ex: ExerciseRow): FactSource {
+  return { ex, events: events.where((e) => e.exerciseId === ex.id).sort((a, b) => a.at.localeCompare(b.at)), tasks: tasks.where((t) => t.exerciseId === ex.id).sort((a, b) => a.seq - b.seq), meetings: meetings.where((m) => m.exerciseId === ex.id).sort((a, b) => a.at.localeCompare(b.at)) };
+}
+function defaultHeader(ex: ExerciseRow, by?: string): ReportHeader {
+  const org = ensureOrg(); const m = org.members.find((x) => x.name === (by ?? ex.createdBy));
+  return { reportedAt: now(), reporter: by ?? ex.createdBy, dept: m?.dept ?? ex.dept, phone: m?.phone ?? '', distribution: [...org.reportLines.internal, ...org.reportLines.upper], krms: { orgCode: '', reportNo: '', seq: '' } };
+}
+const reportTitle = (ex: ExerciseRow, tpl: ReportTemplate, seq: number) => `${ex.title} — ${tpl.name}${tpl.seq ? ` ${seq}보` : ''}`;
+/** 기동 시 1회: 상황일지(journals) → reports(type journal). 원본은 그대로 두고 fromJournalId로 연결 */
+function migrateJournals() {
+  let n = 0;
+  for (const j of journals.all()) {
+    if (reports.where((r) => r.fromJournalId === j.id).length) continue;
+    const ex = exercises.get(j.exerciseId); if (!ex) continue;
+    reports.insert({ exerciseId: ex.id, type: 'journal', seq: 1, version: 1, title: `${ex.title} — 상황일지`, header: defaultHeader(ex), sections: j.sections.map((s) => ({ ...s, block: ({ timeline: '시간대별조치', tasks: '임무수행', dispatch: '전파수신', field: '현장보고', incomplete: '미완료' } as Record<string, BlockKind>)[s.key] })), status: j.sections.every((s) => s.reviewed) ? '검토중' : '초안', fromJournalId: j.id, export: j.export ? { hwpx: { fileName: j.export.fileName, at: j.export.at, pages: j.export.pages, templateId: j.export.templateId, templateName: j.export.templateName } } : undefined });
+    n++;
+  }
+  if (n) console.log(`보고서 센터: 상황일지 ${n}건을 reports로 복사`);
+}
+const reportOut = (r: ReportRow) => ({ ...r, templateName: reportTemplate(r.type)?.name ?? r.type, seqLabel: reportTemplate(r.type)?.seqLabel });
+app.get('/api/report-templates', (_req, res) => res.json(reportTemplates().map((t) => ({ type: t.type, name: t.name, seqLabel: t.seqLabel, seq: !!t.seq, modes: t.modes, description: t.description, sections: t.sections.map((s) => ({ key: s.key, title: s.title, kind: s.kind, block: s.block })), hwpxTemplateHint: t.hwpxTemplateHint }))));
+app.get('/api/exercises/:id/reports', (req, res) => res.json(reports.where((r) => r.exerciseId === req.params.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(reportOut)));
+/** 새 보고서: 사실 절 투영 + 서술 절 유니 생성. 같은 종류가 있으면 차수 +1(seq 템플릿) 또는 새 버전 */
+app.post('/api/exercises/:id/reports', async (req, res) => {
+  const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음');
+  const tpl = reportTemplate(String(req.body?.type ?? 'journal')); if (!tpl) return bad(res, 400, '모르는 보고서 종류');
+  const same = reports.where((r) => r.exerciseId === ex.id && r.type === tpl.type);
+  const seq = tpl.seq ? Math.max(0, ...same.map((r) => r.seq)) + 1 : 1;
+  const version = tpl.seq ? 1 : Math.max(0, ...same.map((r) => r.version)) + 1;
+  const f = factSource(ex);
+  const sections = await buildSections(tpl, f, { seq });
+  const header = defaultHeader(ex, req.body?.by); if (tpl.seq) header.krms.seq = String(seq);
+  const r = reports.insert({ exerciseId: ex.id, type: tpl.type, seq, version, title: reportTitle(ex, tpl, seq), header, sections, status: '초안', createdBy: req.body?.by });
+  logEvent(ex.id, '보고', `${tpl.name}${tpl.seq ? ` ${seq}보` : ''} 초안 생성 (v${version})`, { source: '보고서 센터', actor: req.body?.by, status: '초안' });
+  res.json(reportOut(r));
+});
+app.get('/api/reports/:rid', (req, res) => { const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음'); res.json(reportOut(r)); });
+app.put('/api/reports/:rid', (req, res) => {
+  const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음');
+  if (r.status === '최종' && req.body?.status !== '초안') return bad(res, 409, '최종본은 편집할 수 없습니다 — [새 버전]으로 복사한 뒤 고치세요');
+  const patch: Partial<ReportRow> = {};
+  if (Array.isArray(req.body?.sections)) patch.sections = req.body.sections;
+  if (req.body?.header) patch.header = { ...r.header, ...req.body.header };
+  if (req.body?.title) patch.title = String(req.body.title);
+  if (['초안', '검토중', '최종'].includes(req.body?.status)) { patch.status = req.body.status; if (req.body.status === '최종') { patch.reviewedBy = req.body.by; const ex = exercises.get(r.exerciseId); if (ex) logEvent(ex.id, '보고', `${r.title} 최종 확정 (v${r.version})`, { source: '보고서 센터', actor: req.body.by, status: '최종' }); } }
+  res.json(reportOut(reports.update(r.id, patch)!));
+});
+app.delete('/api/reports/:rid', (req, res) => { const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음'); reports.remove(r.id); res.json({ ok: true }); });
+/** 사실 절 다시 투영(사용자가 고친 절은 보존) */
+app.post('/api/reports/:rid/refresh', (req, res) => { const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음'); const ex = exercises.get(r.exerciseId); if (!ex) return bad(res, 404, '상황 없음'); res.json(reportOut(reports.update(r.id, { sections: refreshFacts(r.sections, factSource(ex)) })!)); });
+/** 서술 절 하나 다시 생성 / 다듬기 */
+app.post('/api/reports/:rid/regenerate', async (req, res) => {
+  const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음'); const ex = exercises.get(r.exerciseId); if (!ex) return bad(res, 404, '상황 없음');
+  const tpl = reportTemplate(r.type); const def = tpl?.sections.find((s) => s.key === req.body?.sectionKey); const sec = r.sections.find((s) => s.key === req.body?.sectionKey); if (!tpl || !def || !sec) return bad(res, 404, '절 없음');
+  const one = await buildSections({ ...tpl, sections: [def] }, factSource(ex), { seq: r.seq });
+  const sections = r.sections.map((s) => (s.key === sec.key ? { ...s, markdown: one[0].markdown, aiGenerated: true, reviewed: false } : s));
+  res.json(reportOut(reports.update(r.id, { sections })!));
+});
+app.post('/api/reports/:rid/polish', async (req, res) => { const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음'); const s = r.sections.find((x) => x.key === req.body?.sectionKey); if (!s) return bad(res, 404, '절 없음'); const md = await llm.polish(s.markdown); res.json(reportOut(reports.update(r.id, { sections: r.sections.map((x) => (x.key === s.key ? { ...x, markdown: md, aiGenerated: true, reviewed: false } : x)) })!)); });
+/** 새 버전(최종본을 고쳐야 할 때): 같은 종류·차수로 version+1 복사, 초안 */
+app.post('/api/reports/:rid/versions', (req, res) => {
+  const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음');
+  const maxV = Math.max(...reports.where((x) => x.exerciseId === r.exerciseId && x.type === r.type && x.seq === r.seq).map((x) => x.version));
+  const n = reports.insert({ exerciseId: r.exerciseId, type: r.type, seq: r.seq, version: maxV + 1, title: r.title, header: { ...r.header, reportedAt: now() }, sections: r.sections.map((s) => ({ ...s })), status: '초안', createdBy: req.body?.by });
+  res.json(reportOut(n));
+});
+/** 내보내기: hwpx(템플릿 선택) · pdf(HWPX → 쪽 SVG → 크롬) · docx(docx 라이브러리). 파일은 FILES_DIR, 기록은 report.export[format] */
+app.post('/api/reports/:rid/export', async (req, res) => {
+  const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음'); const ex = exercises.get(r.exerciseId); if (!ex) return bad(res, 404, '상황 없음');
+  const format = String(req.body?.format ?? 'hwpx') as 'hwpx' | 'pdf' | 'docx';
+  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '상황보고';
+  const wanted = (req.body?.templateId as string | undefined) ?? r.export?.hwpx?.templateId;
+  const t = (wanted ? templates.get(wanted) : null) ?? templates.where((x) => x.fileName.includes(hint) || x.name.includes(hint))[0] ?? templates.all()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const md = reportMarkdown(r.title, r.header, r.sections, { orgName: ensureOrg().name });
+  const stamp = Date.now();
+  try {
+    if (format === 'docx') {
+      const out = await markdownToDocx(r.title, md, t.profile);
+      const fileName = `report_${r.id}_${stamp}.docx`; writeFileSync(join(FILES_DIR, fileName), out);
+      reports.update(r.id, { export: { ...r.export, docx: { fileName, at: now(), templateId: t.id, templateName: t.name } } });
+      return res.json({ format, fileName, url: `/api/files/${fileName}`, templateName: t.name });
+    }
+    const hwpx = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, r.title, md, { reportedAt: r.header.reportedAt, reporter: r.header.reporter });
+    if (format === 'hwpx') {
+      const fileName = `report_${r.id}_${stamp}.hwpx`; writeFileSync(join(FILES_DIR, fileName), hwpx);
+      const sv = await renderHwpxSvg(hwpx, 1);
+      reports.update(r.id, { export: { ...r.export, hwpx: { fileName, at: now(), pages: sv.pages, templateId: t.id, templateName: t.name } } });
+      return res.json({ format, fileName, url: `/api/files/${fileName}`, pages: sv.pages, templateName: t.name });
+    }
+    const fileName = `report_${r.id}_${stamp}.pdf`;
+    const { pages } = await hwpxToPdf(hwpx, join(FILES_DIR, fileName), join(FILES_DIR, 'pdf-work'));
+    reports.update(r.id, { export: { ...r.export, pdf: { fileName, at: now(), pages, templateId: t.id, templateName: t.name } } });
+    res.json({ format, fileName, url: `/api/files/${fileName}`, pages, templateName: t.name });
+  } catch (e) {
+    if (e instanceof BrowserNotFound) return res.status(503).json({ error: e.message, code: e.code, guide: ['서버 PC에 Chrome 또는 Edge를 설치하면 PDF 내보내기가 됩니다(Edge는 Windows 10/11에 기본 포함).', 'Chrome: https://www.google.com/chrome/ 에서 설치 → 서버 재기동.', '다른 경로에 설치돼 있으면 infrastructure/.env 에 CHROME_PATH=<chrome.exe 또는 msedge.exe 전체 경로> 를 적고 서버를 재기동합니다.', 'PDF 없이도 HWPX·DOCX 내보내기와 미리보기는 그대로 됩니다.'] });
+    bad(res, 500, (e as Error).message);
+  }
+});
+/** 미리보기: 내보낸 HWPX를 쪽 SVG로(없으면 즉석 생성 — 저장하지 않음) */
+app.get('/api/reports/:rid/preview', async (req, res) => {
+  const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음');
+  if (r.export?.hwpx && existsSync(join(FILES_DIR, r.export.hwpx.fileName))) return res.json(await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, r.export.hwpx.fileName))), 30));
+  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '상황보고';
+  const t = templates.where((x) => x.fileName.includes(hint) || x.name.includes(hint))[0] ?? templates.all()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const hwpx = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, r.title, reportMarkdown(r.title, r.header, r.sections, { orgName: ensureOrg().name }), { reportedAt: r.header.reportedAt, reporter: r.header.reporter });
+  res.json(await renderHwpxSvg(hwpx, 30));
+});
+
 // ── 연동 ──────────────────────────────────────────────────────────────────
 app.post('/api/link/plan-to-exercise', (req, res) => {
   const p = plans.get(req.body?.planId); if (!p) return bad(res, 404, '계획서 없음');
@@ -748,6 +861,7 @@ initRhwp().then(async () => {
   cleanupT3qSections();
   purgeOldTrash();
   ensureOrg();
+  migrateJournals();
   setTimeout(() => void checkWarnings(), 15_000); setInterval(() => void checkWarnings(), 10 * 60_000);
   app.listen(PORT, '127.0.0.1', () => console.log(`poc-server :${PORT} | rhwp ${rhwpVersion()} | UNI ${uniStatus().baseUrl}${uniStatus().mock ? ' (MOCK)' : ''}`));
 }).catch((e) => { console.error('rhwp 초기화 실패', e); process.exit(1); });

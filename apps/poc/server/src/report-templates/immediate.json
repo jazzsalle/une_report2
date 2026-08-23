@@ -1,0 +1,60 @@
+{
+  "type": "immediate",
+  "name": "상황 즉보",
+  "seqLabel": "즉보",
+  "modes": [
+    "실제상황",
+    "도상훈련"
+  ],
+  "hazards": [],
+  "header": {
+    "fields": [
+      "reportedAt",
+      "reporter",
+      "dept",
+      "phone",
+      "distribution",
+      "krms"
+    ]
+  },
+  "hwpxTemplateHint": "상황보고",
+  "description": "재난 발생·징후 인지 직후 최초 보고(재난 및 안전관리 기본법 시행규칙 — 최초보고). 발생 개요·특보·피해·조치·향후 계획",
+  "sections": [
+    {
+      "key": "overview",
+      "title": "1. 발생 개요",
+      "kind": "narrative",
+      "prompt": "발생 일시·장소·재난유형·경위를 2~3문장으로. 피해 규모는 사실 기록에 있는 것만"
+    },
+    {
+      "key": "alerts",
+      "title": "2. 위기경보 · 대응 단계",
+      "kind": "fact",
+      "block": "경보이력"
+    },
+    {
+      "key": "warnings",
+      "title": "3. 기상특보",
+      "kind": "fact",
+      "block": "특보"
+    },
+    {
+      "key": "damage",
+      "title": "4. 피해 현황",
+      "kind": "fact",
+      "block": "피해"
+    },
+    {
+      "key": "timeline",
+      "title": "5. 조치 사항",
+      "kind": "fact",
+      "block": "시간대별조치"
+    },
+    {
+      "key": "plan",
+      "title": "6. 향후 계획",
+      "kind": "narrative",
+      "prompt": "현재 단계에서 다음에 할 조치(상황판단회의·전파·현장 확인·대피 등)를 2~3문장으로"
+    }
+  ]
+}

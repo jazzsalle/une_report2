@@ -35,7 +35,7 @@ export function SitShell() {
             {item(`/sit/${exId}/sop`, 'SOP 생성/편집', true)}
             {item(`/sit/${exId}/dispatch`, '상황/임무 전파', true)}
             {item(`/sit/${exId}/board`, '전자 상황판', true)}
-            {item(`/sit/${exId}/journal`, '상황일지 관리', true)}
+            {item(`/sit/${exId}/reports`, '보고서', true)}
             {item('/sit/manuals', '매뉴얼·SOP 템플릿')}
             {item('/sit/settings', '기관·조직 설정')}
             {item('/sit/trash', '휴지통')}

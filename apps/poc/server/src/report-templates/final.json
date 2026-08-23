@@ -1,0 +1,72 @@
+{
+  "type": "final",
+  "name": "최종 보고",
+  "seqLabel": "최종",
+  "modes": [
+    "실제상황",
+    "도상훈련"
+  ],
+  "hazards": [],
+  "header": {
+    "fields": [
+      "reportedAt",
+      "reporter",
+      "dept",
+      "phone",
+      "distribution",
+      "krms"
+    ]
+  },
+  "hwpxTemplateHint": "상황보고",
+  "description": "상황 종료 후 종합 보고. 경과·이력·피해 종합·자원·문제점·개선",
+  "sections": [
+    {
+      "key": "summary",
+      "title": "1. 상황 종합",
+      "kind": "narrative",
+      "prompt": "발생부터 종료까지를 3~4문장으로 종합"
+    },
+    {
+      "key": "timeline",
+      "title": "2. 경과",
+      "kind": "fact",
+      "block": "시간대별조치"
+    },
+    {
+      "key": "alerts",
+      "title": "3. 위기경보 · 대응 단계 이력",
+      "kind": "fact",
+      "block": "경보이력"
+    },
+    {
+      "key": "meetings",
+      "title": "4. 상황판단회의 결정",
+      "kind": "fact",
+      "block": "회의결정"
+    },
+    {
+      "key": "damage",
+      "title": "5. 피해 현황 종합",
+      "kind": "fact",
+      "block": "피해"
+    },
+    {
+      "key": "resources",
+      "title": "6. 대응 조치 및 자원 동원",
+      "kind": "fact",
+      "block": "자원동원"
+    },
+    {
+      "key": "incomplete",
+      "title": "7. 미완료 및 문제점",
+      "kind": "fact",
+      "block": "미완료"
+    },
+    {
+      "key": "improve",
+      "title": "8. 평가 및 개선사항",
+      "kind": "narrative",
+      "prompt": "지연·미완료 임무와 문제점을 근거로 개선할 점을 3~4문장으로"
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "type": "interim",
+  "name": "중간 보고",
+  "seqLabel": "보",
+  "seq": true,
+  "modes": [
+    "실제상황",
+    "도상훈련"
+  ],
+  "hazards": [],
+  "header": {
+    "fields": [
+      "reportedAt",
+      "reporter",
+      "dept",
+      "phone",
+      "distribution",
+      "krms"
+    ]
+  },
+  "hwpxTemplateHint": "상황보고",
+  "description": "상황 전개 중 주기 보고(1보·2보…). 차수가 자동으로 붙는다",
+  "sections": [
+    {
+      "key": "overview",
+      "title": "1. 상황 개요",
+      "kind": "narrative",
+      "prompt": "직전 보고 이후 달라진 상황을 중심으로 2~3문장"
+    },
+    {
+      "key": "alerts",
+      "title": "2. 위기경보 · 대응 단계 변경",
+      "kind": "fact",
+      "block": "경보이력"
+    },
+    {
+      "key": "meetings",
+      "title": "3. 상황판단회의 결정",
+      "kind": "fact",
+      "block": "회의결정"
+    },
+    {
+      "key": "damage",
+      "title": "4. 피해 현황",
+      "kind": "fact",
+      "block": "피해"
+    },
+    {
+      "key": "timeline",
+      "title": "5. 조치 사항",
+      "kind": "fact",
+      "block": "시간대별조치"
+    },
+    {
+      "key": "tasks",
+      "title": "6. 임무 수행 현황",
+      "kind": "fact",
+      "block": "임무수행"
+    },
+    {
+      "key": "resources",
+      "title": "7. 자원 동원 현황",
+      "kind": "fact",
+      "block": "자원동원"
+    },
+    {
+      "key": "plan",
+      "title": "8. 향후 계획",
+      "kind": "narrative",
+      "prompt": "미완료 임무와 다음 단계 조치를 2~3문장으로"
+    }
+  ]
+}

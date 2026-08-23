@@ -19,7 +19,7 @@ import { SitNew } from './sit/SitNew';
 import { SitSop } from './sit/SitSop';
 import { SitDispatch } from './sit/SitDispatch';
 import { SitBoard } from './sit/SitBoard';
-import { SitJournal } from './sit/SitJournal';
+import { SitReports } from './sit/SitReports';
 import { SitManuals } from './sit/SitManuals';
 import { Mobile } from './sit/Mobile';
 import { font } from './ui';
@@ -54,7 +54,8 @@ createRoot(document.getElementById('root')!).render(
           <Route path=":id/sop" element={<SitSop />} />
           <Route path=":id/dispatch" element={<SitDispatch />} />
           <Route path=":id/board" element={<SitBoard />} />
-          <Route path=":id/journal" element={<SitJournal />} />
+          <Route path=":id/reports" element={<SitReports />} />
+          <Route path=":id/journal" element={<SitReports />} />
         </Route>
         <Route path="/m/:assigneeId" element={<Mobile />} />
         <Route path="/weather" element={<WeatherPage />} />

@@ -8,7 +8,7 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
   const text = await r.text();
   let json: unknown = null;
   try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-  if (!r.ok) throw new Error((json as { error?: string })?.error ?? `HTTP ${r.status}`);
+  if (!r.ok) { const j = (json ?? {}) as { error?: string; code?: string; guide?: string[] }; const err = new Error(j.error ?? `HTTP ${r.status}`) as Error & { code?: string; guide?: string[] }; err.code = j.code; err.guide = j.guide; throw err; }
   return json as T;
 }
 export const get = <T,>(p: string) => api<T>('GET', p);
@@ -102,6 +102,12 @@ export interface PendingWarning { id: string; at: string; change: '발표' | '�
 export interface Org { id: string; name: string; hq: string; coopFunctions: { code: string; name: string }[]; teams: { id: string; name: string; coopCodes: string[]; depts: string[] }[]; depts: { id: string; name: string; phone?: string }[]; members: { id: string; name: string; dept: string; role: string; phone?: string }[]; reportLines: { internal: string[]; upper: string[]; central: string[] }; audiences: { id: string; name: string; kind: '내부' | '유관기관' | '주민' | '대국민'; contacts?: string }[]; settings: { delayMinutes: number; defaultChannels: string[]; autoLogRules: string[]; autoLogWarnings: boolean; weatherPlace?: string } }
 export interface Exercise { id: string; title: string; hazardType: string; phase: string; alertLevel: string; occurredAt: string; location: string; agency: string; dept: string; scenario: string; refData: string[]; options: string[]; status: 'DRAFT' | 'SOP_READY' | 'RUNNING' | 'CLOSED'; linkedPlanId: string | null; startedAt?: string; closedAt?: string; createdBy: string; analysis?: { suggestion: string; basis: string; at: string }; sop?: Sop | null; tasks?: Task[]; eventCount?: number; journal?: Journal | null; createdAt: string; updatedAt: string;
   mode?: ExMode; sopTemplateId?: string | null; stage?: ExStage; alertHistory?: { level: string; at: string; by?: string; reason?: string; meetingId?: string }[]; stageHistory?: { stage: ExStage; at: string; by?: string; meetingId?: string }[]; warningsSnapshot?: { at: string; active: WarningItem[] }; meetings?: Meeting[]; pendingWarnings?: PendingWarning[] }
+// ── 범용화 ③ (2026-08-23): 보고서 센터 ──
+export type ReportStatus = '초안' | '검토중' | '최종';
+export interface ReportHeader { reportedAt: string; reporter: string; dept: string; phone: string; distribution: string[]; krms: { orgCode: string; reportNo: string; seq: string } }
+export interface ReportSection { key: string; title: string; kind: 'fact' | 'narrative'; block?: string; markdown: string; aiGenerated: boolean; reviewed: boolean; editedByUser?: boolean }
+export interface Report { id: string; exerciseId: string; type: string; templateName: string; seqLabel?: string; seq: number; version: number; title: string; header: ReportHeader; sections: ReportSection[]; status: ReportStatus; reviewedBy?: string; createdBy?: string; export?: Partial<Record<'hwpx' | 'pdf' | 'docx', { fileName: string; at: string; pages?: number; templateId?: string; templateName?: string }>>; createdAt: string; updatedAt: string }
+export interface ReportTemplateSummary { type: string; name: string; seqLabel: string; seq: boolean; modes: string[]; description: string; sections: { key: string; title: string; kind: 'fact' | 'narrative'; block?: string }[]; hwpxTemplateHint: string }
 export interface Journal { id: string; exerciseId: string; sections: { key: string; title: string; kind: 'fact' | 'narrative'; markdown: string; aiGenerated: boolean; reviewed: boolean }[]; export?: { fileName: string; at: string; pages?: number; templateId?: string; templateName?: string } }
 export interface Board { exercise: Exercise; elapsedMs: number; total: number; done: number; inProgress: number; delayed: number; waiting: number; dispatched: number; unacked: number; acked: number; reported: number; timeline: { kind: string; at: string | null }[]; active: Task[]; lastEventAt: string | null; autoLogged: number; aiCount: number; analysis: { suggestion: string; basis: string; at: string } | null }
 
