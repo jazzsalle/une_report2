@@ -1,52 +1,55 @@
 # Session Handoff
 
-- 일시: 2026-08-21 (회사 PC, 열한 번째 세션 — 2026-08-20~21 이틀치)
-- 브랜치: `feature/CC-410`, **main과 동일**(PR #32~#41 모두 머지, 마지막 `f1178f2`). 작업 트리 깨끗함.
-- 상태: **POC 동작. 개발팀 인계 가능.** 서버는 이 PC에서 숨김 프로세스로 떠 있음(:3100 API, :5300 웹; `http://10.20.20.46:5300/`).
+- 일시: 2026-08-23 (회사 PC, 열두·열세 번째 세션 — 2026-08-22~23 이틀치)
+- 브랜치: `feature/sit-v2`, **main과 동일**(PR #42~#48 모두 머지). 작업 트리 깨끗함.
+- 상태: **상황일지 도구가 "안전한국훈련 전용"에서 "재난 상황관리 범용 도구"로 재구축됨(로드맵 ①②③ 완료).** 서버는 이 PC에 숨김 프로세스로 떠 있음(:3100 API, :5300 웹; `http://10.20.20.46:5300/`).
 
 ## 이번 세션에 한 일 (PR 순)
 
 | PR | 내용 |
 |---|---|
-| #32~#34 | KRDS 디자인 시안(`design_handoff_krds_uiux/poc-plan/`) → 계획서·상황일지·홈·모바일 화면에 적용(`web/src/krds.{css,tsx}`, `ui.tsx` 재스킨). HWPX 다운로드·내보내기는 "다른 이름으로 저장" 창(`showSaveFilePicker`, https/localhost만; 아니면 일반 다운로드) |
-| #35 | HWPX 내보내기 충실도: 템플릿 견본 구간만 교체, 제목 표 칸 교체, 수준별 charShapeId/paraShapeId 복사(글꼴은 `applyCharFormat`으로 안 바뀜), 깨지던 rhwp 재로드 뷰 제거 |
-| #36 | 템플릿 **표 스타일** 분석·적용(머리행/첫 열/본문 셀 모양·열 너비) |
-| #37 | 기준정보 템플릿 목록 페이지(`/plan/basis-templates`: 정렬·N개 보기·페이지·이름 변경·삭제) + 상세/편집 페이지, `PUT /api/plan-templates/:id` |
-| #38 | 초안: 체크한 절만 동시 3절 생성, 하위 목차 있는 장은 제목만(`draftable`), 항목 기호는 제목 깊이에 **상대적** |
-| #39 | 계획서 메인에 2차년도 홈 화면 구도 — **Figma `.fig`를 직접 해독**해 배경 이미지·재난유형 아이콘 10종(벡터→SVG) 추출(`web/public/hero/`, `HeroCards.tsx`) |
-| #40 | 히어로 여백 축소, 문서 목록 정렬·30/50/70/100개·페이지 바, 기준정보 템플릿에 재난유형 아이콘 |
-| #41 | **T3Q 기호 문제 해결**(아래) + 원본 미리보기 HTML→**SVG**, 템플릿 꼬리 빈 표 제거(프로파일 version 2) |
+| #42·#43 | 상황일지 메인 히어로·문서 목록 아이콘·SVG 미리보기 탭·SOP 생성 진행 상태(유니 `__status__`)·일지 템플릿 선택·**휴지통**(소프트 삭제, 30일 자동 정리) |
+| #44 | 피그마 **헤더** 적용, **날씨·기상특보**(기상청 API 키 / Open-Meteo·날씨누리 폴백, 헤더 칩·배지 → `/weather` 새 창), SOP 순서도 A·B·E(카드형 노드·확장 카드·표 보기) |
+| #45 | **범용화 ①** 모드(실제상황/안전한국훈련/도상훈련)·위기경보·대응 단계·상황판단회의·기관·조직 설정·특보 감시 / **②** 매뉴얼 조치카드 추출(유니 검색)·검수·SOP 템플릿·SOP 줌/팬·스윔레인·단계 구분선·**현재 단계만 보기** |
+| #46 | **③ 보고서 센터** 템플릿(즉보·중간·최종·상황일지·훈련결과)·차수/버전·상태·KRMS 연계 필드·**HWPX/PDF/DOCX**·미리보기 + PDF는 Chrome→Edge 대체, 없으면 설치 안내 |
+| #47 | 부산시 매뉴얼 형식 **파서 일반화**(세로 항목·숫자 코드), **복구계획서·평가서** 템플릿(대응 지표 11개 자동 산출), 서술 절 안정화, 스윔레인 꺾은선 |
+| #48 | 핸드오프 + `?section=` 딥링크 + **분석 보고서**(`apps/poc/docs/04_상황일지_고도화_분석보고서.{md,docx,hwpx}`, 기승전결 11쪽 — 연구과제 스토리텔링용) |
 
-## 실측으로 알아낸 것 (코드 주석에도 `실측 2026-08-21`로 있음)
+설계 근거: `apps/poc/docs/03_상황관리_범용화_재설계안.md`(유니 지식베이스의 매뉴얼 구조 분석 + 토론 결정 + 7장 연구항목 대응표). 요구사항 SIT-10~12, 인터페이스 정의서 갱신됨.
 
-- **T3Q `paragraphSymbol`은 콤마로 구분해 보내야 한다.** `"□○-"`·`"□ ○ -"`는 줄마다 `□○- (소제목) 문장` 통째 기호(위계 없음), **`"□, ○, -"`** 는 `□ 문장`/`  ○ 문장`/`    - 문장` 3단 위계. 번호형(`1.` `가.`)을 섞어 보내면 T3Q가 가나다 순번을 스스로 매긴다. 요청은 절 아래 수준의 비번호 기호만(`t3qSymbolsFor`), 변환은 `t3qContentToMarkdown`(예전 응답 형식도 정리, 멱등, 서버 기동 시 옛 저장본 1회 정리).
-- 번호형 기호(`가.` `1.` `①`)는 웹·HWPX가 형제끼리 **가·나·다 자동 매김**(`formatNumbering`, 양쪽 동일 구현). 텍스트가 이미 번호면 생략.
-- rhwp `renderPageSvg`는 원본과 같게 나오고 `renderPageHtml`은 제목 표·표가 깨진다 → 미리보기는 전부 SVG(`renderHwpxSvg`). 한글→PDF 스냅샷 불필요. 단, SVG 렌더에서 쪽 경계에 걸친 표의 아랫줄이 비어 보일 수 있음(파일 안 셀 텍스트는 정상 — 확인함).
-- rhwp `applyCharFormat fontFamily` 무시 → `setCharShapeId` 복사. 표 셀 API(`insertTextInCell`/`setCellProperties`/`setTableProperties`/`getTableDimensions`/`getCellInfo`) 모두 동작·저장됨.
-- Figma `.fig` = zip(`canvas.fig` + images/). `canvas.fig`는 zstd 청크 + kiwi 스키마 → Node `zlib.zstdDecompressSync` + `kiwi-schema`로 해독. 벡터는 `u8 명령 + float32` 블롭 → SVG path. (메모리 `figma-fig-decode`)
-- multer 파일명은 latin1 → `Buffer.from(name,'latin1').toString('utf8')`. Git Bash `curl -d`에 한글 넣으면 깨짐 → 항상 UTF-8 파일로 `--data-binary @file`.
-- 서버는 Claude Code 도구로 띄우면 호출이 끝날 때 죽는다 → PowerShell WMI `Win32_Process.Create`(숨김 창) + exit 로그 래퍼(`data/server-exit.log`). 원인 미상으로 가끔 더 죽기도 함 — 재기동 전 `data/server.log` 먼저 읽을 것. (메모리 `poc-server-detached-launch`)
+## 실측으로 알아낸 것 (코드 주석에도 `실측 2026-08-23`으로 있음)
+
+- **유니 검색**: REST `POST /search/`가 MCP `search_knowledge`와 같은 512자 청크를 준다. 결과 1건당 ≈1.2초(재정렬) → 협업기능별 13회(top_k 20)가 기본(≈5분). "코드번호 ①-2-3" 직접 질의는 새 카드 0장. 동시 호출은 피할 것.
+- **매뉴얼 카드 형식은 기관마다 다르다**: 영천(가로 한 줄 표, `①-2-8`, ⓢ/ⓒ) vs 부산(세로 항목, `44-2`, 단계 "비상 대응"). 공통 코드 0개. 새 기관 매뉴얼은 청크 2~3개를 먼저 보고 형식 확인. 영천 40장·부산 24장.
+- **유니 서술 절이 프롬프트 속 문장을 따라 한다**: 옛 실패 이벤트 `[AI분석] JSON 매뉴얼 파일을 생성하고 있습니다…`를 사실 기록에 넣자 그 문장만 돌려줌(180초). → AI분석·보고 이벤트·상태 문구 제외 + 재시도(`reports.ts narrateSafe`).
+- PDF: HWPX → rhwp 쪽 SVG → A4 HTML → 헤드리스 브라우저 `--print-to-pdf`. Chrome·Edge 모두 6쪽 동일. `file:///D:/...` 윈도우 경로여야 함(MSYS `/d/…`는 빈 페이지).
+- 기상청 API: 특보 `getPwnStatus`+`getWthrWrnList`, 날씨 `getUltraSrtNcst`(LCC 격자). 키는 `infrastructure/.env` `KMA_SERVICE_KEY`(Decoding형). 날씨누리 `warning.do`는 키 없이 파싱 가능.
+- T3Q `paragraphSymbol`은 `"□, ○, -"`처럼 콤마 구분(이전 세션 실측, 유지).
+- Git Bash에서 한글 JSON을 `curl -d`로 보내면 CP949로 깨진다 → Python `urllib`로 UTF-8 전송. Python이 MSYS 경로(`/c/...`)는 못 연다.
 
 ## 운영 규칙 (사용자 결정)
 
-- `bypassPermissions` 같은 권한 우회 설정은 **절대 커밋하지 않는다**. 디자인 폴더는 디자인이 끝난 뒤에만 올린다.
-- 푸시는 Claude가 하고, **PR 생성·머지는 사용자가 `! gh pr create --fill --base main` / `! gh pr merge N --merge`** 로 한다(`!` 앞에 공백이 있으면 실행되지 않음).
-- `*.fig`는 gitignore. 변환된 에셋만 `web/public/hero/`.
+- `bypassPermissions` 같은 권한 우회 설정은 **절대 커밋하지 않는다**. 디자인 폴더는 디자인이 끝난 뒤에만 올린다. `*.fig`는 gitignore.
+- 푸시·PR 생성은 Claude가 하고, **머지는 사용자가 "머지해"라고 할 때만**.
+- 브랜치 전략: `main`은 안정판, `feature/sit-v2`에서 단계별 PR. 데이터 변경은 **필드 추가만**(안정판이 같은 JSON을 읽게).
+- 상황관리: 실제/훈련/도상은 **같은 화면·모드 전환**, 훈련 SOP → 실제 승격 기능 없음. 상황일지를 T3Q로 만들지 않는다.
+- SOP·상황판처럼 급박할 때 보는 화면은 **사용성 문제가 보이면 그때그때 제안**(묻지 않고 바꾸지는 않음).
 
 ## 남은 것 / 다음 세션
 
-1. 상황일지(`/sit`) 메인에도 히어로 구도를 적용할지 결정. 문서 목록 재난유형 열에 아이콘 붙이기는 `HazardIcon`으로 바로 가능.
-2. 기준정보 템플릿 샘플 5개("(샘플)")는 데모용 — 필요 없으면 목록에서 삭제.
-3. 데모 전 초안 미리 생성(절당 15~20초, 동시 3절). T3Q가 429를 내면 `PlanEditor.tsx`의 `CONCURRENCY`를 낮출 것.
-4. 상황일지 기능정의서 v1.1 docx 개발팀 전달(사용자 확인 후). SOP 생성 중 `__status__` 표시, 일지 템플릿 선택 UI는 예전부터 남은 항목.
-5. 유니 `UNI_PASSWORD` 교체 권고 유지. 유니 타임아웃은 간헐적(10.20.10.101:8088) — 반복되면 `uni.ts` 타임아웃 조정.
+1. **DOCX 검증(사용자 직접, 2026-08-24)**: 보고서 → [최근 파일] DOCX를 한글/Word로 열기. 즉보 `hsBLNczNV9`(영천 실제상황), 평가서·복구계획서 `TP4wm_UNV2`(훈련, 2026-08-23 저녁에 최신 내용으로 다시 내보냄). 분석 보고서 `04_…분석보고서.hwpx`도 한글로 열어 표 칸이 다 보이는지 확인(rhwp 미리보기에서는 일부 칸이 비어 보였으나 XML에는 글이 있음).
+2. 보류(사용자 결정): 전파 화면 "현재 단계 임무 일괄 전파"는 뺌. **주관부서별 스윔레인**(부산처럼 협업기능 없는 매뉴얼용)은 나중에 스윔레인 화면을 보여주며 다시 제안.
+3. 후보: 상황판에서 현재 단계 임무 우선 정렬, 매뉴얼 단계 추정 편향(부산 카드 다수가 수습복구) 검수 UI 보강, 복구계획서 피해 행 원천(피해 보고 이벤트 종류) 신설.
+4. 유니 `UNI_PASSWORD` 교체 권고 유지. 유니가 바쁘면 서술 절이 30초 → 180초로 늘어남(재시도 1회).
+5. 테스트 데이터: 매뉴얼 2권(영천·부산), SOP 템플릿 2개, 실제상황 `hsBLNczNV9`(영천)·`yf2jV3fKJF`(부산), 보고서 즉보 v1(최종)·v2·중간 1보·2보·복구계획서·평가서 — 데모용으로 남겨 둠. 정리하려면 휴지통/삭제.
 
 ## 환경 재개
 
 ```bash
-git checkout feature/CC-410 && git pull
-pnpm install
-pnpm dev            # 서버 :3100 + 웹 :5300 (수동 실행이 가장 안정적)
+git checkout feature/sit-v2 && git pull
+pnpm install                    # docx 추가됨
+pnpm dev                        # 서버 :3100 + 웹 :5300
 ```
 
-`infrastructure/.env`에 `UNI_BASE_URL=http://10.20.10.101:8088`, `UNI_USERNAME`, `UNI_PASSWORD`, `T3Q_VERIFY_TLS=0`. 집 PC엔 이 파일이 없으니 다시 채울 것. 템플릿 프로파일은 기동 시 `version`이 낮으면 자동 재분석, T3Q 옛 저장본도 기동 시 자동 정리된다.
+`infrastructure/.env`: `UNI_BASE_URL=http://10.20.10.101:8088`, `UNI_USERNAME`, `UNI_PASSWORD`, `T3Q_VERIFY_TLS=0`, `KMA_SERVICE_KEY`, (선택) `CHROME_PATH`. 집 PC엔 이 파일이 없으니 다시 채울 것. 유니 MCP(`10.20.10.101:3100/mcp`)는 Claude Code 로컬 스코프에만 등록됨(커밋 안 됨).
+서버를 Claude Code로 띄울 땐 PowerShell WMI `Win32_Process.Create`(숨김 창) + exit 로그 래퍼 — 도구 호출이 끝나면 일반 프로세스는 죽는다(메모리 `poc-server-detached-launch`).

@@ -24,7 +24,7 @@ export function SitReports() {
   const [tpls, setTpls] = useState<ReportTemplateSummary[]>([]);
   const [rid, setRid] = useState<string | null>(null);
   const [r, setR] = useState<Report | null>(null);
-  const [cur, setCur] = useState<string>('');
+  const [cur, setCur] = useState<string>(() => sp.get('section') ?? ''); // ?section=<key> 로 특정 절을 바로 연다
   const [edit, setEdit] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [newType, setNewType] = useState('');
