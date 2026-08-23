@@ -1,0 +1,66 @@
+{
+  "type": "drillResult",
+  "name": "훈련 결과 보고",
+  "seqLabel": "훈련결과",
+  "modes": [
+    "안전한국훈련",
+    "도상훈련"
+  ],
+  "hazards": [],
+  "header": {
+    "fields": [
+      "reportedAt",
+      "reporter",
+      "dept",
+      "phone",
+      "distribution",
+      "krms"
+    ]
+  },
+  "hwpxTemplateHint": "상황보고",
+  "description": "안전한국훈련 가이드북의 훈련 결과 보고 — 시나리오·임무·전파·기대행동 평가·미흡사항",
+  "sections": [
+    {
+      "key": "overview",
+      "title": "1. 훈련 개요",
+      "kind": "narrative",
+      "prompt": "훈련명·유형·일시·장소·참여 기관을 2~3문장으로"
+    },
+    {
+      "key": "timeline",
+      "title": "2. 훈련 진행 경과(상황 부여·조치)",
+      "kind": "fact",
+      "block": "시간대별조치"
+    },
+    {
+      "key": "tasks",
+      "title": "3. 부서별 임무 수행",
+      "kind": "fact",
+      "block": "임무수행"
+    },
+    {
+      "key": "dispatch",
+      "title": "4. 전파·수신 확인",
+      "kind": "fact",
+      "block": "전파수신"
+    },
+    {
+      "key": "eval",
+      "title": "5. 기대행동 평가",
+      "kind": "fact",
+      "block": "기대행동평가"
+    },
+    {
+      "key": "incomplete",
+      "title": "6. 미흡 사항",
+      "kind": "fact",
+      "block": "미완료"
+    },
+    {
+      "key": "opinion",
+      "title": "7. 종합 평가 및 개선 방향",
+      "kind": "narrative",
+      "prompt": "기대행동 평가와 미흡 사항을 근거로 개선 방향을 3~4문장으로"
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "type": "journal",
+  "name": "상황일지",
+  "seqLabel": "상황일지",
+  "modes": [
+    "실제상황",
+    "안전한국훈련",
+    "도상훈련"
+  ],
+  "hazards": [],
+  "header": {
+    "fields": [
+      "reportedAt",
+      "reporter",
+      "dept",
+      "phone",
+      "distribution",
+      "krms"
+    ]
+  },
+  "hwpxTemplateHint": "상황보고",
+  "description": "시간순 상황일지(기존 8절). 사실 절은 이벤트·임무에서 투영, 서술 절은 AI",
+  "sections": [
+    {
+      "key": "overview",
+      "title": "1. 상황 개요",
+      "kind": "narrative",
+      "prompt": "상황명·재난유형·단계·일시·장소·기관·시나리오를 2~4문장으로",
+      "titleByMode": {
+        "안전한국훈련": "1. 훈련 개요"
+      }
+    },
+    {
+      "key": "first",
+      "title": "2. 최초 상황",
+      "kind": "narrative",
+      "prompt": "최초 상황 접수·전파를 2~3문장으로"
+    },
+    {
+      "key": "timeline",
+      "title": "3. 시간대별 주요 상황",
+      "kind": "fact",
+      "block": "시간대별조치"
+    },
+    {
+      "key": "tasks",
+      "title": "4. SOP 임무 수행 내역",
+      "kind": "fact",
+      "block": "임무수행"
+    },
+    {
+      "key": "dispatch",
+      "title": "5. 전파 및 수신 확인 내역",
+      "kind": "fact",
+      "block": "전파수신"
+    },
+    {
+      "key": "field",
+      "title": "6. 현장 조치 결과",
+      "kind": "fact",
+      "block": "현장보고"
+    },
+    {
+      "key": "incomplete",
+      "title": "7. 미완료 및 개선 필요사항",
+      "kind": "fact",
+      "block": "미완료"
+    },
+    {
+      "key": "opinion",
+      "title": "8. 종합 의견",
+      "kind": "narrative",
+      "prompt": "임무 수행 결과를 근거로 종합 의견 2~4문장"
+    }
+  ]
+}

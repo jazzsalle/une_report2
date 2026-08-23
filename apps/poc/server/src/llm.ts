@@ -328,8 +328,9 @@ export function defaultSop(ex: ExerciseLike): SopGraph {
 
 // ── 서술 ──────────────────────────────────────────────────────────────────
 
-export async function narrate(kind: string, facts: string, extra = ''): Promise<string> {
-  const q = `다음 사실 기록을 바탕으로 안전한국훈련 상황일지의 "${kind}" 절을 공문서 문체로 2~4문장 작성하라. 사실에 없는 내용은 쓰지 말 것. 텍스트만 출력.
+/** 서술 절 생성 — docName으로 문서 종류(즉보·중간보고·상황일지·훈련결과 …)를 바꾼다(범용화 ③ 2026-08-23; 기본값은 예전 상황일지) */
+export async function narrate(kind: string, facts: string, extra = '', docName = '안전한국훈련 상황일지'): Promise<string> {
+  const q = `다음 사실 기록을 바탕으로 ${docName}의 "${kind}" 절을 공문서 문체로 2~4문장 작성하라. 사실에 없는 내용은 쓰지 말 것. 텍스트만 출력.
 [사실 기록]
 ${facts}
 ${extra}`;
