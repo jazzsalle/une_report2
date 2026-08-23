@@ -10,7 +10,7 @@ export function SitShell() {
   const [user, setUser, users] = useUser();
   const loc = useLocation();
   const m = loc.pathname.match(/^\/sit\/([^/]+)/);
-  const exId = m && !['new', 'data', 'settings', 'trash'].includes(m[1]) ? m[1] : null;
+  const exId = m && !['new', 'data', 'manuals', 'settings', 'trash'].includes(m[1]) ? m[1] : null;
   const [ex, setEx] = useState<Exercise | null>(null);
   const [meeting, setMeeting] = useState(false);
   const [tick, setTick] = useState(0); // 회의 저장 뒤 띠 갱신
@@ -35,7 +35,7 @@ export function SitShell() {
             {item(`/sit/${exId}/dispatch`, '상황/임무 전파', true)}
             {item(`/sit/${exId}/board`, '전자 상황판', true)}
             {item(`/sit/${exId}/journal`, '상황일지 관리', true)}
-            {item('/sit/data', '연계 데이터')}
+            {item('/sit/manuals', '매뉴얼·SOP 템플릿')}
             {item('/sit/settings', '기관·조직 설정')}
             {item('/sit/trash', '휴지통')}
           </nav>

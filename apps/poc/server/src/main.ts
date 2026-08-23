@@ -11,6 +11,7 @@ import { t3qStatus, t3qContentToMarkdown } from './t3q.js';
 import { initRhwp, rhwpVersion, profileTemplate, buildHwpx, renderHwpxSvg, extractParagraphs, PROFILE_VERSION, type TemplateProfile } from './hwpx.js';
 import * as llm from './llm.js';
 import { getWeather, getWarnings, weatherStatus } from './weather.js';
+import { extractCards, buildTemplateGraph, MANUAL_STAGES, type ActionCard, type ManualStage } from './manuals.js';
 import type { PlanContext, TocNode, SopGraph } from './llm.js';
 
 const app = express();
@@ -297,7 +298,7 @@ type ExMode = '실제상황' | '안전한국훈련' | '도상훈련';
 type ExStage = '징후감지' | '초기대응' | '비상1' | '비상2·3' | '수습복구';
 /** 2026-08-23 범용화 ①: mode·stage·경보/단계 이력·특보 스냅샷은 "필드 추가"만 — 없는 행은 훈련(안전한국훈련)으로 읽는다 */
 interface ExerciseRow extends Row { chat?: ChatMsg[]; citedSources?: { filename: string; score: number; text: string; doc_id?: string }[]; title: string; hazardType: string; phase: string; alertLevel: string; occurredAt: string; location: string; agency: string; dept: string; scenario: string; refData: string[]; options: string[]; status: ExStatus; linkedPlanId: string | null; startedAt?: string; closedAt?: string; createdBy: string; analysis?: { suggestion: string; basis: string; at: string };
-  mode?: ExMode; stage?: ExStage; alertHistory?: { level: string; at: string; by?: string; reason?: string; meetingId?: string }[]; stageHistory?: { stage: ExStage; at: string; by?: string; meetingId?: string }[]; warningsSnapshot?: { at: string; active: { kind: string; level: string; regions: string }[] } }
+  mode?: ExMode; stage?: ExStage; alertHistory?: { level: string; at: string; by?: string; reason?: string; meetingId?: string }[]; stageHistory?: { stage: ExStage; at: string; by?: string; meetingId?: string }[]; warningsSnapshot?: { at: string; active: { kind: string; level: string; regions: string }[] }; sopTemplateId?: string | null }
 interface MeetingRow extends Row { exerciseId: string; at: string; chair: string; attendees: string[]; agenda: string; decisions: { alertLevel?: string; stage?: ExStage; evacuation?: boolean; cbs?: boolean; other?: string }; memo?: string; by?: string }
 interface SopRow extends Row { exerciseId: string; version: number; graph: SopGraph }
 type TaskStatus = '대기' | '전파완료' | '수신확인' | '수행중' | '완료' | '지연' | '미완료' | '지원요청';
@@ -336,7 +337,7 @@ app.post('/api/exercises', async (req, res) => {
   let warningsSnapshot: ExerciseRow['warningsSnapshot'] = b.warningsSnapshot;
   if (mode === '실제상황' && !warningsSnapshot) { try { const w = await getWarnings(); warningsSnapshot = { at: w.fetchedAt, active: w.active }; } catch { /* 특보 없이 진행 */ } }
   const ex = exercises.insert({ title: b.title ?? (mode === '실제상황' ? '상황' : '훈련'), hazardType: b.hazardType ?? '태풍/호우', phase: b.phase ?? '대응', alertLevel: b.alertLevel ?? '경계', occurredAt: b.occurredAt ?? now(), location: b.location ?? '', agency: b.agency ?? '', dept: b.dept ?? '', scenario: b.scenario ?? '', refData: b.refData ?? [], options: b.options ?? [], status: 'DRAFT', linkedPlanId: b.linkedPlanId ?? null, createdBy: b.createdBy ?? '사용자', chat: Array.isArray(b.chat) ? b.chat : [], citedSources: Array.isArray(b.citedSources) ? b.citedSources : [],
-    mode, stage: (b.stage as ExStage) ?? '초기대응', alertHistory: [{ level: b.alertLevel ?? '경계', at: now(), by: b.createdBy, reason: '상황 생성' }], stageHistory: [{ stage: (b.stage as ExStage) ?? '초기대응', at: now(), by: b.createdBy }], warningsSnapshot });
+    mode, sopTemplateId: typeof b.sopTemplateId === 'string' && b.sopTemplateId ? b.sopTemplateId : null, stage: (b.stage as ExStage) ?? '초기대응', alertHistory: [{ level: b.alertLevel ?? '경계', at: now(), by: b.createdBy, reason: '상황 생성' }], stageHistory: [{ stage: (b.stage as ExStage) ?? '초기대응', at: now(), by: b.createdBy }], warningsSnapshot });
   logEvent(ex.id, '최초상황', `${ex.title} — ${ex.scenario.slice(0, 80) || (mode === '실제상황' ? '상황 등록' : '훈련상황 등록')}`, { source: mode === '실제상황' ? '상황 접수' : '훈련 시나리오', dept: ex.dept, actor: ex.createdBy, status: '기록완료' });
   if (warningsSnapshot?.active.length) { const hit = warningsFor(ex.location, warningsSnapshot.active); if (hit.length) logEvent(ex.id, '기상특보', `생성 시점 발효 특보: ${hit.map((w) => w.kind).join(', ')}`, { source: '기상청 특보', status: '참고' }); }
   if (ex.linkedPlanId) { const p = plans.get(ex.linkedPlanId); if (p) plans.update(p.id, { linkedExercises: [...new Set([...p.linkedExercises, ex.id])] }); }
@@ -464,12 +465,17 @@ function chatSummaryOf(ex: ExerciseRow): string | undefined {
   return c.slice(-10).map((m) => `${m.role === 'user' ? 'Q' : 'A'}: ${m.text.slice(0, 400)}`).join('\n').slice(0, 3000);
 }
 async function generateSopFor(ex: ExerciseRow, onStatus?: (status: string) => void) {
-  const graph = await llm.generateSop(ex, planExcerptFor(ex.linkedPlanId), chatSummaryOf(ex), onStatus);
+  // 범용화 ②: SOP 템플릿(매뉴얼 조치카드)이 지정돼 있으면 유니 생성 대신 템플릿을 복제한다 — 즉시 끝나고 근거가 매뉴얼 코드로 남는다
+  const tpl = ex.sopTemplateId ? sopTemplates.get(ex.sopTemplateId) : undefined;
+  const graph: SopGraph = tpl
+    ? { ...structuredClone(tpl.graph), mapperVersion: `template:${tpl.id}`, warnings: [...tpl.graph.warnings, `SOP 템플릿 "${tpl.name}"에서 생성`] }
+    : await llm.generateSop(ex, planExcerptFor(ex.linkedPlanId), chatSummaryOf(ex), onStatus);
+  if (tpl) onStatus?.('end');
   for (const s of ex.citedSources ?? []) if (!graph.sources.some((g) => (g as { filename?: string }).filename === s.filename)) graph.sources.push(s);
   const v = (latestSop(ex.id)?.version ?? 0) + 1;
   const sop = sops.insert({ exerciseId: ex.id, version: v, graph });
   exercises.update(ex.id, { status: 'SOP_READY' });
-  logEvent(ex.id, '상황판단', `초기 상황판단 SOP 생성 (v${v}, ${graph.nodes.length}노드, ${graph.mapperVersion})`, { source: graph.mapperVersion === 'uni-sop-2' ? 'UNI RAG' : '기본 SOP', dept: ex.dept, status: '진행중' });
+  logEvent(ex.id, '상황판단', `초기 상황판단 SOP 생성 (v${v}, ${graph.nodes.length}노드, ${tpl ? `템플릿 ${tpl.name}` : graph.mapperVersion})`, { source: tpl ? '매뉴얼 SOP 템플릿' : graph.mapperVersion === 'uni-sop-2' ? 'UNI RAG' : '기본 SOP', dept: ex.dept, status: '진행중' });
   return sop;
 }
 app.post('/api/exercises/:id/sop/generate', async (req, res) => {
@@ -621,6 +627,91 @@ app.get('/api/exercises/:id/journal/preview', async (req, res) => { const j = jo
 
 // UNI 문서 목록(연계 데이터 화면·참조 데이터 선택)
 app.get('/api/uni/documents', async (req, res) => { try { res.json(await listDocuments(Number(req.query.page ?? 1), Number(req.query.size ?? 20))); } catch (e) { res.json({ documents: [], total: 0, error: (e as Error).message }); } });
+
+// ── 매뉴얼 지식화 (범용화 ②, 2026-08-23) ─────────────────────────────────────
+/** 매뉴얼 한 권 = 유니에 올라간 문서(들)에서 조치카드를 추출한 단위. 추출은 유니 검색을 순차로 13~100회 돌리므로 SSE로 진행을 흘린다 */
+interface ManualRow extends Row { name: string; hazard: string; tier: '표준' | '실무' | '현장조치'; org: string; version?: string; queryPrefix: string; docFilter: string; docNames: string[]; extractedAt?: string; cardCount: number; lastRun?: { queries: number; elapsedMs: number; skippedDocs: string[] }; deletedAt?: string; deletedBy?: string }
+interface ActionCardRow extends Row, ActionCard { manualId: string; reviewed: boolean; note?: string }
+interface SopTemplateRow extends Row { name: string; hazard: string; manualId: string; stages: ManualStage[]; coops: string[]; graph: SopGraph; createdBy?: string; deletedAt?: string; deletedBy?: string }
+const manuals = col<ManualRow>('manuals');
+const actionCards = col<ActionCardRow>('action_cards');
+const sopTemplates = col<SopTemplateRow>('sop_templates');
+const liveManuals = () => manuals.where((m) => !m.deletedAt);
+const liveTemplates = () => sopTemplates.where((t) => !t.deletedAt);
+const extracting = new Set<string>();
+
+app.get('/api/manuals', (_req, res) => res.json(liveManuals().map((m) => ({ ...m, cardCount: actionCards.where((c) => c.manualId === m.id).length, reviewedCount: actionCards.where((c) => c.manualId === m.id && c.reviewed).length, templateCount: liveTemplates().filter((t) => t.manualId === m.id).length, extracting: extracting.has(m.id) }))));
+app.post('/api/manuals', (req, res) => {
+  const b = req.body ?? {}; if (!b.name) return bad(res, 400, 'name 필요');
+  const m = manuals.insert({ name: String(b.name), hazard: b.hazard ?? '태풍/호우', tier: ['표준', '실무', '현장조치'].includes(b.tier) ? b.tier : '현장조치', org: b.org ?? '', version: b.version, queryPrefix: b.queryPrefix || String(b.name), docFilter: b.docFilter ?? '', docNames: Array.isArray(b.docNames) ? b.docNames : [], cardCount: 0 });
+  res.json(m);
+});
+app.put('/api/manuals/:id', (req, res) => { const m = manuals.get(req.params.id); if (!m) return bad(res, 404, '없음'); res.json(manuals.update(m.id, req.body)); });
+app.delete('/api/manuals/:id', (req, res) => { const m = manuals.get(req.params.id); if (!m) return bad(res, 404, '없음'); manuals.update(m.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
+/** 유니 문서 중 매뉴얼 후보(파일명에 매뉴얼/지침/행동/계획) */
+app.get('/api/uni/manual-docs', async (_req, res) => {
+  try { const r = await listDocuments(1, 100); const docs = (r.documents as { doc_id: string; filename: string; status?: string }[]).filter((d) => /매뉴얼|메뉴얼|지침|행동|계획/.test(d.filename)); res.json({ documents: docs, total: r.total }); }
+  catch (e) { res.json({ documents: [], total: 0, error: (e as Error).message }); }
+});
+/** 조치카드 추출(SSE): progress {phase,i,total,query,found,unique,elapsedMs} → done {cardCount,…}. 기존 카드는 코드 기준으로 갱신하고 검수 표시·검수된 단계는 유지 */
+app.get('/api/manuals/:id/extract/stream', async (req, res) => {
+  const m = manuals.get(req.params.id); if (!m) return bad(res, 404, '없음');
+  if (extracting.has(m.id)) return bad(res, 409, '이미 추출 중');
+  res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Connection', 'keep-alive'); res.flushHeaders();
+  const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  extracting.add(m.id);
+  try {
+    const org = ensureOrg();
+    const depth = req.query.depth === 'deep' ? 'deep' : 'quick';
+    const r = await extractCards({ queryPrefix: m.queryPrefix, docFilter: m.docFilter || undefined, coops: org.coopFunctions, depth, gapFill: depth === 'deep' || req.query.gapFill === '1' }, (p) => send('progress', p));
+    const existing = actionCards.where((c) => c.manualId === m.id);
+    let added = 0, updated = 0;
+    for (const c of r.cards) {
+      const cur = existing.find((x) => x.code === c.code);
+      if (cur) { actionCards.update(cur.id, { ...c, reviewed: cur.reviewed, note: cur.note, stage: cur.reviewed ? cur.stage : c.stage }); updated++; }
+      else { actionCards.insert({ ...c, manualId: m.id, reviewed: false }); added++; }
+    }
+    manuals.update(m.id, { docNames: r.docs, extractedAt: now(), cardCount: actionCards.where((c) => c.manualId === m.id).length, lastRun: { queries: r.queries, elapsedMs: r.elapsedMs, skippedDocs: r.skippedDocs } });
+    send('done', { cardCount: r.cards.length, added, updated, docs: r.docs, skippedDocs: r.skippedDocs, queries: r.queries, elapsedMs: r.elapsedMs });
+  } catch (e) { send('error', { error: (e as Error).message }); }
+  finally { extracting.delete(m.id); res.end(); }
+});
+const cardSort = (a: ActionCardRow, b: ActionCardRow) => (a.stage ? MANUAL_STAGES.indexOf(a.stage) : 99) - (b.stage ? MANUAL_STAGES.indexOf(b.stage) : 99) || a.coop.localeCompare(b.coop) || a.seq[0] - b.seq[0] || a.seq[1] - b.seq[1];
+app.get('/api/manuals/:id/cards', (req, res) => res.json(actionCards.where((c) => c.manualId === req.params.id).sort(cardSort)));
+app.put('/api/manuals/:id/cards/:cid', (req, res) => { const c = actionCards.get(req.params.cid); if (!c || c.manualId !== req.params.id) return bad(res, 404, '없음'); res.json(actionCards.update(c.id, req.body)); });
+app.delete('/api/manuals/:id/cards/:cid', (req, res) => { const c = actionCards.get(req.params.cid); if (!c || c.manualId !== req.params.id) return bad(res, 404, '없음'); actionCards.remove(c.id); res.json({ ok: true }); });
+/** SOP 편집 화면 "매뉴얼 카드에서 가져오기" — 재난유형·검색어로 카드 찾기 */
+app.get('/api/action-cards', (req, res) => {
+  const q = String(req.query.q ?? '').trim(); const hazard = String(req.query.hazard ?? '');
+  const mIds = liveManuals().filter((m) => !hazard || m.hazard === hazard).map((m) => m.id);
+  let rows = actionCards.where((c) => mIds.includes(c.manualId));
+  if (q) rows = rows.filter((c) => [c.code, c.title, c.content, c.lead, ...c.support, ...c.partner, ...c.checklist].join(' ').includes(q));
+  res.json(rows.sort(cardSort).slice(0, 200).map((c) => ({ ...c, manualName: manuals.get(c.manualId)?.name })));
+});
+app.get('/api/sop-templates', (req, res) => { const hazard = String(req.query.hazard ?? ''); res.json(liveTemplates().filter((t) => !hazard || t.hazard === hazard).map((t) => ({ id: t.id, name: t.name, hazard: t.hazard, manualId: t.manualId, manualName: manuals.get(t.manualId)?.name, stages: t.stages, coops: t.coops, nodes: t.graph.nodes.length, createdAt: t.createdAt, createdBy: t.createdBy }))); });
+app.get('/api/sop-templates/:id', (req, res) => { const t = sopTemplates.get(req.params.id); if (!t || t.deletedAt) return bad(res, 404, '없음'); res.json(t); });
+app.post('/api/manuals/:id/templates', (req, res) => {
+  const m = manuals.get(req.params.id); if (!m) return bad(res, 404, '없음');
+  const b = req.body ?? {};
+  const stages = (Array.isArray(b.stages) ? b.stages : []).filter((s: string) => (MANUAL_STAGES as string[]).includes(s)) as ManualStage[];
+  const coops: string[] = Array.isArray(b.coops) ? b.coops : [];
+  let cards = actionCards.where((c) => c.manualId === m.id);
+  if (b.onlyReviewed) cards = cards.filter((c) => c.reviewed);
+  const graph = buildTemplateGraph(cards, { hazard: b.hazard ?? m.hazard, stages, coops, maxNodes: Number(b.maxNodes) || undefined }, m.docNames);
+  res.json(sopTemplates.insert({ name: b.name || `${m.hazard} SOP 템플릿`, hazard: b.hazard ?? m.hazard, manualId: m.id, stages, coops, graph, createdBy: b.by }));
+});
+app.put('/api/sop-templates/:id', (req, res) => { const t = sopTemplates.get(req.params.id); if (!t) return bad(res, 404, '없음'); res.json(sopTemplates.update(t.id, req.body)); });
+app.delete('/api/sop-templates/:id', (req, res) => { const t = sopTemplates.get(req.params.id); if (!t) return bad(res, 404, '없음'); sopTemplates.update(t.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
+/** 기존 상황에 템플릿으로 SOP 새 버전 만들기 */
+app.post('/api/exercises/:id/sop/from-template', (req, res) => {
+  const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음');
+  const t = sopTemplates.get(String(req.body?.templateId ?? '')); if (!t) return bad(res, 404, '템플릿 없음');
+  const v = (latestSop(ex.id)?.version ?? 0) + 1;
+  const sop = sops.insert({ exerciseId: ex.id, version: v, graph: { ...structuredClone(t.graph), mapperVersion: `template:${t.id}`, warnings: [...t.graph.warnings, `SOP 템플릿 "${t.name}"에서 생성`] } });
+  exercises.update(ex.id, { status: ex.status === 'DRAFT' ? 'SOP_READY' : ex.status, sopTemplateId: t.id });
+  logEvent(ex.id, '상황판단', `SOP 템플릿 "${t.name}" 적용 (v${v}, ${t.graph.nodes.length}노드)`, { source: '매뉴얼 SOP 템플릿', dept: ex.dept, status: '진행중' });
+  res.json(sop);
+});
 
 // ── 연동 ──────────────────────────────────────────────────────────────────
 app.post('/api/link/plan-to-exercise', (req, res) => {

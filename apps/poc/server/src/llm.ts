@@ -219,6 +219,9 @@ export type NodeType = 'START' | 'TASK' | 'DECISION' | 'DISPATCH' | 'FIELD_CHECK
 export interface SopNode {
   id: string; type: NodeType; title: string; dept?: string; assignee?: string;
   priority?: string; due?: string; channels?: string[]; tasks?: string[]; logRules?: string[];
+  // 범용화 ② (2026-08-23): 매뉴얼 조치카드 출처 — 코드·협업기능·주관/지원/협업·연계코드·단계·원문. 필드 추가만(없으면 기존 노드)
+  code?: string; coop?: string; lead?: string; support?: string[]; partner?: string[]; linkedCodes?: string[]; stage?: string;
+  sourceRef?: { doc: string; score: number; excerpt: string };
 }
 export interface SopEdge { from: string; to: string; label?: string }
 export interface SopGraph { nodes: SopNode[]; edges: SopEdge[]; sources: unknown[]; mapperVersion: string; warnings: string[] }
@@ -226,7 +229,7 @@ export interface SopGraph { nodes: SopNode[]; edges: SopEdge[]; sources: unknown
 const TYPE_CODES: Record<string, NodeType> = { '104001': 'START', '104003': 'TASK', '104005': 'DECISION' };
 
 /** 제목 키워드로 TASK를 세분한다 (전파/현장확인/자동기록). */
-function refineType(t: NodeType, title: string): NodeType {
+export function refineType(t: NodeType, title: string): NodeType {
   if (t !== 'TASK') return t;
   if (/전파|통보|알림|공지|요청/.test(title)) return 'DISPATCH';
   if (/현장|점검|확인|출동|순찰/.test(title)) return 'FIELD_CHECK';

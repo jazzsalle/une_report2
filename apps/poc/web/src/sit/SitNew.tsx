@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { get, post, HAZARDS, MODES, ALERT_COLOR, type Exercise, type ExMode, type PlanSummary, type Warnings, type WarningItem } from '../api';
+import { get, post, HAZARDS, MODES, ALERT_COLOR, type Exercise, type ExMode, type PlanSummary, type Warnings, type WarningItem, type SopTemplateSummary } from '../api';
 import { Btn, C, Card, Chip, Field, Input, Select, Textarea, Toast, useToast, useUser } from '../ui';
 
 interface Src { filename: string; score: number; text: string; doc_id?: string }
@@ -22,6 +22,10 @@ export function SitNew() {
   const [f, setF] = useState({ title: `${new Date().getFullYear()} 안전한국훈련 · 풍수해 대응 훈련`, hazardType: '태풍/호우', phase: '대응', alertLevel: '경계', occurredAt: new Date().toISOString().slice(0, 16), location: '', agency: '', dept: user?.dept ?? '', scenario: '' });
   const [options, setOptions] = useState<string[]>(OPTIONS.slice(0, 4).concat(['판단분기 포함', '현장 확인 요청 포함']));
   const [linkedPlanId, setLinkedPlanId] = useState<string | null>(null);
+  // 범용화 ②: 재난유형에 맞는 SOP 템플릿(매뉴얼 조치카드)이 있으면 유니 생성 대신 고를 수 있다
+  const [templates, setTemplates] = useState<SopTemplateSummary[]>([]);
+  const [sopTemplateId, setSopTemplateId] = useState<string>('');
+  useEffect(() => { get<SopTemplateSummary[]>(`/sop-templates?hazard=${encodeURIComponent(f.hazardType)}`).then((t) => { setTemplates(t); setSopTemplateId((cur) => (t.some((x) => x.id === cur) ? cur : t[0]?.id ?? '')); }).catch(() => setTemplates([])); }, [f.hazardType]);
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [chat, setChat] = useState<Msg[]>([]);
   const [q, setQ] = useState('');
@@ -58,7 +62,7 @@ export function SitNew() {
     if (!f.title.trim()) return show(real ? '상황명을 입력하세요' : '훈련명을 입력하세요');
     setBusy(true);
     try {
-      const ex = await post<Exercise>('/exercises', { ...f, mode, warningsSnapshot: real && warn ? { at: warn.fetchedAt, active: warn.active } : undefined, occurredAt: new Date(f.occurredAt).toISOString(), refData: cited().map((s) => s.filename), options, linkedPlanId, createdBy: user?.name, chat: chat.filter((m) => !m.streaming), citedSources: cited() });
+      const ex = await post<Exercise>('/exercises', { ...f, mode, warningsSnapshot: real && warn ? { at: warn.fetchedAt, active: warn.active } : undefined, sopTemplateId: sopTemplateId || null, occurredAt: new Date(f.occurredAt).toISOString(), refData: cited().map((s) => s.filename), options, linkedPlanId, createdBy: user?.name, chat: chat.filter((m) => !m.streaming), citedSources: cited() });
       nav(`/sit/${ex.id}/sop?generate=1`);
     } catch (e) { show((e as Error).message); setBusy(false); }
   };
@@ -142,12 +146,17 @@ export function SitNew() {
       </Card>
       {/* 옵션·미리보기 */}
       <div style={{ overflow: 'auto' }}>
+        <Card title="SOP 출처" style={{ marginBottom: 12 }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, marginBottom: 6 }}><input type="radio" name="sopsrc" checked={!sopTemplateId} onChange={() => setSopTemplateId('')} style={{ marginTop: 3 }} /><span><b>유니 AI 생성</b><div style={{ color: C.muted, fontSize: 11.5 }}>RAG 질의로 8~12개 임무를 새로 만듭니다 (60~80초)</div></span></label>
+          {templates.length ? templates.map((t) => <label key={t.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, marginBottom: 6 }}><input type="radio" name="sopsrc" checked={sopTemplateId === t.id} onChange={() => setSopTemplateId(t.id)} style={{ marginTop: 3 }} /><span><b>{t.name}</b> <Chip tone="green">매뉴얼</Chip><div style={{ color: C.muted, fontSize: 11.5 }}>{t.manualName} · 임무 {t.nodes}개 · 즉시 생성, 조치카드 코드 근거</div></span></label>)
+            : <div style={{ fontSize: 11.5, color: C.muted }}>{f.hazardType} SOP 템플릿이 없습니다 — [매뉴얼·SOP 템플릿]에서 매뉴얼을 추출해 만들 수 있습니다.</div>}
+        </Card>
         <Card title="생성 옵션" style={{ marginBottom: 12 }}>
           {OPTIONS.map((o) => <label key={o} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, marginBottom: 6 }}><input type="checkbox" checked={options.includes(o)} onChange={(e) => setOptions(e.target.checked ? [...options, o] : options.filter((x) => x !== o))} />{o}</label>)}
         </Card>
         <Card title="생성 결과 미리보기" style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, marginBottom: 8 }}><b>대화·근거</b> <Chip tone="purple">AI</Chip><div style={{ color: C.muted, marginTop: 2 }}>질의 {answers}회 · 인용 근거 {cited().length}건</div>{cited().slice(0, 4).map((s, i) => <div key={i} style={{ fontSize: 11, color: C.muted }}>· {s.filename}</div>)}</div>
-          <div style={{ fontSize: 12, marginBottom: 8 }}><b>생성 예정 SOP</b> <Chip tone="purple">AI 생성</Chip><div style={{ color: C.muted, marginTop: 2 }}>8~12개 임무 · 판단분기 {options.includes('판단분기 포함') ? '포함' : '제외'} · 현장확인 {options.includes('현장 확인 요청 포함') ? '포함' : '제외'}</div></div>
+          <div style={{ fontSize: 12, marginBottom: 8 }}><b>생성 예정 SOP</b> {sopTemplateId ? <Chip tone="green">매뉴얼 템플릿</Chip> : <Chip tone="purple">AI 생성</Chip>}<div style={{ color: C.muted, marginTop: 2 }}>{sopTemplateId ? `임무 ${templates.find((t) => t.id === sopTemplateId)?.nodes ?? '-'}개(매뉴얼 조치카드) · 즉시 생성` : '8~12개 임무'} · 판단분기 {options.includes('판단분기 포함') ? '포함' : '제외'} · 현장확인 {options.includes('현장 확인 요청 포함') ? '포함' : '제외'}</div></div>
           <div style={{ fontSize: 12, marginBottom: 8 }}><b>전파 메시지</b> <Chip tone="purple">AI 생성</Chip><div style={{ color: C.muted, marginTop: 2 }}>임무별 템플릿 · 담당자 수신 확인 요청 포함</div></div>
           <div style={{ fontSize: 12 }}><b>상황일지 초안</b> <Chip tone="purple">AI 생성</Chip><div style={{ color: C.muted, marginTop: 2 }}>최초상황 · 주요 조치 · 현장확인 · 향후계획 구성</div></div>
           <div style={{ marginTop: 10, padding: 8, background: '#f4f5f6', borderRadius: 8, fontSize: 11, color: C.muted, border: `1px dashed ${C.border}` }}>AI 생성 결과는 초안이며, 최종 확정과 전파는 담당자 검토 후 수행됩니다.</div>
