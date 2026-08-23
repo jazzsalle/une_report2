@@ -1,8 +1,11 @@
 /** 서버 API 얇은 클라이언트. 실패는 Error로 던진다. */
 export async function api<T = unknown>(method: string, path: string, body?: unknown, form?: FormData): Promise<T> {
+  // 현재 선택 사용자(헤더 드롭다운, localStorage poc.user)를 X-User로 보내 서버가 수정자를 기록한다(2026-08-23)
+  let who = ''; try { who = (JSON.parse(localStorage.getItem('poc.user') ?? 'null') as { name?: string } | null)?.name ?? ''; } catch { who = ''; }
+  const userHeader: Record<string, string> = who && method !== 'GET' ? { 'X-User': encodeURIComponent(who) } : {};
   const r = await fetch(`/api${path}`, {
     method,
-    headers: form ? undefined : body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { ...userHeader, ...(form ? {} : body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
     body: form ?? (body !== undefined ? JSON.stringify(body) : undefined),
   });
   const text = await r.text();

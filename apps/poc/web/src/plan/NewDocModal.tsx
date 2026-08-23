@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { post, put, type PlanContext } from '../api';
+import { get, post, put, fmtDT, type PlanContext, type PlanSummary } from '../api';
 import { useUser } from '../ui';
 import { KBtn, KField, KInput, KModal } from '../krds';
 
@@ -14,6 +14,10 @@ export function NewDocModal({ source, onClose }: { source: NewDocSource; onClose
   const nav = useNavigate();
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
+  // 중복 이름 정책(가, 2026-08-23): 같은 이름이 있어도 만들 수 있되 경고한다 — 기관에서는 연도·차수별 같은 제목이 흔하다
+  const [all, setAll] = useState<PlanSummary[]>([]);
+  useEffect(() => { get<PlanSummary[]>('/plans').then(setAll).catch(() => {}); }, []);
+  const dup = all.filter((p) => p.title.trim() === title.trim());
   const create = async () => {
     if (!title.trim() || busy) return;
     setBusy(true);
@@ -28,7 +32,8 @@ export function NewDocModal({ source, onClose }: { source: NewDocSource; onClose
       <KField label="문서 명" required htmlFor="newdoc-title" hint="저장 후 기준정보 입력 화면으로 이동합니다.">
         <KInput id="newdoc-title" autoFocus maxLength={20} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 2026 폭염 대비 계획서" onKeyDown={(e) => { if (e.key === 'Enter') void create(); }} />
       </KField>
-      <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={onClose}>취소</KBtn><KBtn kind="primary" size="sm" disabled={!title.trim() || busy} onClick={() => void create()}>저장하기</KBtn></div>
+      {dup.length > 0 && <p role="alert" style={{ margin: '-6px 0 10px', fontSize: 13, color: '#c2410c' }}>같은 이름의 문서가 이미 {dup.length}건 있습니다 ({dup.slice(0, 2).map((d) => `${d.createdBy} · ${fmtDT(d.createdAt).slice(0, 10)}`).join(', ')}{dup.length > 2 ? ' 외' : ''}). 그대로 만들 수 있지만 목록에서 구분하기 어려울 수 있습니다.</p>}
+      <div className="row" style={{ justifyContent: 'flex-end' }}><KBtn size="sm" onClick={onClose}>취소</KBtn><KBtn kind="primary" size="sm" disabled={!title.trim() || busy} onClick={() => void create()}>{dup.length ? '그래도 저장하기' : '저장하기'}</KBtn></div>
     </KModal>
   );
 }
