@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SitHome } from './sit/SitHome';
 import { Trash } from './Trash';
+import { SitOrg } from './sit/SitOrg';
 import { WeatherPage } from './WeatherPage';
 import { Home } from './Home';
 import { PlanShell } from './plan/PlanShell';
@@ -19,7 +20,7 @@ import { SitSop } from './sit/SitSop';
 import { SitDispatch } from './sit/SitDispatch';
 import { SitBoard } from './sit/SitBoard';
 import { SitJournal } from './sit/SitJournal';
-import { SitStatic } from './sit/SitStatic';
+import { SitManuals } from './sit/SitManuals';
 import { Mobile } from './sit/Mobile';
 import { font } from './ui';
 
@@ -46,8 +47,9 @@ createRoot(document.getElementById('root')!).render(
           <Route index element={<SitHome />} />
           <Route path="trash" element={<Trash scope="sit" />} />
           <Route path="new" element={<SitNew />} />
-          <Route path="data" element={<SitStatic kind="data" />} />
-          <Route path="settings" element={<SitStatic kind="settings" />} />
+          <Route path="manuals" element={<SitManuals />} />
+          <Route path="data" element={<Navigate to="/sit/manuals" replace />} />
+          <Route path="settings" element={<SitOrg />} />
           <Route path=":id" element={<SitDashboard />} />
           <Route path=":id/sop" element={<SitSop />} />
           <Route path=":id/dispatch" element={<SitDispatch />} />

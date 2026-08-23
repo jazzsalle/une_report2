@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { get, post, fmtTime, fmtDate, type Board, type Event, type Exercise, type PlanSummary } from '../api';
+import { get, post, fmtTime, fmtDate, ALERT_COLOR, MODE_LABEL, type Board, type Event, type Exercise, type PlanSummary, type PendingWarning } from '../api';
 import { Btn, C, Card, Chip, Empty, Stat, Table, Toast, statusTone, useToast } from '../ui';
 
 const FLOW = ['T3Q·유니 연계', '훈련상황 생성', 'SOP 생성/편집', '임무 전파', '현장 확인', '상황내역 자동 기록', '상황일지 생성'];
@@ -13,6 +13,10 @@ export function SitDashboard() {
   const [events, setEvents] = useState<Event[]>([]);
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [toast, show] = useToast();
+  const [pend, setPend] = useState<PendingWarning[]>([]);
+  const loadPend = () => { if (id) get<PendingWarning[]>(`/exercises/${id}/pending-warnings`).then(setPend).catch(() => {}); };
+  useEffect(() => { loadPend(); const t = setInterval(loadPend, 30000); return () => clearInterval(t); }, [id]);
+  const actPend = async (pid: string, action: 'record' | 'dismiss') => { await post(`/exercises/${id}/pending-warnings/${pid}/${action}`, {}); show(action === 'record' ? '기상특보를 기록했습니다' : '특보 후보를 지웠습니다'); loadPend(); };
   useEffect(() => { get<Exercise[]>('/exercises').then((l) => { setList(l); }); get<PlanSummary[]>('/plans').then((p) => setPlans(p.filter((x) => x.hasToc))); }, [id]);
   useEffect(() => { if (!id) return; const load = () => { get<Board>(`/exercises/${id}/board`).then(setBoard).catch(() => setBoard(null)); get<Event[]>(`/exercises/${id}/events`).then(setEvents).catch(() => {}); }; load(); const t = setInterval(load, 4000); return () => clearInterval(t); }, [id]);
   if (!id || !board) return (
@@ -37,7 +41,7 @@ export function SitDashboard() {
         <Link to="/sit/new"><Btn small>+ 새 훈련</Btn></Link>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-        <Card title="훈련상황"><div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>{ex.hazardType}</div><div style={{ fontSize: 12, color: C.muted, lineHeight: 1.9 }}>발생위치 {ex.location || '-'}<br />발생일시 {fmtDate(ex.occurredAt)}<br />훈련기관 {ex.agency || '-'}</div></Card>
+        <Card title={MODE_LABEL[ex.mode ?? '안전한국훈련'] === '실제' ? '재난 상황' : '훈련상황'}><div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>{ex.hazardType}<span style={{ fontSize: 12, fontWeight: 700, padding: '1px 8px', borderRadius: 4, background: (ALERT_COLOR[ex.alertLevel] ?? ALERT_COLOR.관심).bg, color: (ALERT_COLOR[ex.alertLevel] ?? ALERT_COLOR.관심).fg }}>경보 {ex.alertLevel}</span><Chip tone="orange">{ex.stage ?? '초기대응'}</Chip></div><div style={{ fontSize: 12, color: C.muted, lineHeight: 1.9 }}>발생위치 {ex.location || '-'}<br />발생일시 {fmtDate(ex.occurredAt)}<br />훈련기관 {ex.agency || '-'}</div></Card>
         <Card title={`SOP 진행률 · 전체 ${board.total}건`}><div style={{ display: 'flex', gap: 12, alignItems: 'center' }}><div style={{ fontSize: 12, lineHeight: 2 }}><span style={{ color: C.green }}>●</span> 완료 {board.done} &nbsp; <span style={{ color: C.blue }}>●</span> 진행중 {board.inProgress}<br /><span style={{ color: C.orange }}>●</span> 지연 {board.delayed} &nbsp; <span style={{ color: C.gray }}>●</span> 대기 {board.waiting + board.dispatched}</div>{donut(pct)}</div></Card>
         <Card title="임무 전파 현황"><Stat label="" value={<span>{board.acked} <span style={{ fontSize: 14, color: C.muted, fontWeight: 400 }}>/ {board.total}명 수신 확인</span></span>} /><div className="progress" style={{ margin: '8px 0' }} role="progressbar" aria-valuemin={0} aria-valuemax={board.total} aria-valuenow={board.acked} aria-label="수신 확인"><span style={{ width: `${board.total ? (board.acked / board.total) * 100 : 0}%` }} /></div><div style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}><span style={{ color: C.red, fontWeight: 700 }}>미확인 {board.unacked}명</span><span style={{ color: C.muted }}>보고 {board.reported}건</span></div></Card>
         <Card title="상황일지 자동 기록"><Stat label="" value={<span>{board.autoLogged} <span style={{ fontSize: 14, color: C.muted, fontWeight: 400 }}>건 자동 기록</span></span>} /><div style={{ marginTop: 8, display: 'flex', gap: 4, flexWrap: 'wrap' }}><Chip tone="blue">AI 초안 {board.aiCount}</Chip><Chip tone="purple">검토 필요 {board.unacked + board.delayed}</Chip><Chip tone="green">최종 반영 {board.done}</Chip></div></Card>
@@ -51,6 +55,11 @@ export function SitDashboard() {
             <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>{board.delayed ? <div>· 완료기한 초과 임무 <b>{board.delayed}건</b></div> : null}{board.unacked ? <div>· 미확인 담당자 <b>{board.unacked}명</b> — 재전파 필요</div> : null}{!board.delayed && !board.unacked && <div style={{ color: C.muted }}>현재 주의 항목 없음</div>}</div>
             {board.unacked > 0 && <Btn small style={{ marginTop: 6, width: '100%' }} onClick={async () => { await post(`/exercises/${id}/redispatch`, {}); show('재전파했습니다'); }}>미확인자 재전파</Btn>}
           </Card>
+          {pend.length > 0 && (
+            <Card title={<span>기상특보 변화 <Chip tone="red">{pend.length}</Chip></span>} style={{ background: '#fff8e1', border: '1px solid #ffe0a3' }} pad={12}>
+              {pend.map((p) => <div key={p.id} style={{ fontSize: 12.5, marginBottom: 8 }}><b>{p.kind} {p.change}</b> <span style={{ color: C.muted }}>{fmtTime(p.at)}</span><div style={{ color: C.muted, fontSize: 11.5 }}>{p.regions.slice(0, 80)}</div><div style={{ display: 'flex', gap: 4, marginTop: 4 }}><Btn small kind="primary" onClick={() => void actPend(p.id, 'record')}>상황일지에 기록</Btn><Btn small onClick={() => void actPend(p.id, 'dismiss')}>무시</Btn></div></div>)}
+            </Card>
+          )}
         </div>
       </div>
       <Card title="시간별 상황내역" right={<div style={{ display: 'flex', gap: 6 }}><Link to={`/sit/${id}/board`}><Btn small>전자 상황판 열기</Btn></Link><Link to={`/sit/${id}/journal?generate=1`}><Btn small kind="dark">AI 상황일지 초안 생성</Btn></Link></div>}>
