@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { get, post, HAZARDS, type Exercise, type PlanSummary } from '../api';
+import { get, post, HAZARDS, MODES, ALERT_COLOR, type Exercise, type ExMode, type PlanSummary, type Warnings, type WarningItem } from '../api';
 import { Btn, C, Card, Chip, Field, Input, Select, Textarea, Toast, useToast, useUser } from '../ui';
 
 interface Src { filename: string; score: number; text: string; doc_id?: string }
@@ -14,6 +14,11 @@ export function SitNew() {
   const [user] = useUser();
   const [sp] = useSearchParams();
   const [toast, show] = useToast();
+  // 범용화 ①: 모드(실제상황/안전한국훈련/도상훈련). 실제상황이면 현재 기상특보를 첨부하고 용어가 '상황'으로 바뀐다
+  const [mode, setMode] = useState<ExMode>((sp.get('mode') as ExMode) || '안전한국훈련');
+  const real = mode === '실제상황';
+  const [warn, setWarn] = useState<Warnings | null>(null);
+  useEffect(() => { if (real && !warn) get<Warnings>('/weather/warnings').then(setWarn).catch(() => {}); }, [real]);
   const [f, setF] = useState({ title: `${new Date().getFullYear()} 안전한국훈련 · 풍수해 대응 훈련`, hazardType: '태풍/호우', phase: '대응', alertLevel: '경계', occurredAt: new Date().toISOString().slice(0, 16), location: '', agency: '', dept: user?.dept ?? '', scenario: '' });
   const [options, setOptions] = useState<string[]>(OPTIONS.slice(0, 4).concat(['판단분기 포함', '현장 확인 요청 포함']));
   const [linkedPlanId, setLinkedPlanId] = useState<string | null>(null);
@@ -50,34 +55,53 @@ export function SitNew() {
   };
   const suggestions = [`${f.hazardType} ${f.alertLevel} 단계에서 재난안전대책본부 구성 절차는?`, `${f.hazardType} 상황에서 상황/임무 전파 대상 부서와 순서는?`, '주민대피 판단 기준과 대피 안내 절차는?', '현장 확인 임무의 완료 기한과 보고 항목은?', `과거 ${f.hazardType} 훈련의 미흡 사항은?`];
   const create = async () => {
-    if (!f.title.trim()) return show('훈련명을 입력하세요');
+    if (!f.title.trim()) return show(real ? '상황명을 입력하세요' : '훈련명을 입력하세요');
     setBusy(true);
     try {
-      const ex = await post<Exercise>('/exercises', { ...f, occurredAt: new Date(f.occurredAt).toISOString(), refData: cited().map((s) => s.filename), options, linkedPlanId, createdBy: user?.name, chat: chat.filter((m) => !m.streaming), citedSources: cited() });
+      const ex = await post<Exercise>('/exercises', { ...f, mode, warningsSnapshot: real && warn ? { at: warn.fetchedAt, active: warn.active } : undefined, occurredAt: new Date(f.occurredAt).toISOString(), refData: cited().map((s) => s.filename), options, linkedPlanId, createdBy: user?.name, chat: chat.filter((m) => !m.streaming), citedSources: cited() });
       nav(`/sit/${ex.id}/sop?generate=1`);
     } catch (e) { show((e as Error).message); setBusy(false); }
   };
   const answers = chat.filter((m) => m.role === 'assistant' && !m.streaming).length;
+  const tokens = f.location.split(/[\s,()·]+/).map((t) => t.replace(/(특별자치도|특별자치시|특별시|광역시|도|시|군|구|읍|면|동)$/, '')).filter((t) => t.length >= 2);
+  const hits: WarningItem[] = warn ? warn.active.filter((w) => tokens.some((t) => w.regions.includes(t))) : [];
+  const applyWarnings = () => { if (!warn) return; const list = hits.length ? hits : warn.active; const line = `[기상특보 ${warn.announcedAt}] ${list.map((w) => `${w.kind}(${w.regions.slice(0, 40)}${w.regions.length > 40 ? '…' : ''})`).join(', ')}`; setF((x) => ({ ...x, scenario: x.scenario ? `${x.scenario}\n${line}` : line })); show('특보를 시나리오에 넣었습니다'); };
   return (
     <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '360px 1fr 300px', gap: 16, height: '100%', boxSizing: 'border-box' }}>
       {/* 기본정보 */}
       <div style={{ overflow: 'auto' }}>
-        <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 2 }}>훈련상황 생성 및 AI 질의</div>
-        <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>기본정보를 입력하고, AI에게 자연어로 물어보며 근거를 확인한 뒤 SOP 생성을 시작합니다.</div>
+        <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 2 }}>{real ? '상황 등록 및 AI 질의' : '훈련상황 생성 및 AI 질의'}</div>
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>{real ? '실제 재난 상황을 등록하고, 매뉴얼 근거를 AI에게 물어본 뒤 SOP를 생성합니다. 현재 기상특보가 함께 기록됩니다.' : '기본정보를 입력하고, AI에게 자연어로 물어보며 근거를 확인한 뒤 SOP 생성을 시작합니다.'}</div>
+        <Card title="모드" style={{ marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            {MODES.map((m) => { const on = mode === m; const desc = m === '실제상황' ? '발령·해제·특보 연계' : m === '안전한국훈련' ? '시나리오·평가' : '회의 중심 토의'; return <button key={m} type="button" onClick={() => { setMode(m); if (m === '실제상황' && f.title.includes('훈련')) setF((x) => ({ ...x, title: `${x.hazardType} 재난 상황` })); }} style={{ border: `2px solid ${on ? (m === '실제상황' ? C.red : C.blue) : C.border}`, background: on ? (m === '실제상황' ? C.redBg : C.blueLight) : '#fff', borderRadius: 8, padding: '8px 6px', cursor: 'pointer', textAlign: 'left' }}><div style={{ fontSize: 13, fontWeight: 800, color: on ? (m === '실제상황' ? C.red : C.blue) : C.text }}>{m}</div><div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{desc}</div></button>; })}
+          </div>
+        </Card>
+        {real && (
+          <Card title="현재 기상특보" style={{ marginBottom: 12, background: hits.length ? '#fff8e1' : undefined }}>
+            {!warn ? <div style={{ fontSize: 12, color: C.muted }}>불러오는 중…</div> : (
+              <>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>발표 {warn.announcedAt || '-'} · 발효 {warn.active.length}건{tokens.length ? ` · 발생위치 "${tokens.join(' ')}" 관련 ${hits.length}건` : ' · 발생위치를 입력하면 해당 지역 특보만 골라냅니다'}</div>
+                {(hits.length ? hits : warn.active).slice(0, 5).map((w) => <div key={w.kind} style={{ fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start', marginBottom: 3 }}><span style={{ background: (ALERT_COLOR[w.level === '경보' ? '경계' : '주의']).bg, color: (ALERT_COLOR[w.level === '경보' ? '경계' : '주의']).fg, fontWeight: 700, padding: '0 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>{w.kind}</span><span style={{ color: C.muted }}>{w.regions.slice(0, 70)}{w.regions.length > 70 ? '…' : ''}</span></div>)}
+                <Btn small style={{ marginTop: 6 }} onClick={applyWarnings} disabled={!warn.active.length}>시나리오에 특보 반영</Btn>
+              </>
+            )}
+          </Card>
+        )}
         <Card title="기본정보">
-          <Field label="훈련명" required><Input value={f.title} onChange={set('title')} /></Field>
+          <Field label={real ? '상황명' : '훈련명'} required><Input value={f.title} onChange={set('title')} /></Field>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px' }}>
             <Field label="재난유형" required><Select value={f.hazardType} onChange={set('hazardType')}>{HAZARDS.map((h) => <option key={h}>{h}</option>)}</Select></Field>
-            <Field label="훈련단계"><Select value={f.phase} onChange={set('phase')}><option>예방</option><option>대비</option><option>대응</option><option>복구</option></Select></Field>
-            <Field label="상황단계" required><Select value={f.alertLevel} onChange={set('alertLevel')}><option>관심</option><option>주의</option><option>경계</option><option>심각</option></Select></Field>
+            <Field label={real ? '대응 단계' : '훈련단계'}><Select value={f.phase} onChange={set('phase')}><option>예방</option><option>대비</option><option>대응</option><option>복구</option></Select></Field>
+            <Field label="위기경보" required><Select value={f.alertLevel} onChange={set('alertLevel')}><option>관심</option><option>주의</option><option>경계</option><option>심각</option></Select></Field>
             <Field label="발생일시"><Input type="datetime-local" value={f.occurredAt} onChange={set('occurredAt')} /></Field>
           </div>
           <Field label="발생위치"><Input value={f.location} onChange={set('location')} placeholder="○○시 ○○구 ○○천 하류 저지대" /></Field>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px' }}>
-            <Field label="훈련기관"><Input value={f.agency} onChange={set('agency')} placeholder="○○시 재난안전대책본부" /></Field>
+            <Field label={real ? '기관' : '훈련기관'}><Input value={f.agency} onChange={set('agency')} placeholder="○○시 재난안전대책본부" /></Field>
             <Field label="담당부서"><Input value={f.dept} onChange={set('dept')} placeholder="안전총괄과" /></Field>
           </div>
-          <Field label="상황 시나리오"><Textarea value={f.scenario} onChange={set('scenario')} style={{ minHeight: 110 }} placeholder="집중호우로 인해 ○○천 수위가 급격히 상승하고, 저지대 도로 침수 및 주민 대피 필요성이 제기된 상황을 가정한다." /></Field>
+          <Field label={real ? '상황 개요' : '상황 시나리오'}><Textarea value={f.scenario} onChange={set('scenario')} style={{ minHeight: 110 }} placeholder="집중호우로 인해 ○○천 수위가 급격히 상승하고, 저지대 도로 침수 및 주민 대피 필요성이 제기된 상황을 가정한다." /></Field>
           <Field label="근거 계획서 (연동)" hint="선택하면 계획서의 대응 절차를 시나리오에 채우고 SOP 생성 근거로 씁니다"><Select value={linkedPlanId ?? ''} onChange={(e) => { setLinkedPlanId(e.target.value || null); if (e.target.value) void fromPlan(e.target.value); }}><option value="">(없음)</option>{plans.map((p) => <option key={p.id} value={p.id}>{p.title} · {p.hazardType}</option>)}</Select></Field>
         </Card>
       </div>
@@ -86,7 +110,7 @@ export function SitNew() {
         <div ref={chatBox} style={{ flex: 1, overflow: 'auto', background: '#f4f5f6', borderRadius: 8, padding: 12, minHeight: 320 }}>
           {!chat.length && (
             <div style={{ color: C.muted, fontSize: 13 }}>
-              <div style={{ marginBottom: 10 }}>훈련상황에 대해 자연어로 물어보세요. 기본정보(재난유형·단계·시나리오)가 질의 맥락으로 함께 전달됩니다.</div>
+              <div style={{ marginBottom: 10 }}>{real ? '상황' : '훈련상황'}에 대해 자연어로 물어보세요. 기본정보(재난유형·단계·시나리오)가 질의 맥락으로 함께 전달됩니다.</div>
               <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6 }}>추천 질의</div>
               {suggestions.map((s) => <div key={s} onClick={() => ask(s)} style={{ padding: '7px 10px', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6, cursor: 'pointer', fontSize: 12.5 }}>▸ {s}</div>)}
             </div>
@@ -129,7 +153,7 @@ export function SitNew() {
           <div style={{ marginTop: 10, padding: 8, background: '#f4f5f6', borderRadius: 8, fontSize: 11, color: C.muted, border: `1px dashed ${C.border}` }}>AI 생성 결과는 초안이며, 최종 확정과 전파는 담당자 검토 후 수행됩니다.</div>
         </Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <Btn kind="primary" disabled={busy} onClick={() => void create()}>{busy ? '생성 중…' : 'AI 생성 시작 (SOP)'}</Btn>
+          <Btn kind="primary" disabled={busy} onClick={() => void create()}>{busy ? '생성 중…' : real ? '상황 등록 · SOP 생성' : 'AI 생성 시작 (SOP)'}</Btn>
           <Btn onClick={() => show(f.title && f.hazardType && f.alertLevel ? '필수 항목 확인 완료 · 모순 없음' : '필수 항목이 비어 있습니다')}>AI 기준정보 검증</Btn>
           <Btn onClick={() => { localStorage.setItem('poc.sit.draft', JSON.stringify({ f, chat, options })); show('임시저장되었습니다'); }}>임시저장</Btn>
         </div>

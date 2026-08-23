@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SitHome } from './sit/SitHome';
 import { Trash } from './Trash';
+import { SitOrg } from './sit/SitOrg';
 import { WeatherPage } from './WeatherPage';
 import { Home } from './Home';
 import { PlanShell } from './plan/PlanShell';
@@ -47,7 +48,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="trash" element={<Trash scope="sit" />} />
           <Route path="new" element={<SitNew />} />
           <Route path="data" element={<SitStatic kind="data" />} />
-          <Route path="settings" element={<SitStatic kind="settings" />} />
+          <Route path="settings" element={<SitOrg />} />
           <Route path=":id" element={<SitDashboard />} />
           <Route path=":id/sop" element={<SitSop />} />
           <Route path=":id/dispatch" element={<SitDispatch />} />

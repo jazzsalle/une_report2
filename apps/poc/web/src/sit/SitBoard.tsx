@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { get, post, fmtTime, type Board, type Event } from '../api';
+import { get, post, fmtTime, ALERT_COLOR, type Board, type Event, type PendingWarning } from '../api';
 import { Btn, C, Card, Chip, Input, Select, Table, Toast, statusTone, useToast, useUser } from '../ui';
 
 const PHASES = ['최초상황', '상황판단', '임무전파', '수신확인', '현장조치', '완료보고', '추가상황', '상황종료'];
@@ -14,6 +14,10 @@ export function SitBoard() {
   const [fk, setFk] = useState(''); const [fd, setFd] = useState(''); const [fs, setFs] = useState('');
   const [manual, setManual] = useState({ kind: '수동기록', content: '' });
   const [toast, show] = useToast();
+  const [pend, setPend] = useState<PendingWarning[]>([]);
+  const loadPend = () => get<PendingWarning[]>(`/exercises/${id}/pending-warnings`).then(setPend).catch(() => {});
+  useEffect(() => { void loadPend(); const t = setInterval(() => void loadPend(), 30000); return () => clearInterval(t); }, [id]);
+  const actPend = async (pid: string, action: 'record' | 'dismiss') => { await post(`/exercises/${id}/pending-warnings/${pid}/${action}`, { by: user?.name }); show(action === 'record' ? '기상특보를 기록했습니다' : '특보 후보를 지웠습니다'); await loadPend(); await load(); };
   const load = async () => { const [b, e] = await Promise.all([get<Board>(`/exercises/${id}/board`), get<Event[]>(`/exercises/${id}/events`)]); setBoard(b); setEvents(e); };
   useEffect(() => { void load(); const t = setInterval(() => void load(), 3000); return () => clearInterval(t); }, [id]);
   if (!board) return <div style={{ padding: 24 }}>불러오는 중…</div>;
@@ -28,14 +32,15 @@ export function SitBoard() {
       <div className="card" style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 24, fontSize: 14 }}>
         <h1 style={{ fontSize: 19, fontWeight: 700 }}>전자 상황판</h1>
         <span className="dim">{ex.hazardType} · {ex.location || '위치 미지정'}</span>
-        {([['현재 단계', ex.alertLevel, C.orange], ['경과시간', elapsed, C.text], ['진행 임무', `${board.inProgress + board.dispatched}건`, C.blue], ['지연 임무', `${board.delayed}건`, board.delayed ? C.red : C.text]] as [string, string, string][]).map(([k, v, color]) => (
+        {([['위기경보', ex.alertLevel, (ALERT_COLOR[ex.alertLevel] ?? ALERT_COLOR.관심).fg], ['대응 단계', ex.stage ?? '초기대응', C.orange], ['경과시간', elapsed, C.text], ['진행 임무', `${board.inProgress + board.dispatched}건`, C.blue], ['지연 임무', `${board.delayed}건`, board.delayed ? C.red : C.text]] as [string, string, string][]).map(([k, v, color]) => (
           <span key={k} style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}><span style={{ fontSize: 13, color: C.muted }}>{k}</span><b className="num" style={{ fontSize: 20, color }}>{v}</b></span>
         ))}
         <div style={{ flex: 1 }} />
         <span className="tiny" style={{ color: C.green, fontWeight: 700 }}>실시간 · 3초마다 갱신</span>
         <span className="tiny dim num">마지막 업데이트 {board.lastEventAt ? new Date(board.lastEventAt).toLocaleTimeString('ko-KR', { hour12: false }) : '-'}</span>
-        {ex.status !== 'CLOSED' && <Btn small kind="danger" onClick={() => void close()}>훈련 종료</Btn>}
+        {ex.status !== 'CLOSED' && <Btn small kind="danger" onClick={() => void close()}>{ex.mode === '실제상황' ? '상황 종료' : '훈련 종료'}</Btn>}
       </div>
+      {pend.length > 0 && <div className="card" style={{ padding: '10px 16px', background: '#fff8e1', border: '1px solid #ffe0a3', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}><b>기상특보 변화</b>{pend.map((p) => <span key={p.id} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><span>{p.kind} <b>{p.change}</b> <span className="dim">{fmtTime(p.at)}</span></span><Btn small kind="primary" onClick={() => void actPend(p.id, 'record')}>기록</Btn><Btn small onClick={() => void actPend(p.id, 'dismiss')}>무시</Btn></span>)}</div>}
       <div style={{ fontSize: 13, color: C.muted }}>SOP 실행, 임무 전파, 수신 확인, 완료 보고 이력이 시간순으로 누적됩니다. 집계는 서버 사실원장에서 접은 값이며 화면에서 다시 계산하지 않습니다.</div>
       <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 280px', gap: 12, flex: 1, minHeight: 0 }}>
         <Card title="단계별 타임라인">

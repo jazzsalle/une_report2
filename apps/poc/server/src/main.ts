@@ -33,7 +33,39 @@ export const USERS = [
   { id: 'u5', name: '최유진', dept: '유관기관협력반', role: '협력' },
   { id: 'u6', name: '정하늘', dept: '안전총괄과', role: '계획 작성자' },
 ];
-app.get('/api/users', (_req, res) => res.json(USERS));
+/**
+ * 기관·조직 설정(2026-08-23, 범용화 ①). 단일 행. 없으면 USERS 6명 + 풍수해 13개 협업기능으로 seed.
+ * 매뉴얼 구조(재설계안 1.3): 협업기능 ①~⑬ → 실무반 → 부서 → 담당자. 보고 라인·전파 대상군·운영 설정도 여기.
+ */
+interface OrgRow extends Row {
+  name: string; hq: string;
+  coopFunctions: { code: string; name: string }[];
+  teams: { id: string; name: string; coopCodes: string[]; depts: string[] }[];
+  depts: { id: string; name: string; phone?: string }[];
+  members: { id: string; name: string; dept: string; role: string; phone?: string }[];
+  reportLines: { internal: string[]; upper: string[]; central: string[] };
+  audiences: { id: string; name: string; kind: '내부' | '유관기관' | '주민' | '대국민'; contacts?: string }[];
+  settings: { delayMinutes: number; defaultChannels: string[]; autoLogRules: string[]; autoLogWarnings: boolean; weatherPlace?: string };
+}
+const orgs = col<OrgRow>('org');
+const DEFAULT_COOP = ['재난상황관리', '긴급생활안정지원', '긴급통신지원', '시설피해 응급복구', '에너지 공급 피해시설 복구', '재난관리자원 지원', '교통대책', '의료 및 방역 서비스', '재난현장 환경정비', '자원봉사 지원 및 관리', '사회질서 유지·주민대피', '수색·구조·구급', '재난수습 홍보'].map((name, i) => ({ code: String.fromCharCode(0x2460 + i), name }));
+function ensureOrg(): OrgRow {
+  const cur = orgs.all()[0]; if (cur) return cur;
+  const depts = [...new Set(USERS.map((u) => u.dept))].map((name, i) => ({ id: `d${i + 1}`, name }));
+  return orgs.insert({
+    name: '○○시', hq: '○○시 재난안전대책본부', coopFunctions: DEFAULT_COOP,
+    teams: [{ id: 't1', name: '상황총괄반', coopCodes: ['①'], depts: ['상황총괄반', '안전총괄과'] }, { id: 't2', name: '현장통제반', coopCodes: ['⑪', '⑫'], depts: ['현장통제반'] }, { id: 't3', name: '시설복구반', coopCodes: ['④', '⑤'], depts: ['시설복구반'] }, { id: 't4', name: '주민대피지원반', coopCodes: ['②', '⑪'], depts: ['주민대피지원반'] }, { id: 't5', name: '유관기관협력반', coopCodes: ['③', '⑥'], depts: ['유관기관협력반'] }],
+    depts, members: USERS.map((u) => ({ ...u })),
+    reportLines: { internal: ['시장', '부시장', '안전총괄국장'], upper: ['○○도 재난관리과'], central: ['행정안전부 중앙재난안전상황실'] },
+    audiences: [{ id: 'a1', name: '지대본 실무반', kind: '내부' }, { id: 'a2', name: '유관기관(소방·경찰·한전·KT)', kind: '유관기관' }, { id: 'a3', name: '사전지정 위험지역 주민', kind: '주민' }, { id: 'a4', name: '대국민(CBS·재난방송)', kind: '대국민' }],
+    settings: { delayMinutes: 10, defaultChannels: ['문자', '알림톡'], autoLogRules: ['전파 시 자동 기록', '수신 확인 시 자동 기록', '완료 보고 시 자동 기록', '지연 발생 시 자동 기록'], autoLogWarnings: false },
+  });
+}
+/** 담당자 목록 — 기관 설정의 members. 예전 USERS 모양({id,name,dept,role}) 그대로 */
+const members = () => ensureOrg().members;
+app.get('/api/users', (_req, res) => res.json(members()));
+app.get('/api/org', (_req, res) => res.json(ensureOrg()));
+app.put('/api/org', (req, res) => { const o = ensureOrg(); const b = req.body ?? {}; delete b.id; delete b.createdAt; res.json(orgs.update(o.id, b)); });
 app.get('/api/health', (_req, res) => res.json({ ok: true, uni: uniStatus(), t3q: t3qStatus(), rhwp: { version: rhwpVersion() }, weather: weatherStatus(), time: now() }));
 // 날씨·기상특보 (weather.ts): 10분 캐시, 외부 실패 시 마지막 값→목업 폴백(source로 구분)
 app.get('/api/weather', async (req, res) => res.json(await getWeather(req.query.place as string | undefined)));
@@ -261,7 +293,12 @@ app.delete('/api/plan-templates/:id', (req, res) => { const t = planTemplates.ge
 // ── 훈련(상황일지) ────────────────────────────────────────────────────────
 type ExStatus = 'DRAFT' | 'SOP_READY' | 'RUNNING' | 'CLOSED';
 interface ChatMsg { role: 'user' | 'assistant'; text: string; at: string; sources?: unknown[] }
-interface ExerciseRow extends Row { chat?: ChatMsg[]; citedSources?: { filename: string; score: number; text: string; doc_id?: string }[]; title: string; hazardType: string; phase: string; alertLevel: string; occurredAt: string; location: string; agency: string; dept: string; scenario: string; refData: string[]; options: string[]; status: ExStatus; linkedPlanId: string | null; startedAt?: string; closedAt?: string; createdBy: string; analysis?: { suggestion: string; basis: string; at: string } }
+type ExMode = '실제상황' | '안전한국훈련' | '도상훈련';
+type ExStage = '징후감지' | '초기대응' | '비상1' | '비상2·3' | '수습복구';
+/** 2026-08-23 범용화 ①: mode·stage·경보/단계 이력·특보 스냅샷은 "필드 추가"만 — 없는 행은 훈련(안전한국훈련)으로 읽는다 */
+interface ExerciseRow extends Row { chat?: ChatMsg[]; citedSources?: { filename: string; score: number; text: string; doc_id?: string }[]; title: string; hazardType: string; phase: string; alertLevel: string; occurredAt: string; location: string; agency: string; dept: string; scenario: string; refData: string[]; options: string[]; status: ExStatus; linkedPlanId: string | null; startedAt?: string; closedAt?: string; createdBy: string; analysis?: { suggestion: string; basis: string; at: string };
+  mode?: ExMode; stage?: ExStage; alertHistory?: { level: string; at: string; by?: string; reason?: string; meetingId?: string }[]; stageHistory?: { stage: ExStage; at: string; by?: string; meetingId?: string }[]; warningsSnapshot?: { at: string; active: { kind: string; level: string; regions: string }[] } }
+interface MeetingRow extends Row { exerciseId: string; at: string; chair: string; attendees: string[]; agenda: string; decisions: { alertLevel?: string; stage?: ExStage; evacuation?: boolean; cbs?: boolean; other?: string }; memo?: string; by?: string }
 interface SopRow extends Row { exerciseId: string; version: number; graph: SopGraph }
 type TaskStatus = '대기' | '전파완료' | '수신확인' | '수행중' | '완료' | '지연' | '미완료' | '지원요청';
 interface TaskRow extends Row { exerciseId: string; nodeId: string; seq: number; title: string; type: string; dept: string; assigneeId: string; assigneeName: string; due: string; priority: string; status: TaskStatus; instructions: string[]; message?: string; dispatchedAt?: string; ackedAt?: string; reportedAt?: string; memo?: string; receiptNo?: string; result?: string }
@@ -272,6 +309,7 @@ const sops = col<SopRow>('sops');
 const tasks = col<TaskRow>('tasks');
 const events = col<EventRow>('events');
 const journals = col<JournalRow>('journals');
+const meetings = col<MeetingRow>('meetings');
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 const logEvent = (exerciseId: string, kind: string, content: string, extra: Partial<EventRow> = {}) => events.insert({ exerciseId, at: now(), kind, content, source: extra.source ?? 'SOP 자동기록', ...extra });
 const latestSop = (exId: string) => sops.where((s) => s.exerciseId === exId).sort((a, b) => b.version - a.version)[0];
@@ -286,18 +324,91 @@ function markOverdue(exId: string) {
   }
 }
 
-app.get('/api/exercises', (_req, res) => res.json(exercises.all().filter(alive).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))));
-app.post('/api/exercises', (req, res) => {
+const exMode = (e: ExerciseRow): ExMode => e.mode ?? '안전한국훈련';
+app.get('/api/exercises', (req, res) => { const m = req.query.mode as string | undefined; res.json(exercises.all().filter(alive).filter((e) => !m || exMode(e) === m).map((e) => ({ ...e, mode: exMode(e) })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))); });
+/** 발생위치 문자열에서 시·군·구 이름 토큰("강원특별자치도 원주시 …" → ["원주"]) — 특보 지역 문자열과 맞춰 본다 */
+const placeTokens = (location: string) => location.split(/[\s,()·]+/).map((t) => t.replace(/(특별자치도|특별자치시|특별시|광역시|도|시|군|구|읍|면|동)$/, '')).filter((t) => t.length >= 2);
+const warningsFor = (location: string, active: { kind: string; level: string; regions: string }[]) => { const toks = placeTokens(location); return toks.length ? active.filter((w) => toks.some((t) => w.regions.includes(t))) : []; };
+app.post('/api/exercises', async (req, res) => {
   const b = req.body ?? {};
-  const ex = exercises.insert({ title: b.title ?? '훈련', hazardType: b.hazardType ?? '태풍/호우', phase: b.phase ?? '대응', alertLevel: b.alertLevel ?? '경계', occurredAt: b.occurredAt ?? now(), location: b.location ?? '', agency: b.agency ?? '', dept: b.dept ?? '', scenario: b.scenario ?? '', refData: b.refData ?? [], options: b.options ?? [], status: 'DRAFT', linkedPlanId: b.linkedPlanId ?? null, createdBy: b.createdBy ?? '사용자', chat: Array.isArray(b.chat) ? b.chat : [], citedSources: Array.isArray(b.citedSources) ? b.citedSources : [] });
-  logEvent(ex.id, '최초상황', `${ex.title} — ${ex.scenario.slice(0, 80) || '훈련상황 등록'}`, { source: '훈련 시나리오', dept: ex.dept, actor: ex.createdBy, status: '기록완료' });
+  const mode: ExMode = ['실제상황', '안전한국훈련', '도상훈련'].includes(b.mode) ? b.mode : '안전한국훈련';
+  // 실제상황이면 생성 시점의 기상특보를 스냅샷으로 붙인다(4장 규칙). 훈련은 요청에 스냅샷이 있으면 그대로
+  let warningsSnapshot: ExerciseRow['warningsSnapshot'] = b.warningsSnapshot;
+  if (mode === '실제상황' && !warningsSnapshot) { try { const w = await getWarnings(); warningsSnapshot = { at: w.fetchedAt, active: w.active }; } catch { /* 특보 없이 진행 */ } }
+  const ex = exercises.insert({ title: b.title ?? (mode === '실제상황' ? '상황' : '훈련'), hazardType: b.hazardType ?? '태풍/호우', phase: b.phase ?? '대응', alertLevel: b.alertLevel ?? '경계', occurredAt: b.occurredAt ?? now(), location: b.location ?? '', agency: b.agency ?? '', dept: b.dept ?? '', scenario: b.scenario ?? '', refData: b.refData ?? [], options: b.options ?? [], status: 'DRAFT', linkedPlanId: b.linkedPlanId ?? null, createdBy: b.createdBy ?? '사용자', chat: Array.isArray(b.chat) ? b.chat : [], citedSources: Array.isArray(b.citedSources) ? b.citedSources : [],
+    mode, stage: (b.stage as ExStage) ?? '초기대응', alertHistory: [{ level: b.alertLevel ?? '경계', at: now(), by: b.createdBy, reason: '상황 생성' }], stageHistory: [{ stage: (b.stage as ExStage) ?? '초기대응', at: now(), by: b.createdBy }], warningsSnapshot });
+  logEvent(ex.id, '최초상황', `${ex.title} — ${ex.scenario.slice(0, 80) || (mode === '실제상황' ? '상황 등록' : '훈련상황 등록')}`, { source: mode === '실제상황' ? '상황 접수' : '훈련 시나리오', dept: ex.dept, actor: ex.createdBy, status: '기록완료' });
+  if (warningsSnapshot?.active.length) { const hit = warningsFor(ex.location, warningsSnapshot.active); if (hit.length) logEvent(ex.id, '기상특보', `생성 시점 발효 특보: ${hit.map((w) => w.kind).join(', ')}`, { source: '기상청 특보', status: '참고' }); }
   if (ex.linkedPlanId) { const p = plans.get(ex.linkedPlanId); if (p) plans.update(p.id, { linkedExercises: [...new Set([...p.linkedExercises, ex.id])] }); }
   res.json(ex);
 });
-app.get('/api/exercises/:id', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); markOverdue(ex.id); res.json({ ...ex, sop: latestSop(ex.id) ?? null, tasks: tasks.where((t) => t.exerciseId === ex.id).sort((a, b) => a.seq - b.seq), eventCount: events.where((e) => e.exerciseId === ex.id).length, journal: journals.where((j) => j.exerciseId === ex.id)[0] ?? null }); });
+app.get('/api/exercises/:id', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); markOverdue(ex.id); res.json({ ...ex, mode: exMode(ex), stage: ex.stage ?? '초기대응', meetings: meetings.where((m) => m.exerciseId === ex.id).sort((a, b) => b.at.localeCompare(a.at)), pendingWarnings: pendingWarnings.get(ex.id) ?? [], sop: latestSop(ex.id) ?? null, tasks: tasks.where((t) => t.exerciseId === ex.id).sort((a, b) => a.seq - b.seq), eventCount: events.where((e) => e.exerciseId === ex.id).length, journal: journals.where((j) => j.exerciseId === ex.id)[0] ?? null }); });
 app.put('/api/exercises/:id', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); res.json(exercises.update(ex.id, req.body)); });
 const purgeExercise = (id: string) => { for (const c of [sops, tasks, events, journals]) for (const r of (c as ReturnType<typeof col>).where((x) => x.exerciseId === id)) c.remove(r.id); return exercises.remove(id); };
 app.delete('/api/exercises/:id', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); exercises.update(ex.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
+
+// ── 위기경보 · 비상단계 · 상황판단회의 (범용화 ①) ──────────────────────────
+const ALERTS = ['관심', '주의', '경계', '심각'];
+const STAGES: ExStage[] = ['징후감지', '초기대응', '비상1', '비상2·3', '수습복구'];
+function setAlert(ex: ExerciseRow, level: string, by?: string, reason?: string, meetingId?: string) {
+  if (!ALERTS.includes(level) || level === ex.alertLevel) return false;
+  const prev = ex.alertLevel;
+  exercises.update(ex.id, { alertLevel: level, alertHistory: [...(ex.alertHistory ?? []), { level, at: now(), by, reason, meetingId }] });
+  logEvent(ex.id, '위기경보 변경', `위기경보 ${prev} → ${level}${reason ? ` (${reason})` : ''}`, { source: meetingId ? '상황판단회의' : '수동 입력', actor: by, status: level });
+  return true;
+}
+function setStage(ex: ExerciseRow, stage: ExStage, by?: string, meetingId?: string) {
+  if (!STAGES.includes(stage) || stage === (ex.stage ?? '초기대응')) return false;
+  const prev = ex.stage ?? '초기대응';
+  exercises.update(ex.id, { stage, stageHistory: [...(ex.stageHistory ?? []), { stage, at: now(), by, meetingId }] });
+  logEvent(ex.id, '비상단계 변경', `대응 단계 ${prev} → ${stage}`, { source: meetingId ? '상황판단회의' : '수동 입력', actor: by, status: stage });
+  return true;
+}
+app.put('/api/exercises/:id/alert', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); setAlert(ex, req.body?.level, req.body?.by, req.body?.reason); res.json(exercises.get(ex.id)); });
+app.put('/api/exercises/:id/stage', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); setStage(ex, req.body?.stage, req.body?.by); res.json(exercises.get(ex.id)); });
+app.get('/api/exercises/:id/meetings', (req, res) => res.json(meetings.where((m) => m.exerciseId === req.params.id).sort((a, b) => b.at.localeCompare(a.at))));
+/** 상황판단회의: 결정(경보·단계·대피명령·CBS)을 저장하고 이벤트로 남긴다. 매뉴얼 1.4: 경보·단계는 회의에서 결정 */
+app.post('/api/exercises/:id/meetings', (req, res) => {
+  const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음');
+  const b = req.body ?? {}; const d = b.decisions ?? {};
+  const m = meetings.insert({ exerciseId: ex.id, at: b.at ?? now(), chair: b.chair ?? '', attendees: Array.isArray(b.attendees) ? b.attendees : [], agenda: b.agenda ?? '', decisions: d, memo: b.memo, by: b.by });
+  const parts: string[] = [];
+  if (d.alertLevel && setAlert(exercises.get(ex.id)!, d.alertLevel, b.by, '상황판단회의 결정', m.id)) parts.push(`위기경보 ${d.alertLevel}`);
+  if (d.stage && setStage(exercises.get(ex.id)!, d.stage, b.by, m.id)) parts.push(`단계 ${d.stage}`);
+  if (d.evacuation) parts.push('대피명령 발령'); if (d.cbs) parts.push('CBS 긴급재난문자 발송'); if (d.other) parts.push(d.other);
+  logEvent(ex.id, '상황판단회의', `상황판단회의(주재 ${m.chair || '-'}) — ${parts.length ? '결정: ' + parts.join(', ') : '결정 사항 없음'}${m.agenda ? ` · 안건: ${m.agenda.slice(0, 60)}` : ''}`, { source: '상황판단회의', actor: b.by, status: '기록완료' });
+  res.json({ ...m, exercise: exercises.get(ex.id) });
+});
+
+/**
+ * 기상특보 감시(재설계안 4장): 10분마다 발효 특보를 상황의 스냅샷과 비교해 발생위치 시·군이 걸린 발표·해제를
+ * 후보로 쌓는다. 담당자가 [기록]하면 '기상특보' 이벤트 + 스냅샷 갱신, [무시]하면 스냅샷만 갱신. 기관 설정 autoLogWarnings면 바로 기록.
+ */
+interface PendingWarning { id: string; at: string; change: '발표' | '해제'; kind: string; level: string; regions: string }
+const pendingWarnings = new Map<string, PendingWarning[]>();
+async function checkWarnings() {
+  let w: Awaited<ReturnType<typeof getWarnings>>; try { w = await getWarnings(); } catch { return; }
+  if (w.source === 'mock') return;
+  const auto = ensureOrg().settings.autoLogWarnings;
+  for (const ex of exercises.all().filter(alive).filter((e) => e.status !== 'CLOSED' && e.location)) {
+    const before = warningsFor(ex.location, ex.warningsSnapshot?.active ?? []); const after = warningsFor(ex.location, w.active);
+    const key = (x: { kind: string }) => x.kind;
+    const added = after.filter((a) => !before.some((b) => key(b) === key(a))); const removed = before.filter((b) => !after.some((a) => key(a) === key(b)));
+    if (!added.length && !removed.length) continue;
+    const items: PendingWarning[] = [...added.map((a) => ({ id: nanoid(6), at: w.fetchedAt, change: '발표' as const, kind: a.kind, level: a.level, regions: a.regions })), ...removed.map((r) => ({ id: nanoid(6), at: w.fetchedAt, change: '해제' as const, kind: r.kind, level: r.level, regions: r.regions }))];
+    if (auto) { for (const it of items) logEvent(ex.id, '기상특보', `${it.kind} ${it.change} — ${it.regions.slice(0, 80)}`, { source: '기상청 특보', status: it.change }); exercises.update(ex.id, { warningsSnapshot: { at: w.fetchedAt, active: w.active } }); }
+    else { const cur = pendingWarnings.get(ex.id) ?? []; for (const it of items) if (!cur.some((c) => c.kind === it.kind && c.change === it.change)) cur.push(it); pendingWarnings.set(ex.id, cur); }
+  }
+}
+app.get('/api/exercises/:id/pending-warnings', (req, res) => res.json(pendingWarnings.get(req.params.id) ?? []));
+app.post('/api/exercises/:id/pending-warnings/:pid/:action', async (req, res) => {
+  const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음');
+  const list = pendingWarnings.get(ex.id) ?? []; const it = list.find((x) => x.id === req.params.pid); if (!it) return bad(res, 404, '후보 없음');
+  if (req.params.action === 'record') logEvent(ex.id, '기상특보', `${it.kind} ${it.change} — ${it.regions.slice(0, 80)}`, { source: '기상청 특보', actor: req.body?.by, status: it.change });
+  pendingWarnings.set(ex.id, list.filter((x) => x.id !== it.id));
+  try { const w = await getWarnings(); exercises.update(ex.id, { warningsSnapshot: { at: w.fetchedAt, active: w.active } }); } catch { /* ignore */ }
+  res.json({ ok: true, remaining: pendingWarnings.get(ex.id) ?? [] });
+});
 
 // ── 휴지통 ────────────────────────────────────────────────────────────────
 type TrashKind = 'plan' | 'planTemplate' | 'exercise';
@@ -391,7 +502,7 @@ app.post('/api/exercises/:id/start', (req, res) => {
   for (const n of sop.graph.nodes) {
     if (!['TASK', 'DISPATCH', 'FIELD_CHECK'].includes(n.type)) continue;
     seq += 1;
-    const user = USERS.find((u) => u.name === n.assignee) ?? USERS.find((u) => u.dept === n.dept) ?? USERS[(seq - 1) % 5];
+    const us = members(); const user = us.find((u) => u.name === n.assignee) ?? us.find((u) => u.dept === n.dept) ?? us[(seq - 1) % Math.max(1, us.length)];
     const dueMin = n.due && /^\d{1,2}:\d{2}$/.test(n.due) ? null : 5 * seq;
     const due = dueMin != null ? new Date(base + dueMin * 60_000).toISOString() : (() => { const [h, m] = n.due!.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); })();
     tasks.insert({ exerciseId: ex.id, nodeId: n.id, seq, title: n.title, type: n.type, dept: n.dept ?? user.dept, assigneeId: user.id, assigneeName: user.name, due, priority: n.priority ?? (n.type === 'DISPATCH' ? '긴급' : '보통'), status: '대기', instructions: n.tasks ?? [] });
@@ -401,7 +512,7 @@ app.post('/api/exercises/:id/start', (req, res) => {
   res.json(tasks.where((t) => t.exerciseId === ex.id).sort((a, b) => a.seq - b.seq));
 });
 app.get('/api/exercises/:id/tasks', (req, res) => { markOverdue(req.params.id); res.json(tasks.where((t) => t.exerciseId === req.params.id).sort((a, b) => a.seq - b.seq)); });
-app.put('/api/exercises/:id/tasks/:taskId', (req, res) => { const t = tasks.get(req.params.taskId); if (!t) return bad(res, 404, '없음'); if (req.body.assigneeId) { const u = USERS.find((x) => x.id === req.body.assigneeId); if (u) req.body.assigneeName = u.name; } res.json(tasks.update(t.id, req.body)); });
+app.put('/api/exercises/:id/tasks/:taskId', (req, res) => { const t = tasks.get(req.params.taskId); if (!t) return bad(res, 404, '없음'); if (req.body.assigneeId) { const u = members().find((x) => x.id === req.body.assigneeId); if (u) req.body.assigneeName = u.name; } res.json(tasks.update(t.id, req.body)); });
 
 const fillMessage = (tpl: string, ex: ExerciseRow, t: TaskRow) => tpl.replace(/\{훈련명\}/g, ex.title).replace(/\{재난유형\}/g, ex.hazardType).replace(/\{발생위치\}/g, ex.location).replace(/\{임무명\}/g, t.title).replace(/\{완료기한\}/g, hhmm(t.due)).replace(/\{담당자명\}/g, t.assigneeName);
 function dispatchTask(ex: ExerciseRow, t: TaskRow, template?: string) {
@@ -410,7 +521,7 @@ function dispatchTask(ex: ExerciseRow, t: TaskRow, template?: string) {
   logEvent(ex.id, '임무전파', `${t.title} 임무를 ${t.dept} ${t.assigneeName}에게 전파`, { dept: t.dept, actor: '상황실', status: '전파완료', taskId: t.id });
   return updated;
 }
-app.post('/api/exercises/:id/tasks/:taskId/dispatch', (req, res) => { const ex = exercises.get(req.params.id); const t = tasks.get(req.params.taskId); if (!ex || !t) return bad(res, 404, '없음'); if (req.body?.assigneeId) { const u = USERS.find((x) => x.id === req.body.assigneeId); if (u) tasks.update(t.id, { assigneeId: u.id, assigneeName: u.name, dept: u.dept }); } res.json(dispatchTask(ex, tasks.get(t.id)!, req.body?.message)); });
+app.post('/api/exercises/:id/tasks/:taskId/dispatch', (req, res) => { const ex = exercises.get(req.params.id); const t = tasks.get(req.params.taskId); if (!ex || !t) return bad(res, 404, '없음'); if (req.body?.assigneeId) { const u = members().find((x) => x.id === req.body.assigneeId); if (u) tasks.update(t.id, { assigneeId: u.id, assigneeName: u.name, dept: u.dept }); } res.json(dispatchTask(ex, tasks.get(t.id)!, req.body?.message)); });
 app.post('/api/exercises/:id/dispatch-all', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); const out = tasks.where((t) => t.exerciseId === ex.id && t.status === '대기').map((t) => dispatchTask(ex, t, req.body?.message)); res.json(out); });
 app.post('/api/exercises/:id/redispatch', (req, res) => { const ex = exercises.get(req.params.id); if (!ex) return bad(res, 404, '없음'); const targets = tasks.where((t) => t.exerciseId === ex.id && t.status === '전파완료'); for (const t of targets) { tasks.update(t.id, { dispatchedAt: now() }); logEvent(ex.id, '임무전파', `${t.title} — 미확인자 ${t.assigneeName} 재전파`, { dept: t.dept, actor: '상황실', status: '재전파', taskId: t.id }); } res.json({ count: targets.length }); });
 
@@ -444,7 +555,7 @@ app.post('/api/exercises/:id/close', (req, res) => {
 });
 
 // 모바일
-app.get('/api/m/:assigneeId', (req, res) => { const u = USERS.find((x) => x.id === req.params.assigneeId); if (!u) return bad(res, 404, '담당자 없음'); const list = tasks.where((t) => t.assigneeId === u.id && t.status !== '대기').sort((a, b) => (b.dispatchedAt ?? '').localeCompare(a.dispatchedAt ?? '')); res.json({ user: u, tasks: list.map((t) => ({ ...t, exercise: exercises.get(t.exerciseId) })) }); });
+app.get('/api/m/:assigneeId', (req, res) => { const u = members().find((x) => x.id === req.params.assigneeId); if (!u) return bad(res, 404, '담당자 없음'); const list = tasks.where((t) => t.assigneeId === u.id && t.status !== '대기').sort((a, b) => (b.dispatchedAt ?? '').localeCompare(a.dispatchedAt ?? '')); res.json({ user: u, tasks: list.map((t) => ({ ...t, exercise: exercises.get(t.exerciseId) })) }); });
 app.post('/api/m/:assigneeId/tasks/:taskId/ack', (req, res) => { const t = tasks.get(req.params.taskId); if (!t) return bad(res, 404, '없음'); const u = tasks.update(t.id, { status: t.status === '전파완료' ? '수신확인' : t.status, ackedAt: now() })!; logEvent(t.exerciseId, '수신확인', `${t.dept} ${t.assigneeName} 수신 확인 — ${t.title}`, { dept: t.dept, actor: t.assigneeName, status: '수신확인', source: '모바일 응답', taskId: t.id }); res.json(u); });
 app.post('/api/m/:assigneeId/tasks/:taskId/report', (req, res) => {
   const t = tasks.get(req.params.taskId); if (!t) return bad(res, 404, '없음');
@@ -545,5 +656,7 @@ initRhwp().then(async () => {
   await refreshProfiles();
   cleanupT3qSections();
   purgeOldTrash();
+  ensureOrg();
+  setTimeout(() => void checkWarnings(), 15_000); setInterval(() => void checkWarnings(), 10 * 60_000);
   app.listen(PORT, '127.0.0.1', () => console.log(`poc-server :${PORT} | rhwp ${rhwpVersion()} | UNI ${uniStatus().baseUrl}${uniStatus().mock ? ' (MOCK)' : ''}`));
 }).catch((e) => { console.error('rhwp 초기화 실패', e); process.exit(1); });
