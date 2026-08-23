@@ -1,0 +1,66 @@
+{
+  "type": "recovery",
+  "name": "재난 복구계획서",
+  "seqLabel": "복구계획",
+  "modes": [
+    "실제상황",
+    "도상훈련"
+  ],
+  "hazards": [],
+  "header": {
+    "fields": [
+      "reportedAt",
+      "reporter",
+      "dept",
+      "phone",
+      "distribution",
+      "krms"
+    ]
+  },
+  "hwpxTemplateHint": "상황보고",
+  "description": "수습·복구 단계 — 피해 총괄·시설별 복구계획·응급복구 실적·재원·일정·예방 환류(연구항목: 재난 복구계획서 지원)",
+  "sections": [
+    {
+      "key": "damage",
+      "title": "1. 피해 총괄",
+      "kind": "fact",
+      "block": "피해"
+    },
+    {
+      "key": "direction",
+      "title": "2. 복구 기본 방향",
+      "kind": "narrative",
+      "prompt": "피해 현황과 대응 경과를 근거로 복구 원칙(응급복구 우선·항구복구·재발 방지)을 2~3문장으로"
+    },
+    {
+      "key": "plan",
+      "title": "3. 시설별 복구계획",
+      "kind": "fact",
+      "block": "복구계획"
+    },
+    {
+      "key": "emergency",
+      "title": "4. 응급복구 실적",
+      "kind": "fact",
+      "block": "응급복구실적"
+    },
+    {
+      "key": "budget",
+      "title": "5. 복구 재원",
+      "kind": "fact",
+      "block": "복구재원"
+    },
+    {
+      "key": "schedule",
+      "title": "6. 추진 일정",
+      "kind": "narrative",
+      "prompt": "응급복구·피해조사·복구계획 수립·항구복구의 단계별 일정을 2~3문장으로(날짜는 사실 기록에 있는 것만)"
+    },
+    {
+      "key": "feedback",
+      "title": "7. 예방·환류 사항",
+      "kind": "narrative",
+      "prompt": "이번 피해에서 드러난 예방·대비 측면의 보완점을 2~3문장으로"
+    }
+  ]
+}

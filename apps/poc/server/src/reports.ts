@@ -12,7 +12,7 @@ import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, Headi
 import { parseMarkdown, renderHwpxSvg, type MdBlock, type TemplateProfile } from './hwpx.js';
 import * as llm from './llm.js';
 
-export type BlockKind = '시간대별조치' | '임무수행' | '전파수신' | '현장보고' | '자원동원' | '피해' | '특보' | '경보이력' | '회의결정' | '미완료' | '기대행동평가';
+export type BlockKind = '시간대별조치' | '임무수행' | '전파수신' | '현장보고' | '자원동원' | '피해' | '특보' | '경보이력' | '회의결정' | '미완료' | '기대행동평가' | '복구계획' | '응급복구실적' | '복구재원' | '대응지표';
 export interface ReportSectionDef { key: string; title: string; kind: 'fact' | 'narrative'; block?: BlockKind; prompt?: string; titleByMode?: Record<string, string> }
 export interface ReportTemplate { type: string; name: string; seqLabel: string; seq?: boolean; modes: string[]; hazards: string[]; description: string; header: { fields: string[] }; sections: ReportSectionDef[]; hwpxTemplateHint: string }
 export interface ReportSection { key: string; title: string; kind: 'fact' | 'narrative'; block?: BlockKind; markdown: string; aiGenerated: boolean; reviewed: boolean; editedByUser?: boolean }
@@ -23,7 +23,7 @@ let cache: ReportTemplate[] | null = null;
 export function reportTemplates(): ReportTemplate[] {
   if (cache) return cache;
   cache = readdirSync(TPL_DIR).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(TPL_DIR, f), 'utf8')) as ReportTemplate);
-  const order = ['immediate', 'interim', 'final', 'journal', 'drillResult'];
+  const order = ['immediate', 'interim', 'final', 'journal', 'drillResult', 'recovery', 'evaluation'];
   cache.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
   return cache;
 }
@@ -41,6 +41,8 @@ const mmddhhmm = (iso?: string | null) => { if (!iso) return '-'; const d = new 
 const table = (head: string[], rows: string[][]) => [`| ${head.join(' | ')} |`, `| ${head.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.map((c) => String(c ?? '').replace(/\|/g, '/').replace(/\n/g, ' ')).join(' | ')} |`)].join('\n');
 const noRows = (msg: string) => `- ${msg}`;
 
+/** 피해 보고로 볼 이벤트: 전파·수신확인·SOP 생성 같은 진행 기록은 빼고(“피해 조사 임무를 …에게 전파”가 피해로 잡혔던 실측 2026-08-23), 현장·완료 보고나 피해 낱말이 든 내용만 */
+const isDamageEvent = (e: { kind: string; content: string }) => !/전파|수신|상황판단|보고서|AI|회의|경보|단계|기상특보|지연|미완료|완료기한|임무/.test(e.kind) && !/완료기한 초과/.test(e.content) && !/임무를 .*전파|임무 전파|수신 확인/.test(e.content) && /피해|침수|붕괴|파손|유실|정전|단수|이재민|사상|고립|매몰/.test(e.content);
 export const BLOCKS: Record<BlockKind, (f: FactSource) => string> = {
   시간대별조치: (f) => { const evs = f.events.filter((e) => e.kind !== 'AI분석'); return evs.length ? table(['시간', '구분', '주요 상황 및 조치사항', '부서/담당', '출처'], evs.map((e) => [mmddhhmm(e.at), e.kind, e.content, [e.dept, e.actor].filter(Boolean).join(' '), e.source])) : noRows('기록된 조치 없음'); },
   임무수행: (f) => (f.tasks.length ? table(['순번', '임무명', '담당부서 / 담당자', '완료기한', '상태', '완료 보고'], f.tasks.map((t) => [String(t.seq), t.title, `${t.dept} / ${t.assigneeName}`, hhmm(t.due), t.status, t.reportedAt ? hhmm(t.reportedAt) : '-'])) : noRows('임무 없음(SOP 미실행)')),
@@ -55,7 +57,7 @@ export const BLOCKS: Record<BlockKind, (f: FactSource) => string> = {
   },
   피해: (f) => {
     // 피해 보고 이벤트(구분에 '피해'/'현장' 포함)를 비고로 모으고, 인명·시설 칸은 사람이 채운다 — 투영할 수 있는 원천이 없다
-    const notes = f.events.filter((e) => /피해|현장|침수|붕괴|이재민|사상/.test(`${e.kind} ${e.content}`)).map((e) => `${mmddhhmm(e.at)} ${e.content}`);
+    const notes = f.events.filter(isDamageEvent).map((e) => `${mmddhhmm(e.at)} ${e.content}`);
     return table(['구분', '인명(사망/부상/실종)', '이재민', '시설·재산', '비고'], [['누계', '0 / 0 / 0', '0', '', notes.slice(0, 3).join('; ') || '(보고 사항 없음 — 확인 후 기재)']]);
   },
   특보: (f) => { const w = f.ex.warningsSnapshot; return w?.active.length ? `발표 ${mmddhhmm(w.at)} 기준\n\n${table(['특보', '등급', '지역'], w.active.map((x) => [x.kind, x.level, x.regions]))}` : noRows('발효 중인 기상특보 없음'); },
@@ -68,6 +70,38 @@ export const BLOCKS: Record<BlockKind, (f: FactSource) => string> = {
   },
   회의결정: (f) => (f.meetings.length ? table(['시각', '주재', '참석', '결정', '안건·메모'], f.meetings.map((m) => { const d = m.decisions; const dec = [d.alertLevel ? `경보 ${d.alertLevel}` : '', d.stage ? `단계 ${d.stage}` : '', d.evacuation ? '대피명령' : '', d.cbs ? 'CBS 발송' : '', d.other ?? ''].filter(Boolean).join(', ') || '결정 없음'; return [mmddhhmm(m.at), m.chair || '-', m.attendees.join(', ') || '-', dec, [m.agenda, m.memo].filter(Boolean).join(' / ')]; })) : noRows('상황판단회의 기록 없음')),
   미완료: (f) => { const ts = f.tasks.filter((t) => ['지연', '미완료', '지원요청', '대기', '전파완료'].includes(t.status)); return ts.length ? ts.map((t) => `- ${t.title} (${t.dept} ${t.assigneeName}) — ${t.status}${t.status === '지연' ? `, 기한 ${hhmm(t.due)}` : ''}`).join('\n') : noRows('없음'); },
+  // ── 복구계획서·평가서(연구항목 3, 2026-08-23) ──
+  복구계획: (f) => {
+    // 피해 관련 이벤트 한 건 = 복구 대상 한 행(복구 방법·예산·완료 예정은 사람이 채움). 없으면 빈 행 하나
+    const hits = f.events.filter(isDamageEvent);
+    const rows = hits.length ? hits.map((e) => ['', e.content, '', '', e.dept ?? '', '']) : [['(시설·분야)', '(피해 내용)', '(응급/항구 복구 방법)', '', '', '']];
+    return table(['구분(시설·분야)', '피해 내용', '복구 방법', '소요 예산(백만원)', '담당 부서', '완료 예정'], rows);
+  },
+  응급복구실적: (f) => { const ts = f.tasks.filter((t) => t.status === '완료' && /복구|응급|점검|정비|배수|제거|통제/.test(t.title)); return ts.length ? table(['임무', '담당부서 / 담당자', '완료 보고', '결과·비고'], ts.map((t) => [t.title, `${t.dept} / ${t.assigneeName}`, hhmm(t.reportedAt), [t.result, t.memo].filter(Boolean).join(' · ') || '-'])) : noRows('응급복구로 분류된 완료 임무 없음 — 표 편집으로 기재'); },
+  복구재원: () => table(['재원', '금액(백만원)', '비고'], [['국비', '', ''], ['지방비(시·도)', '', ''], ['지방비(시·군·구)', '', ''], ['기타(의연금·보험 등)', '', ''], ['합계', '', '']]),
+  대응지표: (f) => {
+    // 이벤트 원장·임무 기록에서 바로 계산되는 지표. 평가 칸은 평가자가 채운다
+    const min = (a?: string | null, b?: string | null) => (a && b ? Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000) : null);
+    const first = f.events.find((e) => e.kind === '최초상황')?.at ?? f.ex.occurredAt;
+    const dispatched = f.tasks.filter((t) => t.dispatchedAt); const firstDispatch = dispatched.map((t) => t.dispatchedAt!).sort()[0];
+    const acked = dispatched.filter((t) => t.ackedAt); const ackMins = acked.map((t) => min(t.dispatchedAt, t.ackedAt)!).filter((x) => x >= 0);
+    const done = f.tasks.filter((t) => t.status === '완료'); const onTime = done.filter((t) => !t.reportedAt || !t.due || t.reportedAt <= t.due);
+    const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : '-');
+    const rows: string[][] = [
+      ['최초 상황 → 첫 임무 전파', firstDispatch ? `${min(first, firstDispatch)}분` : '-', '최초상황 이벤트 시각 대비 첫 전파 시각', ''],
+      ['임무 전파 건수 / 전체 임무', `${dispatched.length} / ${f.tasks.length}`, '전파 기록이 있는 임무', ''],
+      ['수신 확인률', pct(acked.length, dispatched.length), `수신확인 ${acked.length} / 전파 ${dispatched.length}`, ''],
+      ['평균 수신 확인 소요', ackMins.length ? `${Math.round(ackMins.reduce((a, b) => a + b, 0) / ackMins.length)}분` : '-', '전파 → 수신확인', ''],
+      ['임무 완료율', pct(done.length, f.tasks.length), `완료 ${done.length} / ${f.tasks.length}`, ''],
+      ['기한 내 완료율', pct(onTime.length, done.length), `기한 내 ${onTime.length} / 완료 ${done.length}`, ''],
+      ['지연·미완료·지원요청', String(f.tasks.filter((t) => ['지연', '미완료', '지원요청'].includes(t.status)).length), '상태 기준', ''],
+      ['현장 완료 보고 건수', String(f.tasks.filter((t) => t.reportedAt).length), '모바일 완료 보고', ''],
+      ['상황판단회의 횟수', String(f.meetings.length), '회의 기록', ''],
+      ['위기경보 · 단계 변경 횟수', `${Math.max(0, (f.ex.alertHistory?.length ?? 1) - 1)} · ${Math.max(0, (f.ex.stageHistory?.length ?? 1) - 1)}`, '이력(최초 설정 제외)', ''],
+      ['기상특보 기록 건수', String(f.events.filter((e) => e.kind === '기상특보').length), "'기상특보' 이벤트", ''],
+    ];
+    return table(['지표', '값', '산출 근거', '평가(적정/미흡·의견)'], rows);
+  },
   기대행동평가: (f) => {
     // 안전한국훈련 가이드북의 기대행동 평가: 임무별 기한 준수·완료 여부로 적정/지연/미흡을 매긴다(평가자가 고쳐 쓴다)
     const rows = f.tasks.map((t) => { const done = t.status === '완료'; const late = t.reportedAt && t.due && t.reportedAt > t.due; const grade = done && !late ? '적정' : done ? '지연 완료' : t.status === '지연' ? '지연' : '미흡'; return [String(t.seq), t.title, `${t.dept} / ${t.assigneeName}`, hhmm(t.due), t.reportedAt ? hhmm(t.reportedAt) : '-', grade, '']; });
@@ -75,14 +109,25 @@ export const BLOCKS: Record<BlockKind, (f: FactSource) => string> = {
   },
 };
 
+/** 유니가 답 대신 상태 문구("JSON 매뉴얼 파일을 생성하고 있습니다. 잠시만 기다려 주세요…")를 돌려준 적이 있다(실측 2026-08-23, 180초). 그럴 땐 한 번 더 묻고, 그래도 안 되면 절에 안내를 남긴다 */
+const PLACEHOLDER_RE = /잠시만 기다려|생성하고 있습니다|처리 중입니다|please wait/i;
+// 실측 2026-08-23: 예전 실패 때 저장된 '[AI분석] JSON 매뉴얼 파일을 생성하고 있습니다…' 이벤트를 사실 기록에 넣었더니 유니가 그 문장을 그대로 따라 했다 → AI분석·보고 이벤트와 상태 문구는 프롬프트에서 뺀다
+async function narrateSafe(kind: string, facts: string, prompt: string, docName: string): Promise<string> {
+  for (let i = 0; i < 2; i++) {
+    try { const t = await llm.narrate(kind, facts, prompt, docName); if (t.trim() && !PLACEHOLDER_RE.test(t) && t.trim().length > 20) return t; }
+    catch (e) { if (i === 1) return `(AI 생성 실패: ${(e as Error).message} — [AI 다시 생성]을 누르세요)`; }
+  }
+  return '(유니가 문장 대신 처리 중 안내만 돌려주었습니다 — 잠시 뒤 [AI 다시 생성]을 누르세요)';
+}
+
 // ── 보고서 생성 ──────────────────────────────────────────────────────────────
 export async function buildSections(tpl: ReportTemplate, f: FactSource, opts: { seq: number; prevSummary?: string }): Promise<ReportSection[]> {
   const mode = f.ex.mode ?? '안전한국훈련';
   const docName = `${mode === '안전한국훈련' ? '안전한국훈련' : '재난 상황'} ${tpl.name}${tpl.seq ? ` ${opts.seq}보` : ''}`;
   const out: ReportSection[] = [];
-  const facts = `상황명 ${f.ex.title}, 모드 ${mode}, 재난유형 ${f.ex.hazardType}, 위기경보 ${f.ex.alertLevel}, 대응 단계 ${f.ex.stage ?? '초기대응'}, 발생일시 ${f.ex.occurredAt}, 장소 ${f.ex.location}, 기관 ${f.ex.agency} ${f.ex.dept}.\n시나리오/개요: ${f.ex.scenario}\n최근 기록:\n${f.events.slice(-8).map((e) => `${hhmm(e.at)} [${e.kind}] ${e.content}`).join('\n')}\n임무 ${f.tasks.length}건(완료 ${f.tasks.filter((t) => t.status === '완료').length}, 지연·미완료 ${f.tasks.filter((t) => ['지연', '미완료'].includes(t.status)).length})`;
+  const facts = `상황명 ${f.ex.title}, 모드 ${mode}, 재난유형 ${f.ex.hazardType}, 위기경보 ${f.ex.alertLevel}, 대응 단계 ${f.ex.stage ?? '초기대응'}, 발생일시 ${f.ex.occurredAt}, 장소 ${f.ex.location}, 기관 ${f.ex.agency} ${f.ex.dept}.\n시나리오/개요: ${f.ex.scenario}\n최근 기록:\n${f.events.filter((e) => !/AI분석|^보고$/.test(e.kind) && !PLACEHOLDER_RE.test(e.content)).slice(-8).map((e) => `${hhmm(e.at)} [${e.kind}] ${e.content}`).join('\n')}\n임무 ${f.tasks.length}건(완료 ${f.tasks.filter((t) => t.status === '완료').length}, 지연·미완료 ${f.tasks.filter((t) => ['지연', '미완료'].includes(t.status)).length})`;
   const narr = tpl.sections.filter((s) => s.kind === 'narrative');
-  const texts = await Promise.all(narr.map((s) => llm.narrate(s.title.replace(/^\d+\.\s*/, ''), facts, s.prompt ?? '', docName).catch((e: Error) => `(AI 생성 실패: ${e.message})`)));
+  const texts = await Promise.all(narr.map((s) => narrateSafe(s.title.replace(/^\d+\.\s*/, ''), facts, s.prompt ?? '', docName)));
   for (const s of tpl.sections) {
     const title = s.titleByMode?.[mode] ?? s.title;
     if (s.kind === 'fact') out.push({ key: s.key, title, kind: 'fact', block: s.block, markdown: s.block ? BLOCKS[s.block](f) : '', aiGenerated: false, reviewed: true });

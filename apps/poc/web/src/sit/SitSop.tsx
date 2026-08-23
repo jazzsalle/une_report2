@@ -76,7 +76,7 @@ function laneLayout(g: SopGraph, lanes: string[]): Map<string, { x: number; y: n
   const depth = depthOf(g);
   const order = [...g.nodes].sort((a, b) => (depth.get(a.id) ?? 0) - (depth.get(b.id) ?? 0));
   // 시작·종료는 첫 띠에 둔다(협업기능이 없다고 '기타' 띠로 보내면 선이 화면을 가로지른다 — 2026-08-23 캡처). 접힌 단계 막대는 전체 폭 중앙
-  order.forEach((n, i) => { const col = n.type === 'START' || n.type === 'END' ? 0 : Math.max(0, lanes.indexOf(n.coop ?? '기타')); pos.set(n.id, { x: isGroup(n) ? (lanes.length * LANE_W) / 2 : col * LANE_W + LANE_W / 2, y: LANE_HEAD + 40 + i * LANE_ROW }); });
+  order.forEach((n, i) => { const col = n.type === 'START' || n.type === 'END' ? 0 : Math.max(0, lanes.indexOf(n.coop ?? '기타')); pos.set(n.id, { x: isGroup(n) ? Math.max((lanes.length * LANE_W) / 2, GROUP_W / 2 + 12) : col * LANE_W + LANE_W / 2, y: LANE_HEAD + 40 + i * LANE_ROW }); }); // 띠가 하나뿐이면(부산처럼 협업기능 없는 코드) 막대가 왼쪽으로 삐져나가지 않게
   return pos;
 }
 /**
@@ -184,7 +184,7 @@ export function SitSop() {
   // 단계 변경·집중 보기 전환 뒤 현재 단계 구간으로 스크롤
   useEffect(() => { if (!scrollReq.current || !vgraph) return; scrollReq.current = false; const first = order.find((nid) => vgraph.nodes.find((x) => x.id === nid)?.stage === curStage); const p = first ? pos.get(first) : null; const el = canvasRef.current; if (p && el) el.scrollTo({ top: Math.max(0, (p.y - 140) * zoom), behavior: 'smooth' }); }, [pos, order, vgraph, curStage, zoom]);
   const toggleFocus = () => { const v = !focus; setFocus(v); localStorage.setItem('poc.sop.focus', v ? '1' : '0'); setExpanded([]); scrollReq.current = v; };
-  const svgW = view === 'lane' ? Math.max(900, lanes.length * LANE_W + 40) : Math.max(900, ...[...pos.values()].map((p) => p.x + NODE_W / 2 + 40));
+  const svgW = view === 'lane' ? Math.max(900, lanes.length * LANE_W + 40, GROUP_W + 40) : Math.max(900, ...[...pos.values()].map((p) => p.x + NODE_W / 2 + 40));
   const svgH = Math.max(...[...pos.values()].map((p) => p.y), 100) + 120;
   const hoverId = hover ?? sel; // 선택된 노드는 카드를 고정 표시
   const hoverNode = hoverId && !hoverId.startsWith('g_') ? graph?.nodes.find((n) => n.id === hoverId) ?? null : null;

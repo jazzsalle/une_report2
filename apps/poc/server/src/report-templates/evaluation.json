@@ -1,0 +1,67 @@
+{
+  "type": "evaluation",
+  "name": "재난대응 활동 평가서",
+  "seqLabel": "평가",
+  "modes": [
+    "실제상황",
+    "안전한국훈련",
+    "도상훈련"
+  ],
+  "hazards": [],
+  "header": {
+    "fields": [
+      "reportedAt",
+      "reporter",
+      "dept",
+      "phone",
+      "distribution",
+      "krms"
+    ]
+  },
+  "hwpxTemplateHint": "상황보고",
+  "description": "대응 지표(전파·수신·완료·기한)를 이벤트 원장에서 자동 산출하고 기대행동·회의·경과로 평가(연구항목: 재난대응 활동 평가 지원)",
+  "sections": [
+    {
+      "key": "overview",
+      "title": "1. 평가 개요",
+      "kind": "narrative",
+      "prompt": "평가 대상 상황(또는 훈련)과 기간·참여 부서를 2~3문장으로"
+    },
+    {
+      "key": "kpi",
+      "title": "2. 대응 지표",
+      "kind": "fact",
+      "block": "대응지표"
+    },
+    {
+      "key": "timeline",
+      "title": "3. 단계별 대응 경과",
+      "kind": "fact",
+      "block": "시간대별조치"
+    },
+    {
+      "key": "eval",
+      "title": "4. 기대행동·임무 평가",
+      "kind": "fact",
+      "block": "기대행동평가"
+    },
+    {
+      "key": "dispatch",
+      "title": "5. 전파·수신 확인",
+      "kind": "fact",
+      "block": "전파수신"
+    },
+    {
+      "key": "meetings",
+      "title": "6. 회의·의사결정",
+      "kind": "fact",
+      "block": "회의결정"
+    },
+    {
+      "key": "improve",
+      "title": "7. 문제점 및 개선과제",
+      "kind": "narrative",
+      "prompt": "지표와 지연·미완료 임무를 근거로 문제점과 개선과제를 3~4문장으로"
+    }
+  ]
+}

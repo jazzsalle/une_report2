@@ -6,6 +6,9 @@
  *   | 코드번호 :  ①-2-8  조치목록 : 대응 조치  조치내용 : 긴급 구조구급 협조사항 파악  주관부서  안전재난하천과  ⓢ지원부서  ⓒ협업기관  영천경찰서, 영천소방서, 군부대  연계코드  ①-3-1 재난상황 접수 및 파악   |
  *   카드 앞에 "## 지대본 / 비상 1단계 / ## ①재난상황관리" 식의 맥락이, 뒤에 "## 1. 세부 조치 제목 / - 체크 항목" 이 따라온다.
  *   청크가 512자라 카드 꼬리(연계코드)가 잘리기도 한다 → 닫는 '|'가 없으면 truncated 로 표시하고, 같은 코드가 온전한 청크에서 다시 나오면 교체한다.
+ * 실측 2026-08-23 저녁 (●부산시 풍수해 재난 현장조치 행동매뉴얼(26.7.6.)): 같은 항목을 세로로 쓴다 —
+ *   "비상 대응 / 코드번호 :\n44-2 / ## 행 동 요 령 / 조치목록 :\n재난현장 교통소통 확보 / 조치내용 :\n… / 주관부서 :\n부산경찰청 / 지원부서 :\n / 협업기관\n:\n… / ## 1. 제목 / | 표준행동 지시내용 비고 … |"
+ *   코드가 숫자(44-2, 협업기능 원문자 없음), ⓢ/ⓒ 접두 없음, 단계는 "비상 대응"·"수습 ・ 복구". 카드 끝은 '|' 또는 "## n." 제목.
  */
 import { search } from './uni.js';
 import { refineType, type NodeType, type SopEdge, type SopGraph, type SopNode } from './llm.js';
@@ -18,7 +21,8 @@ const STAGE_PATTERNS: [RegExp, ManualStage][] = [
   [/초기\s*대응/g, '초기대응'],
   [/비상\s*2\s*[·ㆍ,~∼]?\s*3\s*단계|비상\s*3\s*단계|비상\s*2\s*단계/g, '비상2·3'],
   [/비상\s*1\s*단계/g, '비상1'],
-  [/수습\s*[·ㆍ]?\s*복구/g, '수습복구'],
+  [/비상\s*대응/g, '비상1'], // 부산: 단계 번호 없이 '비상 대응' — 비상1로 두고 검수에서 고친다
+  [/수습\s*[·ㆍ・]?\s*복구/g, '수습복구'],
 ];
 /** 단계별 검색어에 쓰는 매뉴얼 표기 */
 const STAGE_QUERY: Record<ManualStage, string> = { 징후감지: '징후감지 단계', 초기대응: '초기대응 단계', 비상1: '지대본 비상 1단계', '비상2·3': '지대본 비상 2·3단계', 수습복구: '수습복구 단계' };
@@ -40,7 +44,7 @@ export interface ActionCard {
 }
 
 const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
-const clean = (s: string) => s.replace(/\s+/g, ' ').replace(/^[\s:：|]+|[\s:：|]+$/g, '').trim();
+const clean = (s: string) => s.replace(/\s+/g, ' ').replace(/\s*[․・ㆍ]\s*/g, '·').replace(/\s*,\s*/g, ', ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/^[\s:：|]+|[\s:：|]+$/g, '').trim();
 const splitList = (s: string) => clean(s).split(/\s*[,、]\s*/).map((x) => x.trim()).filter((x) => x && x !== '-');
 
 /** 청크 하나에서 조치카드를 모두 뽑는다 */
@@ -54,14 +58,17 @@ export function parseActionCards(text: string, doc: string, score: number, query
     const hardEnd = i + 1 < starts.length ? starts[i + 1] : text.length;
     // 카드 본문은 닫는 '|' 까지. 없으면 청크 끝(잘림)
     const pipeAt = text.indexOf('|', from);
-    const truncated = pipeAt < 0 || pipeAt > hardEnd;
-    const end = truncated ? hardEnd : pipeAt;
+    const headM = /\n\s*#{1,3}\s*\d+\s*[.)]\s/.exec(text.slice(from)); const headAt = headM ? from + headM.index : -1; // 부산: "## 1. 제목"이 카드 끝
+    const ends = [pipeAt, headAt].filter((x) => x >= 0 && x <= hardEnd);
+    const truncated = !ends.length;
+    const end = truncated ? hardEnd : Math.min(...ends);
     const body = text.slice(from, end);
-    const codeM = /코드번호\s*[:：]\s*([①-⑳])\s*-\s*(\d+)\s*-\s*(\d+)/.exec(body);
+    const codeM = /코드번호\s*[:：]\s*(?:([①-⑳])\s*-\s*)?(\d+)\s*-\s*(\d+)/.exec(body);
     if (!codeM) continue;
-    const code = `${codeM[1]}-${codeM[2]}-${codeM[3]}`;
+    const coop = codeM[1] ?? ''; // 부산처럼 원문자 없는 숫자 코드는 협업기능 미상
+    const code = coop ? `${coop}-${codeM[2]}-${codeM[3]}` : `${codeM[2]}-${codeM[3]}`;
     // 라벨 위치로 필드를 자른다(라벨 순서는 매뉴얼에서 고정)
-    const labels: [string, RegExp][] = [['title', /조치목록\s*[:：]?/], ['content', /조치내용\s*[:：]?/], ['lead', /주관부서\s*[:：]?/], ['support', /[ⓢⓈ]\s*지원부서\s*[:：]?/], ['partner', /[ⓒⒸ]\s*협업기관\s*[:：]?/], ['linked', /연계\s*코드\s*[:：]?/]];
+    const labels: [string, RegExp][] = [['title', /조치목록\s*[:：]?/], ['content', /조치내용\s*[:：]?/], ['lead', /주관부서\s*[:：]?/], ['support', /[ⓢⓈ]?\s*지원부서\s*[:：]?/], ['partner', /[ⓒⒸ]?\s*협업기관\s*[:：]?/], ['linked', /연계\s*코드\s*[:：]?/]];
     const found: { key: string; start: number; valueStart: number }[] = [];
     let cursor = codeM.index + codeM[0].length;
     for (const [key, lre] of labels) {
@@ -69,6 +76,8 @@ export function parseActionCards(text: string, doc: string, score: number, query
       found.push({ key, start: cursor + lm.index, valueStart: cursor + lm.index + lm[0].length }); cursor = cursor + lm.index + lm[0].length;
     }
     const field = (key: string) => { const f = found.find((x) => x.key === key); if (!f) return ''; const nextStart = found.find((x) => x.start > f.start)?.start ?? body.length; return body.slice(f.valueStart, nextStart); };
+    // 부서·기관 칸은 첫 문단(빈 줄 전)까지, 120자 안에서만 — 잘린 카드에서 뒤따르는 본문("※ 비상연락체계 확인 …")이 딸려 들어오던 것을 막는다(실측 부산 2026-08-23)
+    const short = (v: string) => { const first = v.replace(/^\s*[:：]?\s*\n?/, '').split(/\n\s*\n/).map((x) => x.trim()).find((x) => x && !/^[:：]$/.test(x)) ?? ''; const cut = first.split(/\s*(?:※|❍|○|<!--|##)/)[0]; return cut.length > 120 ? cut.slice(0, 120) : cut; };
     const linkedRaw = field('linked');
     const linkedCodes: { code: string; title: string }[] = [];
     if (linkedRaw) {
@@ -84,11 +93,13 @@ export function parseActionCards(text: string, doc: string, score: number, query
     const checklist: string[] = [];
     for (const line of after.split(/\r?\n/)) {
       const h = /^\s*#{1,3}\s*\d+\s*[.)]\s*(.+)$/.exec(line); const b = /^\s*[-•·]\s*(.+)$/.exec(line);
+      const t = /^\s*\|(.+?)\|?\s*$/.exec(line); // 부산: 표준행동 표가 한 줄로 납작해져 온다 — 2칸 이상 공백으로 가른다
+      if (t && !/^[\s|:-]+$/.test(line)) { for (const cell of t[1].split(/\s{2,}|\s*\|\s*/).map(clean).filter((x) => x && !/^(표준행동|지시내용|비고|-+)$/.test(x))) { checklist.push(cell); if (checklist.length >= 10) break; } if (checklist.length >= 10) break; continue; }
       const v = clean(h?.[1] ?? b?.[1] ?? ''); if (!v || v === '-' || /^-+$/.test(v)) continue;
       if (h) checklist.push(`[${v}]`); else if (b) checklist.push(v.replace(/^[ⓢⓒ]/, ''));
       if (checklist.length >= 10) break;
     }
-    out.push({ code, coop: codeM[1], seq: [Number(codeM[2]), Number(codeM[3])], title: clean(field('title')), content: clean(field('content')), lead: clean(field('lead')), support: splitList(field('support')), partner: splitList(field('partner')), linkedCodes, checklist, stage, truncated, sourceRef: { doc, score, excerpt: text.slice(Math.max(0, from - 80), Math.min(text.length, end + 200)), query } });
+    out.push({ code, coop, seq: [Number(codeM[2]), Number(codeM[3])], title: clean(field('title')), content: clean(field('content')), lead: clean(short(field('lead'))), support: splitList(short(field('support'))), partner: splitList(short(field('partner'))), linkedCodes, checklist, stage, truncated, sourceRef: { doc, score, excerpt: text.slice(Math.max(0, from - 80), Math.min(text.length, end + 200)), query } });
   }
   return out;
 }
