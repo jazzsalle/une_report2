@@ -105,18 +105,34 @@ export function reportMarkdown(title: string, header: ReportHeader, sections: Re
 }
 
 // ── PDF: HWPX 쪽 SVG → HTML → 헤드리스 크롬 ────────────────────────────────
-export const CHROME_PATH = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+/**
+ * PDF 변환용 브라우저 찾기: CHROME_PATH env → 크롬 기본 경로(x64·x86·사용자 설치) → **Edge**(윈도우 기본 내장, 같은 --print-to-pdf 지원).
+ * 둘 다 없을 때만 BROWSER_NOT_FOUND — 화면은 오류 대신 설치 안내를 띄운다(사용자 요청 2026-08-23).
+ */
+export const CHROME_PATH = process.env.CHROME_PATH || '';
+const LOCAL = process.env.LOCALAPPDATA || '';
+const BROWSER_CANDIDATES: { kind: 'chrome' | 'edge'; path: string }[] = [
+  ...(CHROME_PATH ? [{ kind: 'chrome' as const, path: CHROME_PATH }] : []),
+  { kind: 'chrome', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
+  { kind: 'chrome', path: 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe' },
+  ...(LOCAL ? [{ kind: 'chrome' as const, path: `${LOCAL}\\Google\\Chrome\\Application\\chrome.exe` }] : []),
+  { kind: 'edge', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' },
+  { kind: 'edge', path: 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' },
+];
+export function findBrowser(): { kind: 'chrome' | 'edge'; path: string } | null { return BROWSER_CANDIDATES.find((c) => existsSync(c.path)) ?? null; }
+export function pdfStatus() { const b = findBrowser(); return { available: !!b, browser: b?.kind ?? null, path: b?.path ?? null, chromePathEnv: CHROME_PATH || null }; }
+export class BrowserNotFound extends Error { code = 'BROWSER_NOT_FOUND'; constructor() { super('PDF 변환에 쓸 브라우저(Chrome 또는 Edge)를 서버 PC에서 찾지 못했습니다'); } }
 export async function hwpxToPdf(hwpx: Uint8Array, outPdf: string, workDir: string): Promise<{ pages: number }> {
-  if (!existsSync(CHROME_PATH)) throw new Error(`크롬을 찾지 못했습니다(CHROME_PATH=${CHROME_PATH}) — PDF 변환에는 Chrome이 필요합니다`);
+  const browser = findBrowser(); if (!browser) throw new BrowserNotFound();
   const r = await renderHwpxSvg(hwpx, 200);
   if (!existsSync(workDir)) mkdirSync(workDir, { recursive: true });
   const html = `<!doctype html><meta charset="utf-8"><style>@page{size:A4;margin:0}html,body{margin:0;padding:0}.p{width:210mm;height:297mm;overflow:hidden;page-break-after:always;break-after:page}.p:last-child{page-break-after:auto}.p svg{width:210mm;height:297mm;display:block}</style>${r.svgs.map((s) => `<div class="p">${s.replace(/<svg /, '<svg preserveAspectRatio="xMidYMid meet" ')}</div>`).join('')}`;
   const htmlPath = join(workDir, `${Date.now()}.html`); writeFileSync(htmlPath, html);
   const fileUrl = 'file:///' + htmlPath.replace(/\\/g, '/');
   await new Promise<void>((resolve, reject) => {
-    const p = spawn(CHROME_PATH, ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', '--no-margins', `--print-to-pdf=${outPdf}`, '--virtual-time-budget=5000', fileUrl], { stdio: 'ignore', windowsHide: true });
-    const t = setTimeout(() => { p.kill(); reject(new Error('크롬 PDF 변환 시간 초과(60초)')); }, 60_000);
-    p.on('exit', (code) => { clearTimeout(t); if (existsSync(outPdf)) resolve(); else reject(new Error(`크롬 PDF 변환 실패(code ${code})`)); });
+    const p = spawn(browser.path, ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', '--no-margins', `--print-to-pdf=${outPdf}`, '--virtual-time-budget=5000', fileUrl], { stdio: 'ignore', windowsHide: true });
+    const t = setTimeout(() => { p.kill(); reject(new Error(`${browser.kind === 'edge' ? 'Edge' : '크롬'} PDF 변환 시간 초과(60초)`)); }, 60_000);
+    p.on('exit', (code) => { clearTimeout(t); if (existsSync(outPdf)) resolve(); else reject(new Error(`${browser.kind === 'edge' ? 'Edge' : '크롬'} PDF 변환 실패(code ${code})`)); });
     p.on('error', (e) => { clearTimeout(t); reject(e); });
   });
   return { pages: r.pages };

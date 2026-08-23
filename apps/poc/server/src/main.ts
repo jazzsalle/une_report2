@@ -12,7 +12,7 @@ import { initRhwp, rhwpVersion, profileTemplate, buildHwpx, renderHwpxSvg, extra
 import * as llm from './llm.js';
 import { getWeather, getWarnings, weatherStatus } from './weather.js';
 import { extractCards, buildTemplateGraph, MANUAL_STAGES, type ActionCard, type ManualStage } from './manuals.js';
-import { reportTemplates, reportTemplate, buildSections, refreshFacts, reportMarkdown, hwpxToPdf, markdownToDocx, type ReportTemplate, type ReportHeader, type ReportSection, type FactSource, type BlockKind } from './reports.js';
+import { reportTemplates, reportTemplate, buildSections, refreshFacts, reportMarkdown, hwpxToPdf, markdownToDocx, pdfStatus, BrowserNotFound, type ReportTemplate, type ReportHeader, type ReportSection, type FactSource, type BlockKind } from './reports.js';
 import type { PlanContext, TocNode, SopGraph } from './llm.js';
 
 const app = express();
@@ -68,7 +68,7 @@ const members = () => ensureOrg().members;
 app.get('/api/users', (_req, res) => res.json(members()));
 app.get('/api/org', (_req, res) => res.json(ensureOrg()));
 app.put('/api/org', (req, res) => { const o = ensureOrg(); const b = req.body ?? {}; delete b.id; delete b.createdAt; res.json(orgs.update(o.id, b)); });
-app.get('/api/health', (_req, res) => res.json({ ok: true, uni: uniStatus(), t3q: t3qStatus(), rhwp: { version: rhwpVersion() }, weather: weatherStatus(), time: now() }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, uni: uniStatus(), t3q: t3qStatus(), rhwp: { version: rhwpVersion() }, weather: weatherStatus(), pdf: pdfStatus(), time: now() }));
 // 날씨·기상특보 (weather.ts): 10분 캐시, 외부 실패 시 마지막 값→목업 폴백(source로 구분)
 app.get('/api/weather', async (req, res) => res.json(await getWeather(req.query.place as string | undefined)));
 app.get('/api/weather/warnings', async (_req, res) => res.json(await getWarnings()));
@@ -811,7 +811,10 @@ app.post('/api/reports/:rid/export', async (req, res) => {
     const { pages } = await hwpxToPdf(hwpx, join(FILES_DIR, fileName), join(FILES_DIR, 'pdf-work'));
     reports.update(r.id, { export: { ...r.export, pdf: { fileName, at: now(), pages, templateId: t.id, templateName: t.name } } });
     res.json({ format, fileName, url: `/api/files/${fileName}`, pages, templateName: t.name });
-  } catch (e) { bad(res, 500, (e as Error).message); }
+  } catch (e) {
+    if (e instanceof BrowserNotFound) return res.status(503).json({ error: e.message, code: e.code, guide: ['서버 PC에 Chrome 또는 Edge를 설치하면 PDF 내보내기가 됩니다(Edge는 Windows 10/11에 기본 포함).', 'Chrome: https://www.google.com/chrome/ 에서 설치 → 서버 재기동.', '다른 경로에 설치돼 있으면 infrastructure/.env 에 CHROME_PATH=<chrome.exe 또는 msedge.exe 전체 경로> 를 적고 서버를 재기동합니다.', 'PDF 없이도 HWPX·DOCX 내보내기와 미리보기는 그대로 됩니다.'] });
+    bad(res, 500, (e as Error).message);
+  }
 });
 /** 미리보기: 내보낸 HWPX를 쪽 SVG로(없으면 즉석 생성 — 저장하지 않음) */
 app.get('/api/reports/:rid/preview', async (req, res) => {

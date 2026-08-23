@@ -54,7 +54,7 @@ apps\poc\stop.cmd
 | `T3Q_API_BASE_URL` | `https://plf.mois-disaster.t3q.ai` | T3Q 계획서 API |
 | `T3Q_MODEL_ID` | `ae894` | |
 | `KMA_SERVICE_KEY` | — | 기상청 공공데이터포털 일반 인증키(Decoding). 있으면 날씨·특보를 기상청 API로, 없으면 날씨는 Open-Meteo·특보는 날씨누리 화면 파싱(키 불필요) |
-| `CHROME_PATH` | `C:\Program Files\Google\Chrome\Application\chrome.exe` | 보고서 PDF 내보내기(HWPX → 쪽 SVG → 헤드리스 크롬 `--print-to-pdf`)에 쓰는 크롬 경로 |
+| `CHROME_PATH` | — | 보고서 PDF 내보내기(HWPX → 쪽 SVG → 헤드리스 브라우저 `--print-to-pdf`)에 쓸 브라우저 경로. 비우면 Chrome 기본 경로 → **Edge**(윈도우 내장) 순으로 찾고, 둘 다 없으면 화면에 설치 안내 |
 | `T3Q_VERIFY_TLS` | `1` | **POC에서는 `0`** — T3Q 인증서 체인이 불완전해 검증을 끈다. 운영은 켠다 |
 | `POC_PORT` | `3100` | 서버 포트 |
 

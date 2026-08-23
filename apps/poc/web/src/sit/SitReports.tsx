@@ -9,6 +9,8 @@ import { Btn, C, Card, Chip, Field, Input, Modal, Select, Textarea, Toast, rende
  */
 /** ISO(UTC) → <input type=datetime-local> 값(현지 시각). slice(0,16)은 UTC라 9시간 어긋난다 */
 const toLocalInput = (iso: string) => { const d = new Date(iso); if (Number.isNaN(d.getTime())) return ''; const z = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; };
+const URL_RE = /(https?:\/\/\S+)/;
+const PDF_GUIDE = ['서버 PC에 Chrome 또는 Edge가 있어야 PDF를 만들 수 있습니다(Edge는 Windows 10/11에 기본 포함).', 'Chrome 설치: https://www.google.com/chrome/ → 설치 후 서버 재기동.', '다른 경로에 설치돼 있으면 infrastructure/.env 에 CHROME_PATH=<chrome.exe 또는 msedge.exe 전체 경로> 를 적고 서버를 재기동합니다.', 'PDF 없이도 HWPX·DOCX 내보내기와 미리보기는 그대로 됩니다.'];
 const STATUS_TONE: Record<Report['status'], 'gray' | 'blue' | 'green'> = { 초안: 'gray', 검토중: 'blue', 최종: 'green' };
 const MODE_HINT: Record<string, string> = { immediate: '실제상황·도상훈련', interim: '실제상황·도상훈련', final: '실제상황·도상훈련', journal: '모든 모드', drillResult: '안전한국훈련·도상훈련' };
 
@@ -32,6 +34,10 @@ export function SitReports() {
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [linkPlan, setLinkPlan] = useState('');
   const [toast, show] = useToast();
+  // PDF는 서버 PC의 Chrome/Edge로 만든다 — 없으면 오류 대신 설치 안내(사용자 요청 2026-08-23)
+  const [pdf, setPdf] = useState<{ available: boolean; browser: 'chrome' | 'edge' | null } | null>(null);
+  const [guide, setGuide] = useState<string[] | null>(null);
+  useEffect(() => { get<{ pdf?: { available: boolean; browser: 'chrome' | 'edge' | null } }>('/health').then((h) => setPdf(h.pdf ?? { available: false, browser: null })).catch(() => setPdf({ available: false, browser: null })); }, []);
 
   const loadList = async () => { const l = await get<Report[]>(`/exercises/${id}/reports`); setList(l); return l; };
   const loadReport = async (x: string) => { const rr = await get<Report>(`/reports/${x}`); setR(rr); if (!rr.sections.some((s) => s.key === cur)) setCur(rr.sections[0]?.key ?? ''); return rr; };
@@ -69,6 +75,7 @@ export function SitReports() {
   // 저장 위치 창은 클릭 직후에만 열린다 — 서버 생성을 기다린 뒤 열면 브라우저가 거부하므로 먼저 묻는다
   const exportAs = async (format: 'hwpx' | 'pdf' | 'docx') => {
     if (!r) return;
+    if (format === 'pdf' && pdf && !pdf.available) { setGuide(PDF_GUIDE); return; }
     const handle = await pickSaveLocation(`${r.title}.${format}`);
     setBusy(format);
     try {
@@ -76,7 +83,7 @@ export function SitReports() {
       await loadReport(r.id);
       if (handle === 'cancelled') show(`${format.toUpperCase()} 생성 완료 · 저장은 취소됨 — [최근 파일]로 받을 수 있습니다`);
       else { const how = await writeFileTo(handle, `/api/files/${out.fileName}`, out.fileName); show(how === 'saved' ? `저장했습니다: ${out.fileName}${out.pages ? ` (${out.pages}쪽)` : ''}` : `${format.toUpperCase()} 생성 완료 · 브라우저 다운로드 폴더에 저장`); }
-    } catch (e) { show((e as Error).message); } finally { setBusy(null); }
+    } catch (e) { const err = e as Error & { code?: string; guide?: string[] }; if (err.code === 'BROWSER_NOT_FOUND') setGuide(err.guide ?? PDF_GUIDE); else show(err.message); } finally { setBusy(null); }
   };
   const download = async (format: 'hwpx' | 'pdf' | 'docx') => { const f = r?.export?.[format]; if (!f) return; const handle = await pickSaveLocation(f.fileName); if (handle === 'cancelled') return; try { const how = await writeFileTo(handle, `/api/files/${f.fileName}`, f.fileName); show(how === 'saved' ? `저장했습니다: ${f.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); } catch (e) { show((e as Error).message); } };
   const openPreview = () => act('preview', async () => { if (!r) return; setPreview(await get(`/reports/${r.id}/preview`)); });
@@ -172,10 +179,11 @@ export function SitReports() {
             <Select value={hwpxTplId} onChange={(e) => setHwpxTplId(e.target.value)} style={{ marginBottom: 8, width: '100%' }} aria-label="HWPX 템플릿">{hwpxTpls.map((t) => <option key={t.id} value={t.id}>{t.name}{/상황보고/.test(t.fileName) ? ' (기본)' : ''}</option>)}</Select>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 6 }}>
               <Btn kind="primary" disabled={!!busy} onClick={() => void exportAs('hwpx')}>{busy === 'hwpx' ? '생성 중…' : 'HWPX'}</Btn>
-              <Btn kind="primary" disabled={!!busy} onClick={() => void exportAs('pdf')} title="HWPX를 쪽 그림으로 바꿔 크롬으로 PDF를 만듭니다">{busy === 'pdf' ? '변환 중…' : 'PDF'}</Btn>
+              <Btn kind={pdf && !pdf.available ? 'default' : 'primary'} disabled={!!busy} onClick={() => void exportAs('pdf')} title={pdf && !pdf.available ? 'PDF 변환용 브라우저가 서버 PC에 없습니다 — 누르면 설치 안내' : `HWPX를 쪽 그림으로 바꿔 ${pdf?.browser === 'edge' ? 'Edge' : '크롬'}으로 PDF를 만듭니다`}>{busy === 'pdf' ? '변환 중…' : pdf && !pdf.available ? 'PDF ⓘ' : 'PDF'}</Btn>
               <Btn kind="primary" disabled={!!busy} onClick={() => void exportAs('docx')}>{busy === 'docx' ? '생성 중…' : 'DOCX'}</Btn>
             </div>
-            <Btn style={{ width: '100%', marginBottom: 6 }} disabled={!!busy} onClick={openPreview} title="HWPX 쪽 단위 미리보기(rhwp)">{busy === 'preview' ? '미리보기 준비 중…' : '미리보기'}</Btn>
+            {pdf && !pdf.available && <div style={{ fontSize: 11, color: C.orange, marginBottom: 6 }}>PDF: 서버 PC에 Chrome/Edge가 없어 지금은 만들 수 없습니다. <a href="#" onClick={(e) => { e.preventDefault(); setGuide(PDF_GUIDE); }}>설치 안내</a></div>}
+            <Btn style={{ width: '100%', marginBottom: 6 }} disabled={!!busy} onClick={openPreview} title="HWPX 쪽 단위 미리보기(rhwp) — 브라우저 설치와 무관">{busy === 'preview' ? '미리보기 준비 중…' : '미리보기'}</Btn>
             {(['hwpx', 'pdf', 'docx'] as const).map((f) => r.export?.[f] && <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted, marginBottom: 4 }}><span style={{ flex: 1 }}>{f.toUpperCase()} · {fmtDate(r.export![f]!.at)}{r.export![f]!.pages ? ` · ${r.export![f]!.pages}쪽` : ''}</span><Btn small onClick={() => void download(f)}>최근 파일</Btn></div>)}
           </Card>
         )}
@@ -191,6 +199,15 @@ export function SitReports() {
           <div style={{ background: '#f4f5f6', padding: 16, display: 'grid', gap: 16, maxHeight: '75vh', overflow: 'auto' }}>
             {preview.svgs.map((s, i) => <div key={i} className="hwp-page" dangerouslySetInnerHTML={{ __html: s }} />)}
           </div>
+        </Modal>
+      )}
+      {guide && (
+        <Modal title="PDF 내보내기 — 브라우저 설치 안내" onClose={() => setGuide(null)} width={560}>
+          <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+            <p style={{ margin: '0 0 8px' }}>PDF는 서버 PC에 있는 Chrome 또는 Edge가 문서를 쪽 단위로 인쇄해 만듭니다(화면의 미리보기와는 다른 경로). 지금은 찾지 못했습니다.</p>
+            <ol style={{ margin: 0, paddingLeft: 20 }}>{guide.map((g, i) => <li key={i} style={{ marginBottom: 4 }}>{g.split(URL_RE).map((part, j) => (/^https?:\/\//.test(part) ? <a key={j} href={part} target="_blank" rel="noreferrer">{part}</a> : part))}</li>)}</ol>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 12 }}><Btn onClick={() => { setGuide(null); void exportAs('hwpx'); }}>대신 HWPX로 내보내기</Btn><Btn kind="primary" onClick={() => setGuide(null)}>확인</Btn></div>
         </Modal>
       )}
       <Toast msg={toast} />

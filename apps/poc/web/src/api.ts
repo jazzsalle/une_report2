@@ -8,7 +8,7 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
   const text = await r.text();
   let json: unknown = null;
   try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-  if (!r.ok) throw new Error((json as { error?: string })?.error ?? `HTTP ${r.status}`);
+  if (!r.ok) { const j = (json ?? {}) as { error?: string; code?: string; guide?: string[] }; const err = new Error(j.error ?? `HTTP ${r.status}`) as Error & { code?: string; guide?: string[] }; err.code = j.code; err.guide = j.guide; throw err; }
   return json as T;
 }
 export const get = <T,>(p: string) => api<T>('GET', p);
