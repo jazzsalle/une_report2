@@ -66,6 +66,8 @@ export interface CellStyle {
   font: { fontFamily: string | null; fontSizePt: number | null; bold: boolean };
 }
 export interface TableStyle {
+  /** 위치별 테두리(2026-08-24): [위/중간/아래][왼쪽/중간/오른쪽] borderFillId — 바깥 선이 없는 표(가장자리 셀 테두리가 다른 형식)를 그대로 재현. null이면 3종(header/firstCol/body) 폴백 */
+  borderGrid?: (number | null)[][];
   table: { paddingLeft: number; paddingRight: number; paddingTop: number; paddingBottom: number; borderFillId: number; repeatHeader: boolean; cellSpacing: number };
   header: CellStyle; firstCol: CellStyle; body: CellStyle;
   /** 견본 표 머리행의 열 너비(HWPUNIT). 생성 표의 열 수가 다르면 첫 열 비율을 지키며 나머지를 균등 배분 */
@@ -93,7 +95,7 @@ export interface TemplateProfile {
   /** 분석 규칙 버전 — 값이 PROFILE_VERSION보다 낮으면 서버 기동 시 다시 분석 */
   version?: number;
 }
-export const PROFILE_VERSION = 2; // 2: 꼬리 빈 표를 견본 구간에 포함 (2026-08-21)
+export const PROFILE_VERSION = 3; // 3: 표 위치별 테두리 격자(borderGrid) 추가 (2026-08-24) / 2: 꼬리 빈 표 포함 (2026-08-21)
 
 const BULLET_RE = /^\s*([□■○●◇◆ㅇo\-\-–—*·•▪▶►☞※]|\d+[.)]|[가-힣][.)]|\(\d+\)|[①-⑳])\s?/;
 
@@ -174,13 +176,18 @@ function readTableStyle(doc: Doc, layout: TemplateLayout | undefined, paragraphs
           font: { fontFamily: cp.fontFamily ?? null, fontSizePt: cp.fontSize ? cp.fontSize / 100 : null, bold: !!cp.bold },
         };
       };
+      // 위치별 테두리 격자: 행(위=0 / 중간 / 아래=마지막) × 열(왼쪽=0 / 중간 / 오른쪽=마지막). 2×2 표처럼 중간이 없으면 null
+      const bfAt = (r: number, c: number): number | null => { try { return Number((JSON.parse(doc.getCellProperties(0, t.para, t.ctrl, r * dims.colCount + c)) as { borderFillId?: number }).borderFillId ?? 0); } catch { return null; } };
+      const rIdx = [0, dims.rowCount > 2 ? 1 : -1, dims.rowCount - 1];
+      const cIdx = [0, dims.colCount > 2 ? 1 : -1, dims.colCount - 1];
+      const borderGrid = rIdx.map((r) => cIdx.map((c) => (r < 0 || c < 0 ? null : bfAt(r, c))));
       const tp = JSON.parse(doc.getTableProperties(0, t.para, t.ctrl)) as Record<string, number | boolean>;
       const colWidths = Array.from({ length: dims.colCount }, (_, c) => Number((JSON.parse(doc.getCellProperties(0, t.para, t.ctrl, c)) as { width?: number }).width ?? 0));
       const prev = [...paragraphs].reverse().find((p) => p.idx < t.para && p.text.trim());
       const caption = prev && /표\s*제목/.test(prev.text) ? { charShapeId: charProps(doc, prev.idx)?.charShapeId ?? null, paraShapeId: paraShapeIdOf(doc, prev.idx) } : null;
       return {
         table: { paddingLeft: Number(tp.paddingLeft ?? 0), paddingRight: Number(tp.paddingRight ?? 0), paddingTop: Number(tp.paddingTop ?? 0), paddingBottom: Number(tp.paddingBottom ?? 0), borderFillId: Number(tp.borderFillId ?? 0), repeatHeader: !!tp.repeatHeader, cellSpacing: Number(tp.cellSpacing ?? 0) },
-        header: cell(0, 1), firstCol: cell(1, 0), body: cell(1, Math.min(1, dims.colCount - 1)),
+        header: cell(0, 1), firstCol: cell(1, 0), body: cell(1, Math.min(1, dims.colCount - 1)), borderGrid,
         colWidths, sampleParaIdx: t.para, rows: dims.rowCount, cols: dims.colCount, caption,
       };
     } catch { /* 다음 표 */ }
@@ -409,7 +416,16 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
 
   const levelFor = (lv: number) => P.levels.find((l) => l.level === lv) ?? P.levels[Math.min(lv, P.levels.length) - 1] ?? null;
   const len = (para: number) => doc.getParagraphLength(0, para);
-  const applyLevel = (para: number, lv: number, sizeOverridePt?: number) => {
+  /** 문자열 폭(HWPUNIT): 전각(한글·□ㅇ※·원문자)은 1em, 반각(공백·- * 1 .)은 0.5em. 1pt = 100 HWPUNIT.
+   * 내어쓰기 폭은 기호만이 아니라 템플릿 접두 공백("   ")까지 — 접두가 글자로 들어가는 템플릿에서 기호 폭만 재면 둘째 줄이 덜 들어간다(실측 2026-08-24) */
+  const markWidthHu = (lead: string, sizePt: number): number => {
+    if (!lead) return 0;
+    const em = Math.max(6, sizePt) * 100;
+    let w = 0;
+    for (const ch of lead) w += /[ᄀ-ᇿ①-⓿■-◿　-퟿豈-﫿！-｠]/.test(ch) ? em : em / 2;
+    return Math.round(w);
+  };
+  const applyLevel = (para: number, lv: number, sizeOverridePt?: number, hangHu = 0) => {
     const L = levelFor(lv);
     if (L?.styleId != null) { try { doc.applyStyle(0, para, L.styleId); } catch { /* 스타일 없음 */ } }
     if (L?.paraShapeId != null) { try { doc.setParaShapeId(0, para, L.paraShapeId); } catch { /* ignore */ } }
@@ -422,6 +438,8 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
       if (Object.keys(props).length) { try { doc.applyCharFormat(0, para, 0, len(para), JSON.stringify(props)); } catch { /* ignore */ } }
     }
     if (sizeOverridePt) { try { doc.applyCharFormat(0, para, 0, len(para), JSON.stringify({ fontSize: Math.round(sizeOverridePt * 100), bold: true })); } catch { /* ignore */ } }
+    // 내어쓰기(사용자 요청 2026-08-24): 줄바꿈된 둘째 줄부터 기호 뒤 첫 글자 밑에 정렬 — marginLeft는 글 시작 위치, indent 음수로 첫 줄만 기호 위치로
+    if (hangHu > 0) { try { doc.applyParaFormat(0, para, JSON.stringify({ marginLeft: (L?.indentHu ?? 0) + hangHu, indent: -hangHu })); } catch { /* ignore */ } }
   };
   const applyBody = (para: number) => {
     try { doc.applyStyle(0, para, P.bodyStyleId); } catch { /* ignore */ }
@@ -432,12 +450,13 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
   };
   // 번호형 기호는 같은 수준의 형제끼리 가·나·다 / 1·2·3으로 센다. 더 깊은 수준의 번호는 새 항목이 나오면 처음부터.
   const counters: number[] = [];
-  const bulletText = (L: LevelProfile | null, text: string, lv: number) => {
+  const bulletText = (L: LevelProfile | null, text: string, lv: number): { text: string; mark: string } => {
     const b = L?.bullet ?? '';
     for (let i = lv + 1; i < counters.length; i++) counters[i] = 0;
     const skip = !b || text.startsWith(b) || (isNumberingBullet(b) && /^(\d|[가-힣][.)]|[①-⑳])/.test(text));
     const mark = !skip && isNumberingBullet(b) ? formatNumbering(b, (counters[lv] = (counters[lv] ?? 0) + 1)) : b;
-    return `${L?.prefix ?? ''}${skip ? '' : `${mark} `}${text}`;
+    // 이미 기호로 시작하는 텍스트도 내어쓰기 폭 계산에는 그 기호를 쓴다
+    return { text: `${L?.prefix ?? ''}${skip ? '' : `${mark} `}${text}`, mark: skip ? (text.startsWith(b) ? b : '') : mark };
   };
   /** "**(소제목)** 문장" 관례 — 마크다운 굵게는 벗겨지므로 (소제목) 구간만 굵게 다시 건다 */
   const boldSubtitle = (para: number, raw: string) => {
@@ -552,13 +571,16 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
   for (const b of parseMarkdown(md)) {
     if (b.kind === 'heading') {
       headingLevel = b.level;
-      const p = insertAt(bulletText(levelFor(b.level), stripInlineMd(b.text), b.level));
-      applyLevel(p, b.level);
+      const L = levelFor(b.level);
+      const bt = bulletText(L, stripInlineMd(b.text), b.level);
+      const p = insertAt(bt.text);
+      applyLevel(p, b.level, undefined, markWidthHu(`${L?.prefix ?? ''}${bt.mark ? `${bt.mark} ` : ''}`, L?.fontSizePt ?? P.bodyFontSizePt ?? 11));
     } else if (b.kind === 'bullet') {
       const lv = Math.min(P.levels.length, headingLevel + b.level);
       const L = levelFor(lv);
-      const p = insertAt(L ? bulletText(L, stripInlineMd(b.text), lv) : `- ${stripInlineMd(b.text)}`);
-      applyLevel(p, lv);
+      const bt = L ? bulletText(L, stripInlineMd(b.text), lv) : { text: `- ${stripInlineMd(b.text)}`, mark: '-' };
+      const p = insertAt(bt.text);
+      applyLevel(p, lv, undefined, markWidthHu(`${L?.prefix ?? ''}${bt.mark ? `${bt.mark} ` : ''}`, L?.fontSizePt ?? P.bodyFontSizePt ?? 11));
       boldSubtitle(p, b.text);
     } else if (b.kind === 'para') {
       const p = insertAt(stripInlineMd(b.text));
@@ -588,7 +610,12 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
             if (ts) {
               // 머리행 / 첫 열 / 본문 — 견본 표의 같은 자리 모양을 입힌다
               const st = ri === 0 ? ts.header : ci === 0 ? ts.firstCol : ts.body;
-              try { doc.setCellProperties(0, tblPara, ctrl, idx, JSON.stringify({ fillType: st.fillType, fillColor: st.fillColor, borderFillId: st.borderFillId, verticalAlign: st.verticalAlign, height: st.height, paddingLeft: st.paddingLeft, paddingRight: st.paddingRight, paddingTop: st.paddingTop, paddingBottom: st.paddingBottom, ...(widths[ci] ? { width: widths[ci] } : {}) })); } catch { /* ignore */ }
+              // 테두리는 위치(모서리·가장자리·안쪽)로 고른다 — 템플릿이 바깥 선 없는 표면 그대로 바깥 선 없음(2026-08-24)
+              const g = ts.borderGrid;
+              const rc = ri === 0 ? 0 : ri === rows - 1 ? 2 : 1;
+              const cc = ci === 0 ? 0 : ci === cols - 1 ? 2 : 1;
+              const bf = g?.[rc]?.[cc] ?? g?.[rc]?.[1] ?? g?.[1]?.[cc] ?? st.borderFillId;
+              try { doc.setCellProperties(0, tblPara, ctrl, idx, JSON.stringify({ fillType: st.fillType, fillColor: st.fillColor, borderFillId: bf, verticalAlign: st.verticalAlign, height: st.height, paddingLeft: st.paddingLeft, paddingRight: st.paddingRight, paddingTop: st.paddingTop, paddingBottom: st.paddingBottom, ...(widths[ci] ? { width: widths[ci] } : {}) })); } catch { /* ignore */ }
               if (st.paraShapeId != null) { try { doc.setCellParaShapeId(0, tblPara, ctrl, idx, 0, st.paraShapeId); } catch { /* ignore */ } }
               if (st.charShapeId != null && text) { try { doc.setCharShapeIdInCell(0, tblPara, ctrl, idx, 0, 0, cellLen(), st.charShapeId); } catch { /* ignore */ } }
               const m = ri > 0 ? raw.match(/^\*\*(\([^)]{1,30}\))\*\*/) : null;

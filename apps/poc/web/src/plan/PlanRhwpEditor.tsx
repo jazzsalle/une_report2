@@ -44,9 +44,9 @@ export function PlanRhwpEditor() {
   };
   const download = async () => {
     if (!plan?.export) return;
-    const handle = await pickSaveLocation(plan.export.fileName);
+    const handle = await pickSaveLocation(`${plan.title}.hwpx`); // 기본 파일명은 문서명(2026-08-24)
     if (handle === 'cancelled') return;
-    try { const how = await writeFileTo(handle, `/api/files/${plan.export.fileName}`, plan.export.fileName); show(how === 'saved' ? `저장했습니다: ${plan.export.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); }
+    try { const how = await writeFileTo(handle, `/api/files/${plan.export.fileName}`, `${plan.title}.hwpx`); show(how === 'saved' ? `저장했습니다: ${plan.export.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); }
     catch (e) { show((e as Error).message); }
   };
   return (
