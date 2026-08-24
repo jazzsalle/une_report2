@@ -109,7 +109,11 @@ async function registerTemplate(name: string, fileName: string, bytes: Uint8Arra
 async function seedTemplates() {
   if (!existsSync(TEMPLATE_DIR)) return;
   const files = readdirSync(TEMPLATE_DIR).filter((x) => x.toLowerCase().endsWith('.hwpx'));
+  // 같은 원본이 두 번 등록된 잔재 정리(동기화 도입 전 재기동에서 생김, 실측 2026-08-24) — 먼저 것 하나만 남긴다
+  const seen = new Set<string>();
   for (const t of templates.where((x) => x.builtin)) {
+    if (seen.has(t.fileName)) { templates.remove(t.id); console.log('템플릿 중복 제거:', t.fileName); continue; }
+    seen.add(t.fileName);
     if (!files.includes(t.fileName)) { templates.remove(t.id); console.log('템플릿 제거(원본 없음):', t.fileName); }
   }
   for (const f of files) {

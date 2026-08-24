@@ -83,10 +83,10 @@ export function SitReports() {
       const out = await post<{ fileName: string; url: string; pages?: number; templateName?: string }>(`/reports/${r.id}/export`, { format, templateId: hwpxTplId || undefined });
       await loadReport(r.id);
       if (handle === 'cancelled') show(`${format.toUpperCase()} 생성 완료 · 저장은 취소됨 — [최근 파일]로 받을 수 있습니다`);
-      else { const how = await writeFileTo(handle, `/api/files/${out.fileName}`, out.fileName); show(how === 'saved' ? `저장했습니다: ${out.fileName}${out.pages ? ` (${out.pages}쪽)` : ''}` : `${format.toUpperCase()} 생성 완료 · 브라우저 다운로드 폴더에 저장`); }
+      else { const how = await writeFileTo(handle, `/api/files/${out.fileName}`, `${r.title}.${format}`); show(how === 'saved' ? `저장했습니다: ${r.title}.${format}${out.pages ? ` (${out.pages}쪽)` : ''}` : `${format.toUpperCase()} 생성 완료 · 브라우저 다운로드 폴더에 저장`); }
     } catch (e) { const err = e as Error & { code?: string; guide?: string[] }; if (err.code === 'BROWSER_NOT_FOUND') setGuide(err.guide ?? PDF_GUIDE); else show(err.message); } finally { setBusy(null); }
   };
-  const download = async (format: 'hwpx' | 'pdf' | 'docx') => { const f = r?.export?.[format]; if (!f) return; const handle = await pickSaveLocation(f.fileName); if (handle === 'cancelled') return; try { const how = await writeFileTo(handle, `/api/files/${f.fileName}`, f.fileName); show(how === 'saved' ? `저장했습니다: ${f.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); } catch (e) { show((e as Error).message); } };
+  const download = async (format: 'hwpx' | 'pdf' | 'docx') => { const f = r?.export?.[format]; if (!f || !r) return; const name = `${r.title}.${format}`; const handle = await pickSaveLocation(name); if (handle === 'cancelled') return; try { const how = await writeFileTo(handle, `/api/files/${f.fileName}`, name); show(how === 'saved' ? `저장했습니다: ${name}` : '브라우저 다운로드 폴더에 저장했습니다'); } catch (e) { show((e as Error).message); } };
   const openPreview = () => act('preview', async () => { if (!r) return; setPreview(await get(`/reports/${r.id}/preview`)); });
   const feedback = async () => { if (!linkPlan) return; const out = await post<{ tocId: string; title: string }>('/link/exercise-to-plan', { exerciseId: id, planId: linkPlan }); show(`계획서 "${out.title}" 절에 환류 반영`); };
   if (!ex) return <div style={{ padding: 24 }}>불러오는 중…</div>;
