@@ -17,7 +17,7 @@
       "krms"
     ]
   },
-  "hwpxTemplateHint": "상황보고",
+  "hwpxTemplateHint": "간략 보고",
   "description": "상황 종료 후 종합 보고. 경과·이력·피해 종합·자원·문제점·개선",
   "sections": [
     {

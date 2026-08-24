@@ -8,8 +8,8 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, WidthType, AlignmentType, BorderStyle } from 'docx';
-import { parseMarkdown, renderHwpxSvg, type MdBlock, type TemplateProfile } from './hwpx.js';
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, WidthType, AlignmentType, BorderStyle, Tab, TabStopType } from 'docx';
+import { parseMarkdown, renderHwpxSvg, isNumberingBullet, formatNumbering, distributeWidths, fmtKoDate, extractHeadArea, substituteHeadLine, type MdBlock, type TemplateProfile, type LevelProfile, type HeadItem } from './hwpx.js';
 import * as llm from './llm.js';
 
 export type BlockKind = '시간대별조치' | '임무수행' | '전파수신' | '현장보고' | '자원동원' | '피해' | '특보' | '경보이력' | '회의결정' | '미완료' | '기대행동평가' | '복구계획' | '응급복구실적' | '복구재원' | '대응지표';
@@ -185,12 +185,12 @@ export async function hwpxToPdf(hwpx: Uint8Array, outPdf: string, workDir: strin
 
 // ── DOCX: 마크다운 블록 → docx ────────────────────────────────────────────
 const stripMd = (s: string) => s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`(.+?)`/g, '$1');
-function runs(text: string, base: { font: string; size: number }): TextRun[] {
-  // **굵게**만 지원
+function runs(text: string, base: { font: string; size: number; bold?: boolean }): TextRun[] {
+  // **굵게**만 지원 — base.bold는 문단(수준) 전체 굵게
   const out: TextRun[] = []; const re = /\*\*(.+?)\*\*/g; let last = 0; let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) { if (m.index > last) out.push(new TextRun({ text: text.slice(last, m.index), font: base.font, size: base.size })); out.push(new TextRun({ text: m[1], bold: true, font: base.font, size: base.size })); last = m.index + m[0].length; }
-  if (last < text.length) out.push(new TextRun({ text: text.slice(last), font: base.font, size: base.size }));
-  return out.length ? out : [new TextRun({ text: '', font: base.font, size: base.size })];
+  while ((m = re.exec(text))) { if (m.index > last) out.push(new TextRun({ text: text.slice(last, m.index), font: base.font, size: base.size, bold: base.bold })); out.push(new TextRun({ text: m[1], bold: true, font: base.font, size: base.size })); last = m.index + m[0].length; }
+  if (last < text.length) out.push(new TextRun({ text: text.slice(last), font: base.font, size: base.size, bold: base.bold }));
+  return out.length ? out : [new TextRun({ text: '', font: base.font, size: base.size, bold: base.bold })];
 }
 export async function markdownToDocx(title: string, md: string, profile?: TemplateProfile | null): Promise<Uint8Array> {
   const font = profile?.bodyFontFamily || '맑은 고딕';
@@ -213,5 +213,150 @@ export async function markdownToDocx(title: string, md: string, profile?: Templa
   };
   walk(blocks);
   const doc = new Document({ creator: 'UNE 재난안전 AI 문서 POC', title, styles: { default: { document: { run: { font, size } } } }, sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, bottom: 1134, left: 1134, right: 1134 } } }, children }] });
+  return new Uint8Array(await Packer.toBuffer(doc));
+}
+
+// ── 계획서 DOCX: HWPX 템플릿 프로파일을 Word로 근사 (2026-08-24) ─────────────
+// buildHwpx(hwpx.ts)와 같은 규칙으로 수준(제목 상대)·기호(번호형 카운터·중복 건너뛰기)·글꼴·들여쓰기·표 모양을 입힌다.
+// 내어쓰기(줄바꿈 앞줄 정렬)는 Word 문단 서식의 hanging으로: indent.left = 글 시작 위치, 첫 줄만 hanging만큼 왼쪽(기호 위치)에서 시작 — HWPX의 marginLeft+음수 indent와 같은 모양.
+// 단위: HWPUNIT(1/100pt) → twip(1/20pt)은 ÷5.
+export async function planDocx(title: string, md: string, P: TemplateProfile, meta: { reportedAt?: string; reporter?: string } = {}, templateBytes?: Uint8Array): Promise<Uint8Array> {
+  const bodyFont = P.bodyFontFamily || '맑은 고딕';
+  const bodySizePt = P.bodyFontSizePt || 11;
+  const levelFor = (lv: number) => P.levels.find((l) => l.level === lv) ?? P.levels[Math.min(lv, P.levels.length) - 1] ?? null;
+  const fontOf = (L: LevelProfile | null) => ({ font: L?.fontFamily || bodyFont, size: Math.round((L?.fontSizePt || bodySizePt) * 2), bold: !!L?.bold });
+  /** 기호+접두 폭(twip): 전각 1em, 반각 0.5em — hwpx.ts markWidthHu와 같은 규칙 */
+  const markWidthTw = (lead: string, sizePt: number): number => {
+    if (!lead) return 0;
+    const em = Math.max(6, sizePt) * 20;
+    let w = 0;
+    for (const ch of lead) w += /[\u1100-\u11ff\u2460-\u24ff\u25a0-\u25ff\u3000-\ud7ff\uf900-\ufaff\uff01-\uff60]/.test(ch) ? em : em / 2;
+    return Math.round(w);
+  };
+  // 번호형 기호(가./1)/①)는 같은 수준 형제끼리 센다. 더 깊은 수준은 새 항목이 나오면 처음부터 — buildHwpx와 동일
+  const counters: number[] = [];
+  const bulletFor = (L: LevelProfile | null, plain: string, lv: number): { mark: string; prepend: string } => {
+    const b = L?.bullet ?? '';
+    for (let i = lv + 1; i < counters.length; i++) counters[i] = 0;
+    const skip = !b || plain.startsWith(b) || (isNumberingBullet(b) && /^(\d|[가-힣][.)]|[①-⑳])/.test(plain));
+    const mark = !skip && isNumberingBullet(b) ? formatNumbering(b, (counters[lv] = (counters[lv] ?? 0) + 1)) : b;
+    return skip ? { mark: plain.startsWith(b) ? b : '', prepend: '' } : { mark, prepend: `${mark} ` };
+  };
+  // **굵게**는 runs()가 살리므로 남기고, 나머지 인라인 마크다운만 벗긴다
+  const clean = (s: string) => s.replace(/<br\s*\/?>/gi, ' ').replace(/`(.+?)`/g, '$1').replace(/\[(.+?)\]\(.+?\)/g, '$1');
+  const ts = P.tableStyle ?? null;
+  const border = { style: BorderStyle.SINGLE, size: 4, color: '808080' };
+  const hex = (c?: string | null) => (c && /^#?[0-9a-fA-F]{6}$/.test(c) ? c.replace('#', '').toUpperCase() : null);
+
+  const children: (Paragraph | Table)[] = [];
+  // 머리 영역: 템플릿 머리(제목 표/제목 문단·날짜 줄)를 그대로 재현 — buildHwpx와 같은 치환 규칙(제목 칸→문서주제, 날짜줄→보고일시·보고자) (2026-08-24)
+  const headItems: HeadItem[] = templateBytes ? await extractHeadArea(templateBytes, P) : [];
+  if (headItems.length) {
+    // 제목 자리: 표형이면 "제목" 칸 → 첫 채워진 칸, 문단형이면 글자 크기가 가장 큰 문단
+    let placed = false;
+    const firstTable = headItems.find((h) => h.kind === 'table' && h.rows?.length);
+    if (firstTable?.rows) {
+      const cells = firstTable.rows.flat();
+      const target = cells.find((c) => /제\s*목/.test(c.text)) ?? cells.find((c) => c.text.trim());
+      if (target) { target.text = title; placed = true; }
+    }
+    let titlePara: HeadItem | null = null;
+    if (!placed) {
+      for (const h of headItems) if (h.kind === 'para' && (h.fontSizePt ?? 0) > (titlePara?.fontSizePt ?? 0)) titlePara = h;
+      if (titlePara) { titlePara.text = title; placed = true; }
+    }
+    for (const h of headItems) {
+      if (h.kind === 'para' && h.text) {
+        const sub = h === titlePara ? null : substituteHeadLine(h.text, meta);
+        const align = h.alignment === 'center' ? AlignmentType.CENTER : h.alignment === 'right' ? AlignmentType.RIGHT : AlignmentType.LEFT;
+        children.push(new Paragraph({ children: [new TextRun({ text: sub ?? h.text, font: h.fontFamily || bodyFont, size: Math.round((h.fontSizePt || bodySizePt) * 2), bold: !!h.bold })], alignment: align, spacing: { after: 120 } }));
+      } else if (h.kind === 'table' && h.rows?.length) {
+        const totalW = (h.colWidths ?? []).reduce((a, x) => a + x, 0);
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: h.rows.map((r) => new TableRow({
+            children: r.map((c, ci) => new TableCell({
+              borders: { top: border, bottom: border, left: border, right: border },
+              shading: c.fillType !== 'none' && hex(c.fillColor) ? { fill: hex(c.fillColor) as string } : undefined,
+              width: h.colWidths?.[ci] && totalW ? { size: Math.round(((h.colWidths[ci] ?? 0) / totalW) * 100), type: WidthType.PERCENTAGE } : undefined,
+              children: [new Paragraph({ children: [new TextRun({ text: substituteHeadLine(c.text, meta) ?? c.text, font: c.fontFamily || bodyFont, size: Math.round((c.fontSizePt || bodySizePt) * 2), bold: !!c.bold })], alignment: AlignmentType.CENTER })],
+            })),
+          })),
+        }));
+        children.push(new Paragraph({ text: '', spacing: { after: 120 } }));
+      }
+    }
+  } else {
+    // 폴백(템플릿에 견본 구간 정보가 없을 때): 가운데 제목 + "(보고일시, 보고자)"
+    const t1 = fontOf(levelFor(1));
+    children.push(new Paragraph({ children: [new TextRun({ text: title, bold: true, font: t1.font, size: t1.size + 8 })], alignment: AlignmentType.CENTER, spacing: { after: 120 } }));
+    if (meta.reportedAt || meta.reporter) {
+      const parts = [meta.reportedAt ? `보고일시 ${fmtKoDate(meta.reportedAt)}` : '', meta.reporter ? `보고자 ${meta.reporter}` : ''].filter(Boolean);
+      children.push(new Paragraph({ children: [new TextRun({ text: `(${parts.join(', ')})`, font: bodyFont, size: Math.max(12, Math.round(bodySizePt * 2) - 2) })], alignment: AlignmentType.RIGHT, spacing: { after: 240 } }));
+    }
+  }
+
+  /** 수준 항목 하나: 접두+기호 뒤에 탭 — 내어쓰기(hanging)와 탭 정지를 같은 위치에 둬서
+   *  글꼴 폭 추정·양쪽 정렬의 공백 늘림과 무관하게 둘째 줄이 정확히 첫 줄 글 시작 밑에 온다(2026-08-24, 공백 방식은 어긋났음) */
+  const pushItem = (lv: number, raw: string) => {
+    const L = levelFor(lv);
+    const f = fontOf(L);
+    let content = clean(raw);
+    const bt = bulletFor(L, stripMd(content), lv);
+    let mark = bt.mark;
+    if (bt.prepend) { /* 생성한 기호를 앞에 붙이는 경우 */ }
+    else if (mark && content.startsWith(mark)) content = content.slice(mark.length).replace(/^ /, '');
+    else {
+      // 내용이 자체 번호로 시작("2. 영국형 …") — 그 번호를 기호로 삼아 탭 정렬
+      const m = content.match(/^(\(?\d+[.)]|\(?\d+\)|[가-힣][.)]|[①-⑳])\s+/);
+      if (m) { mark = m[1]; content = content.slice(m[0].length); } else mark = '';
+    }
+    const lead = `${L?.prefix ?? ''}${mark ? `${mark} ` : ''}`;
+    const left = Math.round((L?.indentHu ?? 0) / 5) + markWidthTw(lead, L?.fontSizePt || bodySizePt);
+    const kids: TextRun[] = [];
+    if (mark) kids.push(new TextRun({ text: `${L?.prefix ?? ''}${mark}`, font: f.font, size: f.size, bold: f.bold }), new TextRun({ children: [new Tab()], font: f.font, size: f.size }));
+    else if (L?.prefix) content = `${L.prefix}${content}`;
+    kids.push(...runs(content, f));
+    children.push(new Paragraph({
+      children: kids,
+      alignment: AlignmentType.JUSTIFIED,
+      indent: left > 0 ? { left, hanging: left } : undefined,
+      tabStops: mark ? [{ type: TabStopType.LEFT, position: left }] : undefined,
+      spacing: { before: lv === 1 ? 240 : 60, after: 60 },
+    }));
+  };
+
+  // 항목의 수준은 바로 위 제목에 상대적 — buildHwpx와 동일
+  let headingLevel = 1;
+  for (const b of parseMarkdown(md)) {
+    if (b.kind === 'heading') { headingLevel = b.level; pushItem(b.level, b.text); }
+    else if (b.kind === 'bullet') pushItem(Math.min(P.levels.length, headingLevel + b.level), b.text);
+    else if (b.kind === 'para') children.push(new Paragraph({ children: runs(clean(b.text), { font: bodyFont, size: Math.round(bodySizePt * 2) }), alignment: AlignmentType.JUSTIFIED, spacing: { after: 120 } }));
+    else if (b.kind === 'table' && b.rows?.length) {
+      const cols = Math.max(...b.rows.map((r) => r.length));
+      // 견본 표의 열 너비 비율·머리행/첫 열 배경·글꼴을 그대로 — 테두리는 Word 근사(회색 실선)
+      const widths = ts ? distributeWidths(ts.colWidths, cols) : [];
+      const totalW = widths.reduce((a, x) => a + x, 0);
+      children.push(new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: b.rows.map((r, ri) => new TableRow({
+          tableHeader: ri === 0,
+          children: Array.from({ length: cols }, (_, ci) => {
+            const st = ts ? (ri === 0 ? ts.header : ci === 0 ? ts.firstCol : ts.body) : null;
+            const fill = st ? (st.fillType !== 'none' ? hex(st.fillColor) : null) : ri === 0 ? 'EDEFF2' : null;
+            const cf = { font: st?.font.fontFamily || bodyFont, size: Math.round((st?.font.fontSizePt || bodySizePt - 1) * 2), bold: !!st?.font.bold };
+            return new TableCell({
+              borders: { top: border, bottom: border, left: border, right: border },
+              shading: fill ? { fill } : undefined,
+              width: widths[ci] && totalW ? { size: Math.round((widths[ci] / totalW) * 100), type: WidthType.PERCENTAGE } : undefined,
+              children: [new Paragraph({ children: runs(clean(r[ci] ?? ''), cf), alignment: ri === 0 ? AlignmentType.CENTER : AlignmentType.LEFT })],
+            });
+          }),
+        })),
+      }));
+      children.push(new Paragraph({ text: '', spacing: { after: 80 } }));
+    }
+  }
+  const doc = new Document({ creator: 'UNE 재난안전 AI 문서 POC', title, styles: { default: { document: { run: { font: bodyFont, size: Math.round(bodySizePt * 2) } } } }, sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, bottom: 1134, left: 1134, right: 1134 } } }, children }] });
   return new Uint8Array(await Packer.toBuffer(doc));
 }

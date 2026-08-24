@@ -18,7 +18,7 @@
       "krms"
     ]
   },
-  "hwpxTemplateHint": "상황보고",
+  "hwpxTemplateHint": "간략 보고",
   "description": "상황 전개 중 주기 보고(1보·2보…). 차수가 자동으로 붙는다",
   "sections": [
     {

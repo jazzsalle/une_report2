@@ -69,7 +69,7 @@ export const draftable = (n: TocNode) => n.children.length === 0;
 export const draftableIds = (toc: TocNode[]) => toc.flatMap((n) => (draftable(n) ? [n.id] : n.children.map((c) => c.id)));
 export type SecStatus = '-' | '대기' | '진행중' | '취소대기' | '취소' | '완료' | '오류';
 export interface Section { tocId: string; status: SecStatus; markdown: string; userEdited: boolean; sources: { filename: string; score: number; text: string }[]; history: { at: string; paraId: string; before: string; after: string; instruction: string }[]; origin?: string; provider?: string; references?: unknown[] }
-export interface Plan { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; linkedExercises: string[] }
+export interface Plan { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; exportDocx?: { fileName: string; at: string }; linkedExercises: string[] }
 export interface PlanSummary { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; hasToc: boolean; drafted: number; total: number; exported: boolean; linkedExercises: string[] }
 
 export type NodeType = 'START' | 'TASK' | 'DECISION' | 'DISPATCH' | 'FIELD_CHECK' | 'AUTO_LOG' | 'END';

@@ -12,7 +12,7 @@ import { initRhwp, rhwpVersion, profileTemplate, buildHwpx, renderHwpxSvg, extra
 import * as llm from './llm.js';
 import { getWeather, getWarnings, weatherStatus } from './weather.js';
 import { extractCards, buildTemplateGraph, MANUAL_STAGES, type ActionCard, type ManualStage } from './manuals.js';
-import { reportTemplates, reportTemplate, buildSections, refreshFacts, reportMarkdown, hwpxToPdf, markdownToDocx, pdfStatus, BrowserNotFound, type ReportTemplate, type ReportHeader, type ReportSection, type FactSource, type BlockKind } from './reports.js';
+import { reportTemplates, reportTemplate, buildSections, refreshFacts, reportMarkdown, hwpxToPdf, markdownToDocx, planDocx, pdfStatus, BrowserNotFound, type ReportTemplate, type ReportHeader, type ReportSection, type FactSource, type BlockKind } from './reports.js';
 import type { PlanContext, TocNode, SopGraph } from './llm.js';
 
 const app = express();
@@ -177,7 +177,7 @@ app.delete('/api/templates/:id', (req, res) => { const t = templates.get(req.par
 // ── 계획서 ────────────────────────────────────────────────────────────────
 type SecStatus = '-' | '대기' | '진행중' | '취소대기' | '취소' | '완료' | '오류';
 interface Section { tocId: string; status: SecStatus; markdown: string; userEdited: boolean; sources: unknown[]; history: { at: string; paraId: string; before: string; after: string; instruction: string }[]; origin?: string; provider?: string; references?: unknown[] }
-interface PlanRow extends Row { title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; linkedExercises: string[]; tocProvider?: string; tocError?: string }
+interface PlanRow extends Row { title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; exportDocx?: { fileName: string; at: string }; linkedExercises: string[]; tocProvider?: string; tocError?: string }
 const plans = col<PlanRow>('plans');
 const planTemplates = col<Row & { name: string; context: PlanContext; createdBy: string; updatedBy?: string }>('plan_templates');
 const cancelFlags = new Map<string, boolean>();
@@ -310,11 +310,20 @@ async function templateFor(p: { context: PlanContext | null }): Promise<{ bytes:
 }
 app.post('/api/plans/:id/export', async (req, res) => {
   const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음');
+  const format = String(req.body?.format ?? 'hwpx') as 'hwpx' | 'docx';
   try {
     const { bytes, profile } = await templateFor(p);
     const docTitle = p.context?.subject?.trim() || p.title; // 제목 표에는 기준정보의 문서주제(사용자 지적 2026-08-24)
     const includeNo = !profile.levels.some((l) => l.bullet); // 템플릿에 기호·번호 체계가 있으면 목차 번호는 빼고 기호를 따른다
-    const out = await buildHwpx(bytes, profile, docTitle, planMarkdown(p, includeNo), { reportedAt: p.context?.reportedAt, reporter: p.updatedBy ?? p.createdBy });
+    const meta = { reportedAt: p.context?.reportedAt, reporter: p.updatedBy ?? p.createdBy };
+    if (format === 'docx') {
+      // DOCX는 같은 마크다운·프로파일로 Word에서 새로 조립 — 기호·글꼴·들여쓰기(내어쓰기)·표 모양을 근사(2026-08-24)
+      const outDocx = await planDocx(docTitle, planMarkdown(p, includeNo), profile, meta, bytes); // bytes: 머리 영역 재현용 템플릿 원본
+      const docxName = `plan_${p.id}_${Date.now()}.docx`; writeFileSync(join(FILES_DIR, docxName), outDocx);
+      plans.update(p.id, { exportDocx: { fileName: docxName, at: now() } });
+      return res.json({ format, fileName: docxName, url: `/api/files/${docxName}` });
+    }
+    const out = await buildHwpx(bytes, profile, docTitle, planMarkdown(p, includeNo), meta);
     const fileName = `plan_${p.id}_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), out);
     const r = await renderHwpxSvg(out, 1);
     plans.update(p.id, { export: { fileName, at: now(), pages: r.pages } });
@@ -675,9 +684,9 @@ app.put('/api/exercises/:id/journal', (req, res) => { const prev = journals.wher
 app.post('/api/exercises/:id/journal/polish', async (req, res) => { const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!j) return bad(res, 404, '일지 없음'); const s = j.sections.find((x) => x.key === req.body.sectionKey); if (!s) return bad(res, 404, '절 없음'); s.markdown = await llm.polish(s.markdown); s.aiGenerated = true; s.reviewed = false; journals.update(j.id, { sections: j.sections }); res.json(s); });
 app.post('/api/exercises/:id/journal/export', async (req, res) => {
   const ex = exercises.get(req.params.id); const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!ex || !j) return bad(res, 404, '일지 없음');
-  // 템플릿: 요청 body.templateId > 직전 내보내기 템플릿 > "상황보고" 내장 템플릿 (2026-08-22 선택 UI 추가)
+  // 템플릿: 요청 body.templateId > 직전 내보내기 템플릿 > "간략 보고" 내장 템플릿 (문서 템플릿_상황보고 원본 삭제 반영 2026-08-24)
   const wanted = (req.body?.templateId as string | undefined) ?? j.export?.templateId;
-  const t = tplGet(wanted) ?? tplAlive().find((x) => /상황보고/.test(x.fileName)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const t = tplGet(wanted) ?? tplAlive().find((x) => /간략 보고/.test(x.fileName)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const md = j.sections.map((s) => `# ${s.title}\n\n${s.markdown}`).join('\n\n');
   const out = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, `훈련 상황일지 — ${ex.title}`, md, { reportedAt: ex.occurredAt, reporter: ex.createdBy });
   const fileName = `journal_${ex.id}_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), out);
@@ -849,7 +858,7 @@ app.post('/api/reports/:rid/versions', (req, res) => {
 app.post('/api/reports/:rid/export', async (req, res) => {
   const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음'); const ex = exercises.get(r.exerciseId); if (!ex) return bad(res, 404, '상황 없음');
   const format = String(req.body?.format ?? 'hwpx') as 'hwpx' | 'pdf' | 'docx';
-  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '상황보고';
+  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '간략 보고';
   const wanted = (req.body?.templateId as string | undefined) ?? r.export?.hwpx?.templateId;
   const t = tplGet(wanted) ?? tplAlive().find((x) => x.fileName.includes(hint) || x.name.includes(hint)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const md = reportMarkdown(r.title, r.header, r.sections, { orgName: ensureOrg().name });
@@ -881,7 +890,7 @@ app.post('/api/reports/:rid/export', async (req, res) => {
 app.get('/api/reports/:rid/preview', async (req, res) => {
   const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음');
   if (r.export?.hwpx && existsSync(join(FILES_DIR, r.export.hwpx.fileName))) return res.json(await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, r.export.hwpx.fileName))), 30));
-  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '상황보고';
+  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '간략 보고';
   const t = tplAlive().find((x) => x.fileName.includes(hint) || x.name.includes(hint)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const hwpx = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, r.title, reportMarkdown(r.title, r.header, r.sections, { orgName: ensureOrg().name }), { reportedAt: r.header.reportedAt, reporter: r.header.reporter });
   res.json(await renderHwpxSvg(hwpx, 30));

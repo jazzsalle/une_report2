@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { get, post, put, sse, pickSaveLocation, writeFileTo, ago, draftable, draftableIds, type Plan, type PlanContext, type TocNode, type Template, type SecStatus } from '../api';
 import { Toast, renderMarkdown, useToast, useUser, type MdTableStyle } from '../ui';
@@ -426,6 +426,7 @@ function DraftStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | nu
 // rhwp의 HTML 렌더(재로드 뷰)는 줄 위치가 어긋나게 나와 2026-08-21 화면에서 뺐다. 실제 모양은 다운로드한 HWPX를 한/글이나 rhwp 에디터에서 확인한다.
 function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | null; reload: () => Promise<Plan>; show: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
+  const [busyDocx, setBusyDocx] = useState(false);
   // 미리보기 방식: 웹 렌더(마크다운) / HWPX 렌더(내보낸 파일을 rhwp SVG로). 내보내기 직후엔 HWPX 렌더로 바꿔 보여준다
   const [mode, setMode] = useState<'web' | 'hwpx'>(plan.export ? 'hwpx' : 'web');
   const [svgs, setSvgs] = useState<string[] | null>(null);
@@ -452,6 +453,23 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
     }
     catch (e) { show((e as Error).message); } finally { setBusy(false); }
   };
+  // DOCX: 같은 내용을 서버가 Word로 새로 조립(템플릿 기호·글꼴·내어쓰기·표 모양 근사, 2026-08-24)
+  const exportDocx = async () => {
+    const handle = await pickSaveLocation(`${plan.title}.docx`);
+    setBusyDocx(true);
+    try {
+      const r = await post<{ fileName: string; url: string }>(`/plans/${plan.id}/export`, { format: 'docx' }); await reload();
+      if (handle === 'cancelled') show('DOCX 생성 완료 · 저장은 취소됨 — [DOCX 다운로드]로 받을 수 있습니다');
+      else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, `${plan.title}.docx`); show(how === 'saved' ? `저장했습니다: ${plan.title}.docx` : 'DOCX 생성 완료 · 브라우저 다운로드 폴더에 저장'); }
+    } catch (e) { show((e as Error).message); } finally { setBusyDocx(false); }
+  };
+  const downloadDocx = async () => {
+    if (!plan.exportDocx) return;
+    const handle = await pickSaveLocation(`${plan.title}.docx`);
+    if (handle === 'cancelled') return;
+    try { const how = await writeFileTo(handle, `/api/files/${plan.exportDocx.fileName}`, `${plan.title}.docx`); show(how === 'saved' ? `저장했습니다: ${plan.title}.docx` : '브라우저 다운로드 폴더에 저장했습니다'); }
+    catch (e) { show((e as Error).message); }
+  };
   const download = async () => {
     if (!plan.export) return;
     const handle = await pickSaveLocation(`${plan.title}.hwpx`); // 기본 파일명은 문서명(2026-08-24)
@@ -469,7 +487,9 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
           <div style={{ flex: 1 }} />
           <KBtn size="sm" onClick={() => window.print()}><Icon name="print" /> 인쇄</KBtn>
           {plan.export && <KBtn size="sm" onClick={() => void download()} title="저장 위치를 고른 뒤 HWPX를 저장합니다"><Icon name="download" /> 다운로드 ({plan.export.pages}쪽)</KBtn>}
-          <KBtn kind="primary" size="sm" disabled={busy} onClick={() => void exportHwpx()}>{busy ? 'HWPX 생성 중…' : plan.export ? 'HWPX 다시 내보내기' : 'HWPX 내보내기'}</KBtn>
+          {plan.exportDocx && <KBtn size="sm" onClick={() => void downloadDocx()} title="저장 위치를 고른 뒤 DOCX를 저장합니다"><Icon name="download" /> DOCX 다운로드</KBtn>}
+          <KBtn size="sm" disabled={busy || busyDocx} onClick={() => void exportDocx()} title="같은 내용을 Word(.docx)로 만듭니다 — 템플릿의 기호·글꼴·내어쓰기·표 모양을 근사 적용">{busyDocx ? 'DOCX 생성 중…' : plan.exportDocx ? 'DOCX 다시 내보내기' : 'DOCX 내보내기'}</KBtn>
+          <KBtn kind="primary" size="sm" disabled={busy || busyDocx} onClick={() => void exportHwpx()}>{busy ? 'HWPX 생성 중…' : plan.export ? 'HWPX 다시 내보내기' : 'HWPX 내보내기'}</KBtn>
         </div>
         {plan.export && <KAlert kind="success">HWPX를 생성했습니다 — <strong>{plan.export.fileName}</strong> ({plan.export.pages}쪽) · {new Date(plan.export.at).toLocaleString('ko-KR')}.{tpl ? ` 템플릿 "${tpl.name}"의 개요 스타일을 수준별로 적용했습니다.` : ''}</KAlert>}
         <section className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -504,8 +524,11 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
               ['파일', plan.export.fileName],
               ['쪽수', <span className="num">{plan.export.pages}쪽</span>],
               ['생성', <span className="num">{new Date(plan.export.at).toLocaleString('ko-KR')}</span>],
+              ...(plan.exportDocx ? [['DOCX', <span key="dx" className="num">{plan.exportDocx.fileName} · {new Date(plan.exportDocx.at).toLocaleString('ko-KR')}</span>] as [ReactNode, ReactNode]] : []),
               ['반영', `${sectionCount}절 · 사용자 수정 ${edited}절 보존`],
             ]} />
+          ) : plan.exportDocx ? (
+            <KV items={[['DOCX', plan.exportDocx.fileName], ['생성', <span className="num">{new Date(plan.exportDocx.at).toLocaleString('ko-KR')}</span>]]} />
           ) : <p className="card-desc">아직 내보내지 않았습니다. [HWPX 내보내기]를 누르면 저장 위치를 고른 뒤 생성합니다.</p>}
         </KCard>
         {tpl && (
