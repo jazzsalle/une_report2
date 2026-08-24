@@ -306,7 +306,7 @@ export function planMarkdown(p: PlanRow, includeNo = true): string {
   return out.join('\n\n');
 }
 async function templateFor(p: { context: PlanContext | null }): Promise<{ bytes: Uint8Array; profile: TemplateProfile; row: TemplateRow }> {
-  const t = tplGet(p.context?.templateId) ?? tplAlive().find((x) => /템플릿_01/.test(x.fileName)) ?? tplAlive()[0];
+  const t = tplGet(p.context?.templateId) ?? tplAlive().find((x) => /행정문서/.test(x.fileName)) ?? tplAlive()[0]; // 문서 템플릿_01 원본 삭제 반영(2026-08-24)
   if (!t) throw new Error('템플릿 없음');
   return { bytes: new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), profile: t.profile, row: t };
 }
@@ -686,9 +686,9 @@ app.put('/api/exercises/:id/journal', (req, res) => { const prev = journals.wher
 app.post('/api/exercises/:id/journal/polish', async (req, res) => { const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!j) return bad(res, 404, '일지 없음'); const s = j.sections.find((x) => x.key === req.body.sectionKey); if (!s) return bad(res, 404, '절 없음'); s.markdown = await llm.polish(s.markdown); s.aiGenerated = true; s.reviewed = false; journals.update(j.id, { sections: j.sections }); res.json(s); });
 app.post('/api/exercises/:id/journal/export', async (req, res) => {
   const ex = exercises.get(req.params.id); const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!ex || !j) return bad(res, 404, '일지 없음');
-  // 템플릿: 요청 body.templateId > 직전 내보내기 템플릿 > "간략 보고" 내장 템플릿 (문서 템플릿_상황보고 원본 삭제 반영 2026-08-24)
+  // 템플릿: 요청 body.templateId > 직전 내보내기 템플릿 > "업무보고 서식" 내장 템플릿 (원본 정리 반영 2026-08-24)
   const wanted = (req.body?.templateId as string | undefined) ?? j.export?.templateId;
-  const t = tplGet(wanted) ?? tplAlive().find((x) => /간략 보고/.test(x.fileName)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const t = tplGet(wanted) ?? tplAlive().find((x) => x.fileName === '업무보고 서식.hwpx') ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const md = j.sections.map((s) => `# ${s.title}\n\n${s.markdown}`).join('\n\n');
   const out = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, `훈련 상황일지 — ${ex.title}`, md, { reportedAt: ex.occurredAt, reporter: ex.createdBy });
   const fileName = `journal_${ex.id}_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), out);
@@ -860,9 +860,9 @@ app.post('/api/reports/:rid/versions', (req, res) => {
 app.post('/api/reports/:rid/export', async (req, res) => {
   const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음'); const ex = exercises.get(r.exerciseId); if (!ex) return bad(res, 404, '상황 없음');
   const format = String(req.body?.format ?? 'hwpx') as 'hwpx' | 'pdf' | 'docx';
-  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '간략 보고';
+  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '업무보고 서식';
   const wanted = (req.body?.templateId as string | undefined) ?? r.export?.hwpx?.templateId;
-  const t = tplGet(wanted) ?? tplAlive().find((x) => x.fileName.includes(hint) || x.name.includes(hint)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const t = tplGet(wanted) ?? tplAlive().find((x) => x.name === hint || x.fileName === `${hint}.hwpx`) ?? tplAlive().find((x) => x.fileName.includes(hint) || x.name.includes(hint)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const md = reportMarkdown(r.title, r.header, r.sections, { orgName: ensureOrg().name });
   const stamp = Date.now();
   try {
@@ -892,8 +892,8 @@ app.post('/api/reports/:rid/export', async (req, res) => {
 app.get('/api/reports/:rid/preview', async (req, res) => {
   const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음');
   if (r.export?.hwpx && existsSync(join(FILES_DIR, r.export.hwpx.fileName))) return res.json(await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, r.export.hwpx.fileName))), 30));
-  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '간략 보고';
-  const t = tplAlive().find((x) => x.fileName.includes(hint) || x.name.includes(hint)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '업무보고 서식';
+  const t = tplAlive().find((x) => x.name === hint || x.fileName === `${hint}.hwpx`) ?? tplAlive().find((x) => x.fileName.includes(hint) || x.name.includes(hint)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const hwpx = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, r.title, reportMarkdown(r.title, r.header, r.sections, { orgName: ensureOrg().name }), { reportedAt: r.header.reportedAt, reporter: r.header.reporter });
   res.json(await renderHwpxSvg(hwpx, 30));
 });

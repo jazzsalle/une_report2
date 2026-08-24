@@ -28,7 +28,6 @@ export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 's
           <Link to="/sit" aria-current={active === 'sit' ? 'page' : undefined}>상황일지</Link>
         </nav>
         <div className="util">
-          <button type="button" className="hdr-ico" title="알림 (목업)" aria-label="알림"><img src="/hdr/hdr-bell.svg" alt="" /></button>
           <Link to="/settings" className="hdr-ico" title="환경설정 — HWPX 템플릿·스타일 분석, 휴지통" aria-label="환경설정" aria-current={active === 'settings' ? 'page' : undefined}><img src="/hdr/hdr-settings.svg" alt="" /></Link>
           <button type="button" className="hdr-weather" onClick={openWeather} title={wx ? `${wx.place} ${wx.condition} ${wx.temp}°${wx.humidity != null ? ` · 습도 ${wx.humidity}%` : ''}${wx.windMs != null ? ` · 바람 ${wx.windMs}m/s` : ''} · 출처 ${wx.source === 'mock' ? '목업' : wx.source}${wx.error ? ' (갱신 실패)' : ''} — 눌러서 상세 보기(새 창)` : '날씨 불러오는 중'}>
             <img src={`/hdr/wx-${WEATHER_ICON[wx?.condition ?? '맑음']}.svg`} alt={wx?.condition ?? ''} />{wx ? `${wx.place} ${wx.temp.toFixed(1)}°` : '…'}

@@ -18,7 +18,7 @@
       "krms"
     ]
   },
-  "hwpxTemplateHint": "간략 보고",
+  "hwpxTemplateHint": "업무보고 서식",
   "description": "대응 지표(전파·수신·완료·기한)를 이벤트 원장에서 자동 산출하고 기대행동·회의·경과로 평가(연구항목: 재난대응 활동 평가 지원)",
   "sections": [
     {
