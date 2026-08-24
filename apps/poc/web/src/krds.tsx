@@ -9,7 +9,7 @@ import './krds.css';
  * 상단 헤더 — Figma "Header"(1920×50, #222931) 구도: 좌 로고(심볼+서비스명) · GNB · 우 아이콘 버튼·날씨·사용자·인사말 (2026-08-22).
  * 심볼·아이콘은 피그마 벡터를 SVG로 변환해 /public/hdr 에 둠. 알림·설정·날씨는 POC 목업(동작 없음).
  */
-export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 'sit'; user: User | null; users: User[]; onUser: (u: User) => void }) {
+export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 'sit' | 'settings'; user: User | null; users: User[]; onUser: (u: User) => void }) {
   // 날씨(Open-Meteo/기상청)·특보 건수 — 10분마다. 지역은 브라우저 저장(poc.weatherPlace), 칩을 누르면 바꾼다
   const [wx, setWx] = useState<Weather | null>(null);
   const [wrn, setWrn] = useState<Warnings | null>(null);
@@ -29,7 +29,7 @@ export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 's
         </nav>
         <div className="util">
           <button type="button" className="hdr-ico" title="알림 (목업)" aria-label="알림"><img src="/hdr/hdr-bell.svg" alt="" /></button>
-          <button type="button" className="hdr-ico" title="설정 (목업)" aria-label="설정"><img src="/hdr/hdr-settings.svg" alt="" /></button>
+          <Link to="/settings" className="hdr-ico" title="환경설정 — HWPX 템플릿·스타일 분석, 휴지통" aria-label="환경설정" aria-current={active === 'settings' ? 'page' : undefined}><img src="/hdr/hdr-settings.svg" alt="" /></Link>
           <button type="button" className="hdr-weather" onClick={openWeather} title={wx ? `${wx.place} ${wx.condition} ${wx.temp}°${wx.humidity != null ? ` · 습도 ${wx.humidity}%` : ''}${wx.windMs != null ? ` · 바람 ${wx.windMs}m/s` : ''} · 출처 ${wx.source === 'mock' ? '목업' : wx.source}${wx.error ? ' (갱신 실패)' : ''} — 눌러서 상세 보기(새 창)` : '날씨 불러오는 중'}>
             <img src={`/hdr/wx-${WEATHER_ICON[wx?.condition ?? '맑음']}.svg`} alt={wx?.condition ?? ''} />{wx ? `${wx.place} ${wx.temp.toFixed(1)}°` : '…'}
           </button>
