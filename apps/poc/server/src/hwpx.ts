@@ -472,6 +472,29 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
         }
       }
     } catch { /* 표 없음 */ }
+    // "제목" 칸이 없는 템플릿(제목 표에 스타일 안내문만 있는 문서 템플릿_01류, 실측 2026-08-24): 머리 영역 첫 표의 첫 채워진 칸을 제목으로 교체
+    if (!titlePlaced) {
+      try {
+        const ctrls = JSON.parse(doc.getControls()) as { userDesc: string; para: number; controlIndex: number; list?: number }[];
+        const first = ctrls.filter((x) => x.userDesc === '표' && (x.list ?? 0) === 0 && x.para < layout.sampleStart).sort((a, b) => a.para - b.para)[0];
+        if (first) {
+          let target = -1; let targetLen = 0;
+          for (let cell = 0; cell < 16; cell++) {
+            let cl: number; try { cl = doc.getCellParagraphLength(0, first.para, first.controlIndex, cell, 0); } catch { break; }
+            if (target < 0) { target = cell; targetLen = cl; }
+            if (cl > 0) { target = cell; targetLen = cl; break; }
+          }
+          if (target >= 0) {
+            let cs: number | null = null;
+            try { cs = (JSON.parse(doc.getCellCharPropertiesAt(0, first.para, first.controlIndex, target, 0, 0)) as { charShapeId?: number }).charShapeId ?? null; } catch { /* ignore */ }
+            if (targetLen > 0) doc.deleteTextInCell(0, first.para, first.controlIndex, target, 0, 0, targetLen);
+            doc.insertTextInCell(0, first.para, first.controlIndex, target, 0, 0, title);
+            if (cs != null) { try { doc.setCharShapeIdInCell(0, first.para, first.controlIndex, target, 0, 0, title.length, cs); } catch { /* ignore */ } }
+            titlePlaced = true;
+          }
+        }
+      } catch { /* ignore */ }
+    }
     // 머리 영역의 "(보고일시, 보고자 …)" 줄을 채운다
     for (let i = 0; i < layout.sampleStart; i++) {
       const l = len(i); if (!l) continue;

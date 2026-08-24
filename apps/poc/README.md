@@ -50,6 +50,8 @@ apps\poc\stop.cmd
 | `UNI_BASE_URL` | `http://10.20.10.101:8088` | 유니 RAG API (웹 UI `:3101`은 API가 아님) |
 | `UNI_USERNAME` / `UNI_PASSWORD` | — | 유니 로그인 |
 | `UNI_MODEL` | `exaone-4.5` | `/models/`의 키 (`qwen3.6-35b`도 가능) |
+| `UNI_VERIFY_TLS` | `0` | 유니가 2026-08-24부터 HTTPS(자체 인증서) — POC는 검증 해제 |
+| `UNI_MCP_URL` · `UNI_MCP_TOKEN` | — | 유니 검색(MCP `search_knowledge`) 주소·본인 전용 Bearer 토큰. REST `/search/`가 제거되어 조치카드 추출에 필수. 토큰은 공유 금지 |
 | `UNI_MOCK` | — | `1`이면 유니를 부르지 않고 `server/src/mock/*` 녹화 응답 재생 |
 | `T3Q_API_BASE_URL` | `https://plf.mois-disaster.t3q.ai` | T3Q 계획서 API |
 | `T3Q_MODEL_ID` | `ae894` | |

@@ -437,8 +437,10 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
     return () => { alive = false; };
   }, [mode, plan.id, plan.export?.fileName]);
   const bullets = tpl?.levels.map((l) => l.bullet) ?? ['□', 'ㅇ', '-', '*'];
-  // 서버 planMarkdown과 같은 규칙: 하위 목차가 있는 장은 제목만
-  const md = plan.toc.map((n) => [`# ${n.no} ${n.title}`, draftable(n) ? plan.sections[n.id]?.markdown ?? '' : '', ...n.children.flatMap((c) => [`## ${c.no} ${c.title}`, plan.sections[c.id]?.markdown ?? ''])].filter(Boolean).join('\n\n')).join('\n\n');
+  // 서버 planMarkdown과 같은 규칙: 하위 목차가 있는 장은 제목만. 템플릿에 기호·번호 체계가 있으면 목차 번호(1, 1.1)는 빼고 기호를 따른다(2026-08-24)
+  const showNo = !(tpl?.levels.some((l) => l.bullet) ?? true);
+  const hno = (no: string, title: string) => (showNo ? `${no} ${title}` : title);
+  const md = plan.toc.map((n) => [`# ${hno(n.no, n.title)}`, draftable(n) ? plan.sections[n.id]?.markdown ?? '' : '', ...n.children.flatMap((c) => [`## ${hno(c.no, c.title)}`, plan.sections[c.id]?.markdown ?? ''])].filter(Boolean).join('\n\n')).join('\n\n');
   const exportHwpx = async () => {
     // 저장 위치 창은 클릭 직후에만 열린다 — 서버 생성(10초+)을 기다린 뒤 열면 브라우저가 거부하므로 먼저 묻는다.
     const handle = await pickSaveLocation(`${plan.title}.hwpx`);
@@ -446,15 +448,15 @@ function PreviewStep({ plan, tpl, reload, show }: { plan: Plan; tpl: Template | 
     try {
       const r = await post<{ fileName: string; url: string; pages: number }>(`/plans/${plan.id}/export`, {}); await reload(); setMode('hwpx');
       if (handle === 'cancelled') show(`HWPX 생성 완료 (${r.pages}쪽) · 저장은 취소됨 — [다운로드]로 받을 수 있습니다`);
-      else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, r.fileName); show(how === 'saved' ? `저장했습니다: ${r.fileName} (${r.pages}쪽)` : `HWPX 생성 완료 (${r.pages}쪽) · 브라우저 다운로드 폴더에 저장`); }
+      else { const how = await writeFileTo(handle, `/api/files/${r.fileName}`, `${plan.title}.hwpx`); show(how === 'saved' ? `저장했습니다: ${plan.title}.hwpx (${r.pages}쪽)` : `HWPX 생성 완료 (${r.pages}쪽) · 브라우저 다운로드 폴더에 저장`); }
     }
     catch (e) { show((e as Error).message); } finally { setBusy(false); }
   };
   const download = async () => {
     if (!plan.export) return;
-    const handle = await pickSaveLocation(plan.export.fileName);
+    const handle = await pickSaveLocation(`${plan.title}.hwpx`); // 기본 파일명은 문서명(2026-08-24)
     if (handle === 'cancelled') return;
-    try { const how = await writeFileTo(handle, `/api/files/${plan.export.fileName}`, plan.export.fileName); show(how === 'saved' ? `저장했습니다: ${plan.export.fileName}` : '브라우저 다운로드 폴더에 저장했습니다'); }
+    try { const how = await writeFileTo(handle, `/api/files/${plan.export.fileName}`, `${plan.title}.hwpx`); show(how === 'saved' ? `저장했습니다: ${plan.title}.hwpx` : '브라우저 다운로드 폴더에 저장했습니다'); }
     catch (e) { show((e as Error).message); }
   };
   const edited = Object.values(plan.sections).filter((s) => s.userEdited).length;

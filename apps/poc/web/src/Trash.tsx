@@ -4,9 +4,9 @@ import { Toast, useToast } from './ui';
 import { KBadge, KBtn, KCard, KModal, KSelect, KTable, type Tone } from './krds';
 
 /** 휴지통 항목 — 서버 /api/trash 응답 */
-export interface TrashItem { kind: 'plan' | 'planTemplate' | 'exercise'; id: string; title: string; sub: string; createdBy: string; deletedAt: string; deletedBy?: string }
-const KIND_LABEL: Record<TrashItem['kind'], string> = { plan: '계획서', planTemplate: '기준정보 템플릿', exercise: '훈련상황' };
-const KIND_TONE: Record<TrashItem['kind'], Tone> = { plan: 'light-primary', planTemplate: 'light-gray', exercise: 'light-success' };
+export interface TrashItem { kind: 'plan' | 'planTemplate' | 'exercise' | 'template' | 'manual' | 'sopTemplate'; id: string; title: string; sub: string; createdBy: string; deletedAt: string; deletedBy?: string }
+const KIND_LABEL: Record<TrashItem['kind'], string> = { plan: '계획서', planTemplate: '기준정보 템플릿', template: 'HWPX 템플릿', exercise: '상황', manual: '매뉴얼', sopTemplate: 'SOP 템플릿' };
+const KIND_TONE: Record<TrashItem['kind'], Tone> = { plan: 'light-primary', planTemplate: 'light-gray', template: 'light-warning', exercise: 'light-success', manual: 'light-primary', sopTemplate: 'light-gray' };
 
 /**
  * 휴지통 (계획서·기준정보 템플릿·훈련상황 공용). 삭제는 소프트 삭제이며 30일 뒤 서버가 자동으로 완전 삭제한다.
@@ -19,7 +19,7 @@ export function Trash({ scope }: { scope: 'plan' | 'sit' }) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<{ items: TrashItem[]; all?: boolean } | null>(null);
   const [toast, show] = useToast();
-  const scopeKinds: TrashItem['kind'][] = scope === 'plan' ? ['plan', 'planTemplate'] : ['exercise'];
+  const scopeKinds: TrashItem['kind'][] = scope === 'plan' ? ['plan', 'planTemplate', 'template'] : ['exercise', 'manual', 'sopTemplate'];
   const load = () => get<{ items: TrashItem[]; days: number }>('/trash').then((r) => { setItems(r.items); setDays(r.days); setChecked(new Set()); });
   useEffect(() => { void load(); }, []);
   const shown = useMemo(() => items.filter((it) => (kind ? it.kind === kind : scopeKinds.includes(it.kind))), [items, kind, scope]);
@@ -41,7 +41,7 @@ export function Trash({ scope }: { scope: 'plan' | 'sit' }) {
         <div className="row">
           <KSelect value={kind} onChange={(e) => setKind(e.target.value as '' | TrashItem['kind'])} style={{ width: 220 }} aria-label="종류">
             <option value="">{scope === 'plan' ? '계획서 · 기준정보 템플릿' : '훈련상황'}</option>
-            {(['plan', 'planTemplate', 'exercise'] as const).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}{!scopeKinds.includes(k) ? ' (다른 메뉴)' : ''}</option>)}
+            {(['plan', 'planTemplate', 'template', 'exercise', 'manual', 'sopTemplate'] as const).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}{!scopeKinds.includes(k) ? ' (다른 메뉴)' : ''}</option>)}
           </KSelect>
           <KBtn size="sm" kind="danger" disabled={!shown.length} onClick={() => setConfirm({ items: shown, all: true })}>휴지통 비우기</KBtn>
         </div>}>
