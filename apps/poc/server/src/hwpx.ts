@@ -460,9 +460,11 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
       if (Object.keys(props).length) { try { doc.applyCharFormat(0, para, 0, len(para), JSON.stringify(props)); } catch { /* ignore */ } }
     }
     if (sizeOverridePt) { try { doc.applyCharFormat(0, para, 0, len(para), JSON.stringify({ fontSize: Math.round(sizeOverridePt * 100), bold: true })); } catch { /* ignore */ } }
-    // 내어쓰기(사용자 요청 2026-08-24): 줄바꿈된 둘째 줄부터 기호 뒤 첫 글자 밑에 정렬 — marginLeft는 글 시작 위치, indent 음수로 첫 줄만 기호 위치로
-    // 실측 2026-08-24: applyParaFormat의 margin/indent 입력은 파일 HWPUNIT의 2배를 줘야 한다(1000 입력 → 파일 500 — HWP가 문단 여백을 ½단위로 저장). 절반만 들어가 둘째 줄이 기호 근처에 머물던 문제
-    if (hangHu > 0) { try { doc.applyParaFormat(0, para, JSON.stringify({ marginLeft: 2 * ((L?.indentHu ?? 0) + hangHu), indent: -2 * hangHu })); } catch { /* ignore */ } }
+    // 내어쓰기(사용자 요청 2026-08-24): 줄바꿈된 둘째 줄부터 기호 뒤 첫 글자 밑에 정렬.
+    // 한/글의 내어쓰기 의미(실측 2026-08-24, 템플릿 원본 paraPr가 증거): 음수 intent는 "첫 줄=marginLeft, 둘째 줄부터=marginLeft+|intent|".
+    // marginLeft에 폭을 더하면 문단 전체(1줄짜리 포함)가 오른쪽으로 밀린다 — 그래서 marginLeft는 템플릿 들여쓰기만, 내어쓰기 폭은 intent에만 준다.
+    // 단위: applyParaFormat margin/indent 입력은 파일 HWPUNIT의 2배(1000 입력 → 파일 500 — HWP가 문단 여백을 ½단위로 저장).
+    if (hangHu > 0) { try { doc.applyParaFormat(0, para, JSON.stringify({ marginLeft: 2 * (L?.indentHu ?? 0), indent: -2 * hangHu })); } catch { /* ignore */ } }
   };
   const applyBody = (para: number) => {
     try { doc.applyStyle(0, para, P.bodyStyleId); } catch { /* ignore */ }
