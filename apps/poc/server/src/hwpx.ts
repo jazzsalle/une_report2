@@ -640,7 +640,8 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
           const ctrl = res.controlIdx ?? 0;
           const ts = P.tableStyle ?? null;
           const widths = ts ? distributeWidths(ts.colWidths, cols) : [];
-          if (ts) { try { doc.setTableProperties(0, tblPara, ctrl, JSON.stringify(ts.table)); } catch { /* ignore */ } }
+          // 긴 표는 쪽 경계에서 셀 단위로 나뉘게(pageBreak 2=CELL) — createTable 기본은 NONE이라 표가 구역을 넘쳐버림. 템플릿 표들도 CELL(실측 2026-08-24)
+          try { doc.setTableProperties(0, tblPara, ctrl, JSON.stringify({ ...(ts?.table ?? { repeatHeader: true }), pageBreak: 2 })); } catch { /* ignore */ }
           for (let ri = 0; ri < rows; ri++) for (let ci = 0; ci < cols; ci++) {
             const idx = ri * cols + ci;
             const raw = b.rows[ri][ci] ?? '';
