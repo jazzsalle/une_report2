@@ -91,7 +91,9 @@ app.get('/api/weather/warnings', async (_req, res) => res.json(await getWarnings
 app.get('/api/files/:name', (req, res) => {
   const p = join(FILES_DIR, req.params.name.replace(/[\\/]/g, ''));
   if (!existsSync(p)) return bad(res, 404, '파일 없음');
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(req.params.name)}`);
+  // ?dl=받을파일명 — 브라우저 기본 다운로드는 a.download보다 이 헤더가 우선이라, 문서명으로 받으려면 서버가 그 이름을 내려줘야 한다(2026-08-24)
+  const dl = typeof req.query.dl === 'string' && req.query.dl.trim() ? req.query.dl.replace(/[\\/]/g, '') : req.params.name;
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(dl)}`);
   res.sendFile(p);
 });
 
