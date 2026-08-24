@@ -96,7 +96,7 @@ app.get('/api/files/:name', (req, res) => {
 });
 
 // ── 템플릿 ────────────────────────────────────────────────────────────────
-interface TemplateRow extends Row { name: string; fileName: string; storedPath: string; profile: TemplateProfile; builtin: boolean }
+interface TemplateRow extends Row { name: string; fileName: string; storedPath: string; profile: TemplateProfile; builtin: boolean; deletedAt?: string; deletedBy?: string }
 const templates = col<TemplateRow>('templates');
 
 async function registerTemplate(name: string, fileName: string, bytes: Uint8Array, builtin: boolean): Promise<TemplateRow> {
@@ -123,7 +123,10 @@ async function refreshProfiles() {
   }
 }
 const tplSummary = (t: TemplateRow) => ({ id: t.id, name: t.name, fileName: t.fileName, builtin: t.builtin, createdAt: t.createdAt, levels: t.profile.levels, bodyFontFamily: t.profile.bodyFontFamily, bodyFontSizePt: t.profile.bodyFontSizePt, styleCount: t.profile.styles.length, pageCount: t.profile.pageCount, styleRuleText: t.profile.styleRuleText, tableStyle: t.profile.tableStyle ?? null });
-app.get('/api/templates', (_req, res) => res.json(templates.all().map(tplSummary)));
+/** 살아있는(휴지통 아님) HWPX 템플릿만 — 목록·폴백 공용. 트래시된 id 참조는 tplGet이 undefined로 만들어 기본 템플릿으로 폴백된다(2026-08-24) */
+const tplAlive = () => templates.where(alive);
+const tplGet = (id?: string | null) => { const t = id ? templates.get(id) : undefined; return t && alive(t) ? t : undefined; };
+app.get('/api/templates', (_req, res) => res.json(tplAlive().map(tplSummary)));
 app.get('/api/templates/:id', (req, res) => { const t = templates.get(req.params.id); return t ? res.json({ ...tplSummary(t), profile: t.profile }) : bad(res, 404, '없음'); });
 app.post('/api/templates', upload.single('file'), async (req, res) => {
   if (!req.file) return bad(res, 400, 'file 필요');
@@ -137,7 +140,8 @@ app.get('/api/templates/:id/preview', async (req, res) => {
   const r = await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), 3);
   res.json(r);
 });
-app.delete('/api/templates/:id', (req, res) => { const t = templates.get(req.params.id); if (!t) return bad(res, 404, '없음'); if (t.builtin) return bad(res, 400, '내장 템플릿은 삭제 불가'); templates.remove(t.id); res.json({ ok: true }); });
+/** 업로드한 템플릿만 휴지통으로(소프트 삭제) — 내장은 삭제 불가(사용자 결정 2026-08-24) */
+app.delete('/api/templates/:id', (req, res) => { const t = templates.get(req.params.id); if (!t) return bad(res, 404, '없음'); if (t.builtin) return bad(res, 400, '내장 템플릿은 삭제 불가'); templates.update(t.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
 
 // ── 계획서 ────────────────────────────────────────────────────────────────
 type SecStatus = '-' | '대기' | '진행중' | '취소대기' | '취소' | '완료' | '오류';
@@ -159,7 +163,7 @@ app.post('/api/plans/:id/save-as', (req, res) => { const p = plans.get(req.param
 
 /** 템플릿 프로파일의 수준별 기호 - T3Q paragraphSymbol과 본문 정규화에 쓴다. */
 function symbolsOf(p: PlanRow): string[] {
-  const t = p.context?.templateId ? templates.get(p.context.templateId) : null;
+  const t = tplGet(p.context?.templateId) ?? null;
   const syms = (t?.profile.levels ?? []).map((l) => l.bullet).filter(Boolean);
   return syms.length ? syms : ['□', 'ㅇ', '-', '*'];
 }
@@ -179,7 +183,7 @@ function cleanupT3qSections() {
   if (n) console.log(`T3Q 초안 기호 정리: ${n}개 절`);
 }
 function styleRuleOf(p: PlanRow): string {
-  const t = p.context?.templateId ? templates.get(p.context.templateId) : null;
+  const t = tplGet(p.context?.templateId) ?? null;
   return t?.profile.styleRuleText ?? '문서 스타일 규칙: 1수준 "□" 16pt 굵게, 2수준 "ㅇ" 15pt, 3수준 "-" 15pt, 4수준 "*" 12pt. 본문 12pt.';
 }
 app.post('/api/plans/:id/toc', async (req, res) => {
@@ -267,7 +271,7 @@ export function planMarkdown(p: PlanRow): string {
   return out.join('\n\n');
 }
 async function templateFor(p: { context: PlanContext | null }): Promise<{ bytes: Uint8Array; profile: TemplateProfile; row: TemplateRow }> {
-  const t = (p.context?.templateId ? templates.get(p.context.templateId) : null) ?? templates.where((x) => /템플릿_01/.test(x.fileName))[0] ?? templates.all()[0];
+  const t = tplGet(p.context?.templateId) ?? tplAlive().find((x) => /템플릿_01/.test(x.fileName)) ?? tplAlive()[0];
   if (!t) throw new Error('템플릿 없음');
   return { bytes: new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), profile: t.profile, row: t };
 }
@@ -431,19 +435,23 @@ app.post('/api/exercises/:id/pending-warnings/:pid/:action', async (req, res) =>
 });
 
 // ── 휴지통 ────────────────────────────────────────────────────────────────
-type TrashKind = 'plan' | 'planTemplate' | 'exercise';
+type TrashKind = 'plan' | 'planTemplate' | 'exercise' | 'template' | 'manual' | 'sopTemplate';
 interface TrashItem { kind: TrashKind; id: string; title: string; sub: string; createdBy: string; deletedAt: string; deletedBy?: string }
 const trashItems = (): TrashItem[] => [
   ...plans.where((p) => !alive(p)).map((p): TrashItem => ({ kind: 'plan', id: p.id, title: p.title, sub: [p.context?.hazardType ?? p.hazardType, p.context?.managementPhase ?? p.managementPhase].filter(Boolean).join(' · ') || '기준정보 없음', createdBy: p.createdBy, deletedAt: p.deletedAt as string, deletedBy: p.deletedBy as string | undefined })),
   ...planTemplates.where((t) => !alive(t)).map((t): TrashItem => ({ kind: 'planTemplate', id: t.id, title: t.name, sub: [t.context.hazardType, t.context.managementPhase].filter(Boolean).join(' · '), createdBy: t.createdBy, deletedAt: t.deletedAt as string, deletedBy: t.deletedBy as string | undefined })),
   ...exercises.where((e) => !alive(e)).map((e): TrashItem => ({ kind: 'exercise', id: e.id, title: e.title, sub: [e.hazardType, `상황단계 ${e.alertLevel}`, e.status].join(' · '), createdBy: e.createdBy, deletedAt: e.deletedAt as string, deletedBy: e.deletedBy as string | undefined })),
+  // 2026-08-24 추가: HWPX 템플릿(업로드본만 삭제 가능) · 매뉴얼 · SOP 템플릿 — 매뉴얼/SOP 템플릿은 그동안 소프트 삭제만 되고 휴지통에 안 보여 복원이 불가능했던 버그 수정
+  ...templates.where((t) => !alive(t)).map((t): TrashItem => ({ kind: 'template', id: t.id, title: t.name, sub: `업로드 HWPX · ${t.profile.levels.length}수준 · ${t.profile.pageCount}쪽`, createdBy: '-', deletedAt: t.deletedAt as string, deletedBy: t.deletedBy })),
+  ...manuals.where((m) => !alive(m)).map((m): TrashItem => ({ kind: 'manual', id: m.id, title: m.name, sub: [m.hazard, m.tier, `카드 ${actionCards.where((c) => c.manualId === m.id).length}장`].join(' · '), createdBy: m.org || '-', deletedAt: m.deletedAt as string, deletedBy: m.deletedBy })),
+  ...sopTemplates.where((t) => !alive(t)).map((t): TrashItem => ({ kind: 'sopTemplate', id: t.id, title: t.name, sub: [t.hazard, `임무 ${t.graph.nodes.length}개`].join(' · '), createdBy: t.createdBy ?? '-', deletedAt: t.deletedAt as string, deletedBy: t.deletedBy })),
 ].sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
-const trashCol = (kind: string) => (kind === 'plan' ? plans : kind === 'planTemplate' ? planTemplates : kind === 'exercise' ? exercises : null) as ReturnType<typeof col> | null;
-const purgeOne = (kind: TrashKind, id: string) => (kind === 'exercise' ? purgeExercise(id) : (trashCol(kind) as ReturnType<typeof col>).remove(id));
+const trashCol = (kind: string) => (kind === 'plan' ? plans : kind === 'planTemplate' ? planTemplates : kind === 'exercise' ? exercises : kind === 'template' ? templates : kind === 'manual' ? manuals : kind === 'sopTemplate' ? sopTemplates : null) as ReturnType<typeof col> | null;
+const purgeOne = (kind: TrashKind, id: string) => { if (kind === 'exercise') return purgeExercise(id); if (kind === 'manual') for (const c of actionCards.where((x) => x.manualId === id)) actionCards.remove(c.id); return (trashCol(kind) as ReturnType<typeof col>).remove(id); };
 app.get('/api/trash', (_req, res) => res.json({ items: trashItems(), days: TRASH_DAYS }));
 app.post('/api/trash/:kind/:id/restore', (req, res) => { const c = trashCol(req.params.kind); const r = c?.get(req.params.id); if (!c || !r || alive(r)) return bad(res, 404, '휴지통에 없음'); c.update(r.id, { deletedAt: undefined, deletedBy: undefined }); res.json({ ok: true }); });
 app.delete('/api/trash/:kind/:id', (req, res) => { const c = trashCol(req.params.kind); const r = c?.get(req.params.id); if (!c || !r || alive(r)) return bad(res, 404, '휴지통에 없음'); res.json({ ok: purgeOne(req.params.kind as TrashKind, r.id) }); });
-app.delete('/api/trash', (req, res) => { const kinds = req.query.kind ? String(req.query.kind).split(',') : ['plan', 'planTemplate', 'exercise']; let n = 0; for (const it of trashItems()) if (kinds.includes(it.kind) && purgeOne(it.kind, it.id)) n++; res.json({ ok: true, purged: n }); });
+app.delete('/api/trash', (req, res) => { const kinds = req.query.kind ? String(req.query.kind).split(',') : ['plan', 'planTemplate', 'exercise', 'template', 'manual', 'sopTemplate']; let n = 0; for (const it of trashItems()) if (kinds.includes(it.kind) && purgeOne(it.kind, it.id)) n++; res.json({ ok: true, purged: n }); });
 /** 기동 시 1회: 휴지통에 30일 넘게 있던 항목은 완전 삭제 */
 function purgeOldTrash() { const limit = Date.now() - TRASH_DAYS * 86400_000; let n = 0; for (const it of trashItems()) if (new Date(it.deletedAt).getTime() < limit && purgeOne(it.kind, it.id)) n++; if (n) console.log(`휴지통 자동 비움: ${n}개 (${TRASH_DAYS}일 경과)`); }
 
@@ -634,7 +642,7 @@ app.post('/api/exercises/:id/journal/export', async (req, res) => {
   const ex = exercises.get(req.params.id); const j = journals.where((x) => x.exerciseId === req.params.id)[0]; if (!ex || !j) return bad(res, 404, '일지 없음');
   // 템플릿: 요청 body.templateId > 직전 내보내기 템플릿 > "상황보고" 내장 템플릿 (2026-08-22 선택 UI 추가)
   const wanted = (req.body?.templateId as string | undefined) ?? j.export?.templateId;
-  const t = (wanted ? templates.get(wanted) : null) ?? templates.where((x) => /상황보고/.test(x.fileName))[0] ?? templates.all()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const t = tplGet(wanted) ?? tplAlive().find((x) => /상황보고/.test(x.fileName)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const md = j.sections.map((s) => `# ${s.title}\n\n${s.markdown}`).join('\n\n');
   const out = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, `훈련 상황일지 — ${ex.title}`, md, { reportedAt: ex.occurredAt, reporter: ex.createdBy });
   const fileName = `journal_${ex.id}_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), out);
@@ -808,7 +816,7 @@ app.post('/api/reports/:rid/export', async (req, res) => {
   const format = String(req.body?.format ?? 'hwpx') as 'hwpx' | 'pdf' | 'docx';
   const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '상황보고';
   const wanted = (req.body?.templateId as string | undefined) ?? r.export?.hwpx?.templateId;
-  const t = (wanted ? templates.get(wanted) : null) ?? templates.where((x) => x.fileName.includes(hint) || x.name.includes(hint))[0] ?? templates.all()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const t = tplGet(wanted) ?? tplAlive().find((x) => x.fileName.includes(hint) || x.name.includes(hint)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const md = reportMarkdown(r.title, r.header, r.sections, { orgName: ensureOrg().name });
   const stamp = Date.now();
   try {
@@ -839,7 +847,7 @@ app.get('/api/reports/:rid/preview', async (req, res) => {
   const r = reports.get(req.params.rid); if (!r) return bad(res, 404, '없음');
   if (r.export?.hwpx && existsSync(join(FILES_DIR, r.export.hwpx.fileName))) return res.json(await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, r.export.hwpx.fileName))), 30));
   const hint = reportTemplate(r.type)?.hwpxTemplateHint ?? '상황보고';
-  const t = templates.where((x) => x.fileName.includes(hint) || x.name.includes(hint))[0] ?? templates.all()[0]; if (!t) return bad(res, 500, '템플릿 없음');
+  const t = tplAlive().find((x) => x.fileName.includes(hint) || x.name.includes(hint)) ?? tplAlive()[0]; if (!t) return bad(res, 500, '템플릿 없음');
   const hwpx = await buildHwpx(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), t.profile, r.title, reportMarkdown(r.title, r.header, r.sections, { orgName: ensureOrg().name }), { reportedAt: r.header.reportedAt, reporter: r.header.reporter });
   res.json(await renderHwpxSvg(hwpx, 30));
 });

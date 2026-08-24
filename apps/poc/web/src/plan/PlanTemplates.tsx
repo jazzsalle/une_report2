@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, get, type Template } from '../api';
-import { Toast, useToast } from '../ui';
+import { api, del, get, type Template } from '../api';
+import { Toast, useToast, useUser } from '../ui';
 import { Icon, KBadge, KBtn, KCard, KModal, KTable } from '../krds';
 
 /** PLAN-01 HWPX 템플릿 업로드 → 스타일 프로파일 (문단개요번호·글꼴·크기·굵기) */
@@ -11,7 +11,10 @@ export function PlanTemplates() {
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [toast, show] = useToast();
+  const [user] = useUser();
   const load = () => get<Template[]>('/templates').then(setList);
+  // 업로드한 템플릿만 휴지통으로 — 내장은 삭제 불가(사용자 결정 2026-08-24). 복원은 휴지통 화면에서
+  const remove = async (t: Template) => { await del(`/templates/${t.id}?by=${encodeURIComponent(user?.name ?? '')}`); setSel(null); await load(); show(`"${t.name}"을(를) 휴지통으로 옮겼습니다 — 휴지통에서 복원할 수 있습니다`); };
   useEffect(() => { void load(); }, []);
   const open = async (t: Template) => { const full = await get<Template>(`/templates/${t.id}`); setSel(full); setPreview(null); };
   const upload = async (f: File) => {
@@ -39,7 +42,7 @@ export function PlanTemplates() {
       <div className="stack">
         {!sel ? <KCard><p className="card-desc" style={{ textAlign: 'center', padding: 32 }}>왼쪽에서 템플릿을 선택하면 분석 결과가 표시됩니다.</p></KCard> : (
           <>
-            <KCard title={`스타일 프로파일 — ${sel.name}`} desc={<KBadge tone="light-success">rhwp 분석</KBadge>} right={<KBtn size="sm" onClick={async () => setPreview(await get(`/templates/${sel.id}/preview`))}>원본 미리보기</KBtn>}>
+            <KCard title={`스타일 프로파일 — ${sel.name}`} desc={<KBadge tone="light-success">rhwp 분석</KBadge>} right={<span className="row" style={{ gap: 6 }}><KBtn size="sm" onClick={async () => setPreview(await get(`/templates/${sel.id}/preview`))}>원본 미리보기</KBtn>{sel.builtin ? <span className="dim" style={{ fontSize: 12 }}>내장 템플릿은 삭제할 수 없습니다</span> : <KBtn size="sm" kind="danger" onClick={() => void remove(sel)}>삭제</KBtn>}</span>}>
               <h3 style={{ fontSize: 15, marginBottom: 8 }}>문단 개요 수준 (자동 인식)</h3>
               <KTable compact caption="템플릿에서 인식한 문단 개요 수준" head={['수준', '기호', '글꼴', '크기', '굵게', '들여쓰기', '스타일', '표본']} rows={sel.levels.map((l) => [
                 <strong>{l.level}수준</strong>, <span style={{ fontSize: 18 }}>{l.bullet || '—'}</span>, l.fontFamily ?? '-', <span className="num">{l.fontSizePt ? `${l.fontSizePt}pt` : '-'}</span>, l.bold ? '굵게' : '-', <span className="num">{l.indentHu ? Math.round(l.indentHu / 100) : 0}</span>, l.styleName ?? <span className="dim">본문 폴백</span>, <span className="dim">{l.sampleText}</span>,
