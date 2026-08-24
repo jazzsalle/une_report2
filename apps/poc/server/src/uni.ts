@@ -8,8 +8,17 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { Agent } from 'undici';
 
-const BASE = (process.env.UNI_BASE_URL ?? 'http://10.20.10.101:8088').replace(/\/+$/, '');
+// 실측 2026-08-24: 유니 :8088이 HTTPS로 전환(자체 인증서) — T3Q처럼 이 호스트에 한해 검증을 끈다(UNI_VERIFY_TLS=0). 운영은 켠다.
+const BASE = (process.env.UNI_BASE_URL ?? 'https://10.20.10.101:8088').replace(/\/+$/, '');
+const VERIFY = process.env.UNI_VERIFY_TLS !== '0' && process.env.UNI_VERIFY_TLS !== 'false';
+const dispatcher = new Agent({ connect: { rejectUnauthorized: VERIFY } });
+// Node 전역 fetch(undici)에 dispatcher만 끼워 넣는다 — 표준 타입엔 없지만 undici가 받는다. Response 타입은 DOM 그대로.
+const fetch = (url: string, init?: RequestInit): Promise<Response> => globalThis.fetch(url, { ...(init ?? {}), dispatcher } as RequestInit);
+// 실측 2026-08-24: REST /search/ 는 제거되고 검색은 MCP(search_knowledge, Bearer 토큰)로만 — 토큰은 infrastructure/.env UNI_MCP_TOKEN
+const MCP_URL = (process.env.UNI_MCP_URL ?? 'http://10.20.10.101:3100/mcp').replace(/\/+$/, '');
+const MCP_TOKEN = process.env.UNI_MCP_TOKEN ?? '';
 const ACCOUNT = process.env.UNI_USERNAME ?? '';
 const PASSWORD = process.env.UNI_PASSWORD ?? '';
 const FORCE_MOCK = process.env.UNI_MOCK === '1';
@@ -182,16 +191,53 @@ export async function listDocuments(page = 1, pageSize = 20) {
   return (await r.json()) as { documents: unknown[]; total: number };
 }
 
+// ── 검색: MCP search_knowledge (2026-08-24부터 REST /search/ 제거·MCP Bearer 인증 필수) ──────────
+// MCP는 동시 호출 시 빈 오류를 낸다(실측 2026-08-22) → 큐로 순차화. initialize는 프로세스당 1회.
+let mcpChain: Promise<unknown> = Promise.resolve();
+let mcpInitialized = false;
+async function mcpPost(body: unknown): Promise<Record<string, unknown>> {
+  const r = await fetch(MCP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${MCP_TOKEN}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!r.ok) throw new Error(`UNI MCP HTTP ${r.status}${r.status === 404 ? ' — 토큰이 없거나 잘못됨(UNI_MCP_TOKEN)' : ''}`);
+  const raw = await r.text();
+  const frames = raw.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => JSON.parse(l.slice(5).trim()) as Record<string, unknown>);
+  if (frames.length) return frames[frames.length - 1];
+  try { return JSON.parse(raw) as Record<string, unknown>; } catch { return {}; }
+}
+async function mcpCall(name: string, args: Record<string, unknown>): Promise<string> {
+  if (!mcpInitialized) {
+    await mcpPost({ jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'une-poc', version: '0' } } });
+    try { await mcpPost({ jsonrpc: '2.0', method: 'notifications/initialized' }); } catch { /* 선택 */ }
+    mcpInitialized = true;
+  }
+  const res = await mcpPost({ jsonrpc: '2.0', id: Date.now() % 1e9, method: 'tools/call', params: { name, arguments: args } });
+  const result = (res.result ?? {}) as { structuredContent?: { result?: string }; content?: { text?: string }[]; isError?: boolean };
+  const text = result.structuredContent?.result ?? (result.content ?? []).map((c) => c.text ?? '').join('');
+  if ((result as { isError?: boolean }).isError) throw new Error(`UNI MCP 도구 오류: ${text.slice(0, 120)}`);
+  return text;
+}
+/** MCP 응답의 `[출처: 문서 · 유사도 0.99]` 블록을 예전 REST /search/ 모양으로 되돌린다 — 소비처(manuals.ts 등) 무변경 */
+export function parseMcpSearch(text: string): { filename: string; score: number; text: string; doc_id: string }[] {
+  const out: { filename: string; score: number; text: string; doc_id: string }[] = [];
+  const re = /\[출처:\s*(.+?)\s*·\s*유사도\s*([\d.]+)\]\n?([\s\S]*?)(?=\n\[출처:|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) out.push({ filename: m[1].trim(), score: Number(m[2]), text: m[3].replace(/\n-{3,}\s*$/g, '').trim(), doc_id: '' });
+  return out;
+}
 export async function search(query: string, topK = 5) {
   if (FORCE_MOCK) return { results: [] };
-  const r = await authed('/search/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, top_k: topK }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!r.ok) throw new Error(`UNI search HTTP ${r.status}`);
-  return (await r.json()) as { results: { filename: string; score: number; text: string; doc_id: string }[] };
+  if (!MCP_TOKEN) { lastFailure = 'UNI_MCP_TOKEN 없음 — 검색은 MCP 인증 필요(2026-08-24)'; throw new Error(lastFailure); }
+  const run = async () => {
+    const text = await mcpCall('search_knowledge', { query, top_k: Math.min(20, topK) });
+    return { results: parseMcpSearch(text) };
+  };
+  const p = mcpChain.then(run, run); // 앞선 호출이 실패해도 큐는 이어간다
+  mcpChain = p.catch(() => undefined);
+  return p;
 }
 
 // ── MOCK 폴백 ─────────────────────────────────────────────────────────────
