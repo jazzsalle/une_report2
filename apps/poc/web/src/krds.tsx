@@ -28,7 +28,16 @@ export function AppHeader({ active, user, users, onUser }: { active: 'plan' | 's
           <Link to="/sit" aria-current={active === 'sit' ? 'page' : undefined}>상황일지</Link>
         </nav>
         <div className="util">
-          <Link to="/settings" className="hdr-ico" title="환경설정 — HWPX 템플릿·스타일 분석, 휴지통" aria-label="환경설정" aria-current={active === 'settings' ? 'page' : undefined}><img src="/hdr/hdr-settings.svg" alt="" /></Link>
+          {/* 톱니바퀴: 호버(키보드는 포커스)하면 환경설정 두 메뉴가 뜨고, 고른 쪽을 먼저 연다. /settings 안에서는 LNB로 둘 다 오갈 수 있다(사용자 결정 2026-08-24) */}
+          <div className="hdr-set">
+            <Link to="/settings" className="hdr-ico" title="환경설정 — HWPX 템플릿·스타일 분석, 휴지통" aria-label="환경설정" aria-haspopup="menu" aria-current={active === 'settings' ? 'page' : undefined}><img src="/hdr/hdr-settings.svg" alt="" /></Link>
+            <div className="hdr-set-pop" role="menu" aria-label="환경설정 메뉴">
+              <div className="hdr-set-card">
+                <Link to="/settings" role="menuitem">HWPX 템플릿 · 스타일 분석</Link>
+                <Link to="/settings/trash" role="menuitem">휴지통</Link>
+              </div>
+            </div>
+          </div>
           <button type="button" className="hdr-weather" onClick={openWeather} title={wx ? `${wx.place} ${wx.condition} ${wx.temp}°${wx.humidity != null ? ` · 습도 ${wx.humidity}%` : ''}${wx.windMs != null ? ` · 바람 ${wx.windMs}m/s` : ''} · 출처 ${wx.source === 'mock' ? '목업' : wx.source}${wx.error ? ' (갱신 실패)' : ''} — 눌러서 상세 보기(새 창)` : '날씨 불러오는 중'}>
             <img src={`/hdr/wx-${WEATHER_ICON[wx?.condition ?? '맑음']}.svg`} alt={wx?.condition ?? ''} />{wx ? `${wx.place} ${wx.temp.toFixed(1)}°` : '…'}
           </button>
