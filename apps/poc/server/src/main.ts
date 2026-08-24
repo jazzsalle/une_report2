@@ -105,11 +105,25 @@ async function registerTemplate(name: string, fileName: string, bytes: Uint8Arra
   writeFileSync(join(FILES_DIR, stored), bytes);
   return templates.insert({ name, fileName, storedPath: stored, profile, builtin });
 }
+/** 기동 시 templete/ 원본과 동기화(2026-08-24): 새 파일은 등록, 내용이 바뀐 파일은 재분석, 폴더에서 지워진 내장은 목록에서 제거(참조하던 문서는 기본 템플릿으로 폴백) */
 async function seedTemplates() {
   if (!existsSync(TEMPLATE_DIR)) return;
-  for (const f of readdirSync(TEMPLATE_DIR).filter((x) => x.toLowerCase().endsWith('.hwpx'))) {
-    if (templates.where((t) => t.fileName === f && t.builtin).length) continue;
-    try { await registerTemplate(f.replace(/\.hwpx$/i, ''), f, new Uint8Array(readFileSync(join(TEMPLATE_DIR, f))), true); console.log('템플릿 등록:', f); }
+  const files = readdirSync(TEMPLATE_DIR).filter((x) => x.toLowerCase().endsWith('.hwpx'));
+  for (const t of templates.where((x) => x.builtin)) {
+    if (!files.includes(t.fileName)) { templates.remove(t.id); console.log('템플릿 제거(원본 없음):', t.fileName); }
+  }
+  for (const f of files) {
+    const bytes = new Uint8Array(readFileSync(join(TEMPLATE_DIR, f)));
+    const cur = templates.where((t) => t.fileName === f && t.builtin)[0];
+    if (cur) {
+      let same = false;
+      try { const stored = readFileSync(join(FILES_DIR, cur.storedPath)); same = stored.length === bytes.length && stored.equals(Buffer.from(bytes)); } catch { same = false; }
+      if (same) continue;
+      try { writeFileSync(join(FILES_DIR, cur.storedPath), bytes); templates.update(cur.id, { profile: await profileTemplate(bytes) }); console.log('템플릿 갱신(원본 변경):', f); }
+      catch (e) { console.error('템플릿 갱신 실패:', f, (e as Error).message); }
+      continue;
+    }
+    try { await registerTemplate(f.replace(/\.hwpx$/i, ''), f, bytes, true); console.log('템플릿 등록:', f); }
     catch (e) { console.error('템플릿 실패:', f, (e as Error).message); }
   }
 }
@@ -261,12 +275,14 @@ app.post('/api/plans/:id/revert', (req, res) => {
 /** 초안을 만드는 목차 항목 — 하위 목차가 있는 장은 제목만 두고 본문을 만들지 않는다(장·절 내용이 겹치던 문제, 2026-08-21). 평평한 목차면 장이 곧 본문 단위 */
 export const draftable = (n: TocNode) => n.children.length === 0;
 export const draftableIds = (toc: TocNode[]) => toc.flatMap((n) => (draftable(n) ? [n.id] : n.children.map((c) => c.id)));
-export function planMarkdown(p: PlanRow): string {
+/** includeNo=false면 목차 번호(1, 1.1)를 빼고 제목만 — 템플릿이 기호(□·ㅇ·-)나 자동 번호(가./1.)를 쓰면 번호가 이중으로 붙던 문제(2026-08-24) */
+export function planMarkdown(p: PlanRow, includeNo = true): string {
   const out: string[] = [];
+  const h = (no: string, title: string) => (includeNo ? `${no} ${title}` : title);
   for (const n of p.toc) {
-    out.push(`# ${n.no} ${n.title}`);
+    out.push(`# ${h(n.no, n.title)}`);
     if (draftable(n) && p.sections[n.id]?.markdown) out.push(p.sections[n.id].markdown);
-    for (const c of n.children) { out.push(`## ${c.no} ${c.title}`); if (p.sections[c.id]?.markdown) out.push(p.sections[c.id].markdown); }
+    for (const c of n.children) { out.push(`## ${h(c.no, c.title)}`); if (p.sections[c.id]?.markdown) out.push(p.sections[c.id].markdown); }
   }
   return out.join('\n\n');
 }
@@ -279,7 +295,9 @@ app.post('/api/plans/:id/export', async (req, res) => {
   const p = plans.get(req.params.id); if (!p) return bad(res, 404, '없음');
   try {
     const { bytes, profile } = await templateFor(p);
-    const out = await buildHwpx(bytes, profile, p.title, planMarkdown(p), { reportedAt: p.context?.reportedAt, reporter: p.updatedBy ?? p.createdBy });
+    const docTitle = p.context?.subject?.trim() || p.title; // 제목 표에는 기준정보의 문서주제(사용자 지적 2026-08-24)
+    const includeNo = !profile.levels.some((l) => l.bullet); // 템플릿에 기호·번호 체계가 있으면 목차 번호는 빼고 기호를 따른다
+    const out = await buildHwpx(bytes, profile, docTitle, planMarkdown(p, includeNo), { reportedAt: p.context?.reportedAt, reporter: p.updatedBy ?? p.createdBy });
     const fileName = `plan_${p.id}_${Date.now()}.hwpx`; writeFileSync(join(FILES_DIR, fileName), out);
     const r = await renderHwpxSvg(out, 1);
     plans.update(p.id, { export: { fileName, at: now(), pages: r.pages } });
