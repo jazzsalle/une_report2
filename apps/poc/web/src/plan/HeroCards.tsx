@@ -29,6 +29,21 @@ export function HazardIcon({ hazard, size = 48 }: { hazard?: string; size?: numb
 export function HeroBand({ title, moreTo, moreLabel = '더보기', children }: { title: ReactNode; moreTo?: string; moreLabel?: string; children: ReactNode }) {
   const rail = useRef<HTMLDivElement>(null);
   const step = (dir: 1 | -1) => rail.current?.scrollBy({ left: dir * 288 * 3, behavior: 'smooth' });
+  // 드래그 슬라이딩(사용자 요청 2026-08-24): 화살표 말고도 마우스로 잡아 좌우로 끈다. 5px 넘게 움직였으면 끝난 뒤의 카드 클릭은 무시
+  const drag = useRef<{ x: number; sl: number; moved: boolean } | null>(null);
+  const suppressClick = useRef(false);
+  const onPointerDown = (e: React.PointerEvent) => { if (e.button !== 0) return; const el = rail.current; if (!el) return; drag.current = { x: e.clientX, sl: el.scrollLeft, moved: false }; };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current; const el = rail.current; if (!d || !el) return;
+    const dx = e.clientX - d.x;
+    if (!d.moved && Math.abs(dx) > 5) { d.moved = true; el.classList.add('dragging'); try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
+    if (d.moved) el.scrollLeft = d.sl - dx;
+  };
+  const onPointerEnd = (e: React.PointerEvent) => {
+    const d = drag.current; drag.current = null; const el = rail.current;
+    if (d?.moved && el) { suppressClick.current = true; el.classList.remove('dragging'); try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }
+  };
+  const onClickCapture = (e: React.MouseEvent) => { if (suppressClick.current) { suppressClick.current = false; e.preventDefault(); e.stopPropagation(); } };
   return (
     <section className="hero" aria-labelledby="hero-title">
       <div className="wrap hero-inner">
@@ -40,7 +55,7 @@ export function HeroBand({ title, moreTo, moreLabel = '더보기', children }: {
             {moreTo && <Link to={moreTo} className="hero-more">{moreLabel}</Link>}
           </div>
         </div>
-        <div className="hero-rail" ref={rail}>{children}</div>
+        <div className="hero-rail" ref={rail} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd} onPointerLeave={onPointerEnd} onClickCapture={onClickCapture}>{children}</div>
       </div>
     </section>
   );

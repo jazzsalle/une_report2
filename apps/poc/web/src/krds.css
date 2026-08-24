@@ -133,6 +133,10 @@
 .krds .tpl-card .meta{font-size:13px;color:var(--subtle)}
 .krds .tpl-card .lv{display:flex;gap:4px;flex-wrap:wrap}
 .krds .tpl-card .lv span{font-size:12px;padding:1px 6px;border-radius:4px;background:#f4f5f6;color:#464c53}
+.krds .tpl-card .thumb{display:block;width:100%;height:120px;overflow:hidden;border:1px solid var(--line);border-radius:6px;background:#fff;padding:0;cursor:zoom-in;position:relative}
+.krds .tpl-card .thumb svg{width:100%;height:auto;display:block;pointer-events:none}
+.krds .tpl-card .thumb:hover{border-color:#256ef4;box-shadow:0 2px 8px rgba(37,110,244,.25)}
+.krds .tpl-card .thumb.empty{display:flex;align-items:center;justify-content:center;color:#8a949e;font-size:12px;cursor:default;background:#f8f9fa}
 .krds .tpl-new{min-width:200px;height:128px;border:2px dashed #cdd1d5;border-radius:8px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#464c53;font-size:15px;cursor:pointer}
 .krds .tpl-new:hover{border-color:#256ef4;color:#256ef4}
 .krds .toc-row{display:flex;align-items:center;gap:12px;padding:11px 12px;border-bottom:1px solid var(--line)}
@@ -169,6 +173,9 @@
 .krds .hero-more{height:36px;padding:0 16px;border:1px solid var(--border);border-radius:6px;background:#fff;display:inline-flex;align-items:center;font-size:15px;color:#1e2124;text-decoration:none;margin-left:8px}
 .krds .hero-more:hover{border-color:var(--primary);color:var(--primary)}
 .krds .hero-rail{display:flex;gap:28px;overflow-x:auto;scroll-snap-type:x mandatory;padding:16px 4px 20px;scrollbar-width:none}
+.krds .hero-rail{cursor:grab}
+.krds .hero-rail.dragging{cursor:grabbing;user-select:none;scroll-behavior:auto}
+.krds .hero-rail.dragging .hcard{pointer-events:none}
 .krds .hero-rail::-webkit-scrollbar{display:none}
 .krds .hcard{position:relative;flex:0 0 260px;height:224px;border:0;border-radius:12px;background:#fff;box-shadow:0 4px 11px rgba(0,0,0,.11),0 0 3px rgba(0,0,0,.04);overflow:hidden;text-align:left;cursor:pointer;scroll-snap-align:start;padding:0;display:block;font:inherit;color:inherit;transition:transform .15s,box-shadow .15s}
 .krds .hcard:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(0,0,0,.14),0 0 3px rgba(0,0,0,.04)}

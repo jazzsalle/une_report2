@@ -154,6 +154,19 @@ app.get('/api/templates/:id/preview', async (req, res) => {
   const r = await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), 3);
   res.json(r);
 });
+/** 템플릿 1쪽 썸네일(SVG) — 기준정보 화면 카드용. 렌더가 수십 ms지만 카드마다 반복되므로 updatedAt 기준 메모리 캐시(2026-08-24) */
+const thumbCache = new Map<string, { at: string; svg: string }>();
+app.get('/api/templates/:id/thumb', async (req, res) => {
+  const t = tplGet(req.params.id); if (!t) return bad(res, 404, '없음');
+  const hit = thumbCache.get(t.id);
+  if (hit && hit.at === t.updatedAt) return res.json({ svg: hit.svg });
+  try {
+    const r = await renderHwpxSvg(new Uint8Array(readFileSync(join(FILES_DIR, t.storedPath))), 1);
+    const svg = r.svgs[0] ?? '';
+    thumbCache.set(t.id, { at: t.updatedAt, svg });
+    res.json({ svg });
+  } catch (e) { bad(res, 500, (e as Error).message); }
+});
 /** 업로드한 템플릿만 휴지통으로(소프트 삭제) — 내장은 삭제 불가(사용자 결정 2026-08-24) */
 app.delete('/api/templates/:id', (req, res) => { const t = templates.get(req.params.id); if (!t) return bad(res, 404, '없음'); if (t.builtin) return bad(res, 400, '내장 템플릿은 삭제 불가'); templates.update(t.id, { deletedAt: now(), deletedBy: (req.query.by as string) || undefined }); res.json({ ok: true, trashed: true }); });
 
