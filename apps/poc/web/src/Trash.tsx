@@ -10,16 +10,16 @@ const KIND_TONE: Record<TrashItem['kind'], Tone> = { plan: 'light-primary', plan
 
 /**
  * 휴지통 (계획서·기준정보 템플릿·훈련상황 공용). 삭제는 소프트 삭제이며 30일 뒤 서버가 자동으로 완전 삭제한다.
- * scope: 계획서 메뉴에선 계획서·기준정보 템플릿, 상황일지 메뉴에선 훈련상황을 기본으로 보여준다(전체 보기 가능).
+ * scope: 계획서 메뉴에선 계획서·기준정보 템플릿, 상황일지 메뉴에선 훈련상황을 기본으로. 환경설정(2026-08-24)에선 'all'로 전체.
  */
-export function Trash({ scope }: { scope: 'plan' | 'sit' }) {
+export function Trash({ scope }: { scope: 'plan' | 'sit' | 'all' }) {
   const [items, setItems] = useState<TrashItem[]>([]);
   const [days, setDays] = useState(30);
   const [kind, setKind] = useState<'' | TrashItem['kind']>('');
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<{ items: TrashItem[]; all?: boolean } | null>(null);
   const [toast, show] = useToast();
-  const scopeKinds: TrashItem['kind'][] = scope === 'plan' ? ['plan', 'planTemplate', 'template'] : ['exercise', 'manual', 'sopTemplate'];
+  const scopeKinds: TrashItem['kind'][] = scope === 'plan' ? ['plan', 'planTemplate', 'template'] : scope === 'sit' ? ['exercise', 'manual', 'sopTemplate'] : ['plan', 'planTemplate', 'template', 'exercise', 'manual', 'sopTemplate'];
   const load = () => get<{ items: TrashItem[]; days: number }>('/trash').then((r) => { setItems(r.items); setDays(r.days); setChecked(new Set()); });
   useEffect(() => { void load(); }, []);
   const shown = useMemo(() => items.filter((it) => (kind ? it.kind === kind : scopeKinds.includes(it.kind))), [items, kind, scope]);
@@ -40,7 +40,7 @@ export function Trash({ scope }: { scope: 'plan' | 'sit' }) {
       <KCard title={<>휴지통 <span className="dim" style={{ fontWeight: 400, fontSize: 15 }}>({shown.length})</span></>} desc={`삭제한 항목은 여기에 ${days}일 동안 보관된 뒤 자동으로 완전히 삭제됩니다. 복원하면 원래 목록으로 돌아갑니다.`} right={
         <div className="row">
           <KSelect value={kind} onChange={(e) => setKind(e.target.value as '' | TrashItem['kind'])} style={{ width: 220 }} aria-label="종류">
-            <option value="">{scope === 'plan' ? '계획서 · 기준정보 템플릿' : '훈련상황'}</option>
+            <option value="">{scope === 'plan' ? '계획서 · 기준정보 템플릿' : scope === 'sit' ? '훈련상황' : '전체'}</option>
             {(['plan', 'planTemplate', 'template', 'exercise', 'manual', 'sopTemplate'] as const).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}{!scopeKinds.includes(k) ? ' (다른 메뉴)' : ''}</option>)}
           </KSelect>
           <KBtn size="sm" kind="danger" disabled={!shown.length} onClick={() => setConfirm({ items: shown, all: true })}>휴지통 비우기</KBtn>

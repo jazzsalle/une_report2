@@ -18,7 +18,7 @@
       "krms"
     ]
   },
-  "hwpxTemplateHint": "상황보고",
+  "hwpxTemplateHint": "업무보고 서식",
   "description": "시간순 상황일지(기존 8절). 사실 절은 이벤트·임무에서 투영, 서술 절은 AI",
   "sections": [
     {

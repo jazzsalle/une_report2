@@ -95,7 +95,7 @@ export interface TemplateProfile {
   /** 분석 규칙 버전 — 값이 PROFILE_VERSION보다 낮으면 서버 기동 시 다시 분석 */
   version?: number;
 }
-export const PROFILE_VERSION = 3; // 3: 표 위치별 테두리 격자(borderGrid) 추가 (2026-08-24) / 2: 꼬리 빈 표 포함 (2026-08-21)
+export const PROFILE_VERSION = 4; // 4: 번호형 형제 기호를 같은 수준으로(2026-08-24) / 3: 표 위치별 테두리 격자(borderGrid) / 2: 꼬리 빈 표 포함 (2026-08-21)
 
 const BULLET_RE = /^\s*([□■○●◇◆ㅇo\-\-–—*·•▪▶►☞※]|\d+[.)]|[가-힣][.)]|\(\d+\)|[①-⑳])\s?/;
 
@@ -255,8 +255,10 @@ export async function profileTemplate(bytes: Uint8Array): Promise<TemplateProfil
     for (const [lv, p] of [...byLevel.entries()].sort((a, b) => a[0] - b[0])) levels.push(levelOf(p, lv, p.styleId, p.styleName));
   } else {
     // 기호가 있는 문단들을 (들여쓰기, -글자크기) 순으로 묶어 수준을 만든다
+    // 번호형 기호의 형제("1."과 "2.", "가."와 "나.")는 같은 수준 — 값만 첫 값으로 접어 묶는다. 교체된 행정문서 템플릿2의 "2. 주요 내용"이 별도 수준으로 잡히던 문제(실측 2026-08-24)
+    const canonBullet = (b: string) => (isNumberingBullet(b) ? b.replace(/\d+/, '1').replace(/[가-힣]/, '가').replace(/[①-⑳]/, '①') : b);
     const withBullet = paragraphs.filter((p) => p.bullet && p.text.trim().length > 1);
-    const keyOf = (p: typeof paragraphs[number]) => `${p.bullet}|${p.indentHu}|${p.fontSizePt}`;
+    const keyOf = (p: typeof paragraphs[number]) => `${canonBullet(p.bullet)}|${p.indentHu}|${p.fontSizePt}`;
     const seen = new Map<string, typeof paragraphs[number]>();
     for (const p of withBullet) if (!seen.has(keyOf(p))) seen.set(keyOf(p), p);
     const ordered = [...seen.values()].sort((a, b) => a.indentHu - b.indentHu || (b.fontSizePt ?? 0) - (a.fontSizePt ?? 0));
@@ -394,12 +396,32 @@ function stripInlineMd(s: string): string {
 }
 
 export interface BuildMeta { reportedAt?: string; reporter?: string }
-const fmtKoDate = (iso?: string) => {
+export const fmtKoDate = (iso?: string) => {
   if (!iso) return '';
   const d = new Date(iso); if (Number.isNaN(d.getTime())) return iso;
   const hm = /T\d{2}:\d{2}/.test(iso) ? ` ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '';
   return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.${hm}`;
 };
+
+/** 머리 날짜줄 치환(2026-08-24): "(보고일시 …)" 표기 줄은 기존 규칙, "서면 보고 / 2026. 3. 3.(금) / 도상래 수석" 같은 견본 줄은
+ *  날짜를 보고일시(없으면 오늘)로 바꾸고 마지막 " / " 세그먼트(이름·직위)를 보고자로 바꾼다. 해당 없으면 null. DOCX(reports.ts planDocx)도 같은 규칙을 쓴다. */
+const HEAD_DATE_RE = /20\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}\.?\s*(\([월화수목금토일]\))?/;
+export function substituteHeadLine(text: string, meta: BuildMeta): string | null {
+  if (/보고일시/.test(text)) {
+    const parts = [meta.reportedAt ? `보고일시 ${fmtKoDate(meta.reportedAt)}` : '보고일시', meta.reporter ? `보고자 ${meta.reporter}` : '보고자'];
+    return `(${parts.join(', ')})`;
+  }
+  if (!HEAD_DATE_RE.test(text)) return null;
+  const d0 = meta.reportedAt ? new Date(meta.reportedAt) : new Date();
+  const d = Number.isNaN(d0.getTime()) ? new Date() : d0;
+  const day = '일월화수목금토'[d.getDay()];
+  let out = text.replace(HEAD_DATE_RE, `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.(${day})`);
+  if (meta.reporter) {
+    const segs = out.split(' / ');
+    if (segs.length >= 2 && !HEAD_DATE_RE.test(segs[segs.length - 1])) { segs[segs.length - 1] = meta.reporter; out = segs.join(' / '); }
+  }
+  return out;
+}
 
 /**
  * 템플릿 HWPX 위에 마크다운을 얹어 새 HWPX를 만든다.
@@ -438,8 +460,11 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
       if (Object.keys(props).length) { try { doc.applyCharFormat(0, para, 0, len(para), JSON.stringify(props)); } catch { /* ignore */ } }
     }
     if (sizeOverridePt) { try { doc.applyCharFormat(0, para, 0, len(para), JSON.stringify({ fontSize: Math.round(sizeOverridePt * 100), bold: true })); } catch { /* ignore */ } }
-    // 내어쓰기(사용자 요청 2026-08-24): 줄바꿈된 둘째 줄부터 기호 뒤 첫 글자 밑에 정렬 — marginLeft는 글 시작 위치, indent 음수로 첫 줄만 기호 위치로
-    if (hangHu > 0) { try { doc.applyParaFormat(0, para, JSON.stringify({ marginLeft: (L?.indentHu ?? 0) + hangHu, indent: -hangHu })); } catch { /* ignore */ } }
+    // 내어쓰기(사용자 요청 2026-08-24): 줄바꿈된 둘째 줄부터 기호 뒤 첫 글자 밑에 정렬.
+    // 한/글의 내어쓰기 의미(실측 2026-08-24, 템플릿 원본 paraPr가 증거): 음수 intent는 "첫 줄=marginLeft, 둘째 줄부터=marginLeft+|intent|".
+    // marginLeft에 폭을 더하면 문단 전체(1줄짜리 포함)가 오른쪽으로 밀린다 — 그래서 marginLeft는 템플릿 들여쓰기만, 내어쓰기 폭은 intent에만 준다.
+    // 단위: applyParaFormat margin/indent 입력은 파일 HWPUNIT의 2배(1000 입력 → 파일 500 — HWP가 문단 여백을 ½단위로 저장).
+    if (hangHu > 0) { try { doc.applyParaFormat(0, para, JSON.stringify({ marginLeft: 2 * (L?.indentHu ?? 0), indent: -2 * hangHu })); } catch { /* ignore */ } }
   };
   const applyBody = (para: number) => {
     try { doc.applyStyle(0, para, P.bodyStyleId); } catch { /* ignore */ }
@@ -514,15 +539,30 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
         }
       } catch { /* ignore */ }
     }
-    // 머리 영역의 "(보고일시, 보고자 …)" 줄을 채운다
+    // 머리에 표가 없는 문단형 템플릿(AI 행정문서 템플릿2류, 실측 2026-08-24): 견본 앞 비어 있지 않은 문단 중 글자 크기가 가장 큰 문단이 제목이다 — 교체 안 하면 문서주제가 본문 앞에 또 삽입돼 제목이 중복됐다
+    if (!titlePlaced) {
+      let best = -1; let bestSize = -1;
+      for (let i = 0; i < layout.sampleStart; i++) {
+        const l = len(i); if (!l) continue;
+        const size = charProps(doc, i)?.fontSizePt ?? 0;
+        if (size > bestSize) { best = i; bestSize = size; }
+      }
+      if (best >= 0) {
+        const cs = charProps(doc, best)?.charShapeId ?? null;
+        doc.deleteText(0, best, 0, len(best));
+        doc.insertText(0, best, 0, title);
+        if (cs != null) { try { doc.setCharShapeId(0, best, 0, len(best), cs); } catch { /* ignore */ } }
+        titlePlaced = true;
+      }
+    }
+    // 머리 영역의 날짜 줄을 채운다 — "(보고일시 …)" 또는 "서면 보고 / 2026. 3. 3.(금) / 이름" 같은 견본 줄(2026-08-24 일반화)
     for (let i = 0; i < layout.sampleStart; i++) {
       const l = len(i); if (!l) continue;
-      const text = doc.getTextRange(0, i, 0, l);
-      if (!/보고일시/.test(text)) continue;
+      const sub = substituteHeadLine(doc.getTextRange(0, i, 0, l), meta);
+      if (sub == null) continue;
       const cs = charProps(doc, i)?.charShapeId ?? null;
-      const parts = [meta.reportedAt ? `보고일시 ${fmtKoDate(meta.reportedAt)}` : '보고일시', meta.reporter ? `보고자 ${meta.reporter}` : '보고자'];
       doc.deleteText(0, i, 0, l);
-      doc.insertText(0, i, 0, `(${parts.join(', ')})`);
+      doc.insertText(0, i, 0, sub);
       if (cs != null) { try { doc.setCharShapeId(0, i, 0, len(i), cs); } catch { /* ignore */ } }
       break;
     }
@@ -600,7 +640,8 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
           const ctrl = res.controlIdx ?? 0;
           const ts = P.tableStyle ?? null;
           const widths = ts ? distributeWidths(ts.colWidths, cols) : [];
-          if (ts) { try { doc.setTableProperties(0, tblPara, ctrl, JSON.stringify(ts.table)); } catch { /* ignore */ } }
+          // 긴 표는 쪽 경계에서 셀 단위로 나뉘게(pageBreak 2=CELL) — createTable 기본은 NONE이라 표가 구역을 넘쳐버림. 템플릿 표들도 CELL(실측 2026-08-24)
+          try { doc.setTableProperties(0, tblPara, ctrl, JSON.stringify({ ...(ts?.table ?? { repeatHeader: true }), pageBreak: 2 })); } catch { /* ignore */ }
           for (let ri = 0; ri < rows; ri++) for (let ci = 0; ci < cols; ci++) {
             const idx = ri * cols + ci;
             const raw = b.rows[ri][ci] ?? '';
@@ -632,6 +673,57 @@ export async function buildHwpx(templateBytes: Uint8Array, profile: TemplateProf
     }
   }
   return doc.exportHwpx();
+}
+
+// ── 머리 영역 추출(2026-08-24): DOCX(reports.ts planDocx)가 템플릿 머리(제목 표·제목 문단·날짜 줄)를 재현할 수 있게 구조만 뽑는다 ──
+export interface HeadCell { text: string; fillType: string; fillColor: string; fontFamily: string | null; fontSizePt: number | null; bold: boolean }
+export interface HeadItem {
+  kind: 'para' | 'table';
+  text?: string; alignment?: string; fontSizePt?: number | null; bold?: boolean; fontFamily?: string | null;
+  rows?: HeadCell[][]; colWidths?: number[];
+}
+export async function extractHeadArea(templateBytes: Uint8Array, profile: TemplateProfile): Promise<HeadItem[]> {
+  const layout = profile.layout;
+  if (!layout || layout.sampleStart <= 0) return [];
+  const R = await initRhwp();
+  const doc = new R.HwpDocument(templateBytes);
+  const out: HeadItem[] = [];
+  let ctrls: { userDesc: string; para: number; controlIndex: number; list?: number }[] = [];
+  try { ctrls = (JSON.parse(doc.getControls()) as typeof ctrls).filter((c) => c.userDesc === '표' && (c.list ?? 0) === 0 && c.para < layout.sampleStart); } catch { /* 표 없음 */ }
+  for (let i = 0; i < layout.sampleStart; i++) {
+    const t = ctrls.find((c) => c.para === i);
+    if (t) {
+      // 머리 표: 셀 텍스트·배경·글꼴·열 너비만 — 병합 셀이 있으면 읽히는 데까지(try)
+      try {
+        const dims = JSON.parse(doc.getTableDimensions(0, t.para, t.controlIndex)) as { rowCount: number; colCount: number };
+        const rows: HeadCell[][] = [];
+        for (let r = 0; r < dims.rowCount; r++) {
+          const row: HeadCell[] = [];
+          for (let c = 0; c < dims.colCount; c++) {
+            const idx = r * dims.colCount + c;
+            let text = '';
+            try { const cl = doc.getCellParagraphLength(0, t.para, t.controlIndex, idx, 0); text = cl > 0 ? doc.getTextInCell(0, t.para, t.controlIndex, idx, 0, 0, cl) : ''; } catch { break; }
+            let cp2: Record<string, number | string> = {}; let cc: { fontFamily?: string; fontSize?: number; bold?: boolean } = {};
+            try { cp2 = JSON.parse(doc.getCellProperties(0, t.para, t.controlIndex, idx)) as Record<string, number | string>; } catch { /* ignore */ }
+            try { cc = JSON.parse(doc.getCellCharPropertiesAt(0, t.para, t.controlIndex, idx, 0, 0)) as typeof cc; } catch { /* 빈 셀 */ }
+            row.push({ text, fillType: String(cp2.fillType ?? 'none'), fillColor: String(cp2.fillColor ?? '#ffffff'), fontFamily: cc.fontFamily ?? null, fontSizePt: cc.fontSize ? cc.fontSize / 100 : null, bold: !!cc.bold });
+          }
+          if (row.length) rows.push(row);
+        }
+        const colWidths = Array.from({ length: dims.colCount }, (_, c) => { try { return Number((JSON.parse(doc.getCellProperties(0, t.para, t.controlIndex, c)) as { width?: number }).width ?? 0); } catch { return 0; } });
+        if (rows.length) out.push({ kind: 'table', rows, colWidths });
+      } catch { /* 표 읽기 실패 — 건너뜀 */ }
+      continue;
+    }
+    const l = doc.getParagraphLength(0, i);
+    const text = l > 0 ? doc.getTextRange(0, i, 0, l) : '';
+    if (!text.trim()) continue;
+    const cp = charProps(doc, i);
+    let alignment = 'left';
+    try { alignment = String((JSON.parse(doc.getParaPropertiesAt(0, i)) as { alignment?: string }).alignment ?? 'left'); } catch { /* ignore */ }
+    out.push({ kind: 'para', text, alignment, fontSizePt: cp?.fontSizePt ?? null, bold: !!cp?.bold, fontFamily: cp?.fontFamily ?? null });
+  }
+  return out;
 }
 
 /**

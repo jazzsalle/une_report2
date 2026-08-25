@@ -38,7 +38,6 @@ export function SitShell() {
             {item(`/sit/${exId}/reports`, '보고서', true)}
             {item('/sit/manuals', '매뉴얼·SOP 템플릿')}
             {item('/sit/settings', '기관·조직 설정')}
-            {item('/sit/trash', '휴지통')}
           </nav>
           <Link to={`/m/${user?.id ?? 'u2'}`} className="k-btn tertiary xs" style={{ marginLeft: 'auto' }} title="현장 담당자 모바일 화면"><Icon name="external" /> 모바일 임무 확인</Link>
         </div>

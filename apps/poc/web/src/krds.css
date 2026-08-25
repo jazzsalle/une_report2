@@ -23,6 +23,13 @@
 .krds .hdr-ico{width:40px;height:40px;border-radius:8px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#fff}
 .krds .hdr-ico:hover{background:rgba(255,255,255,.1)}
 .krds .hdr-ico img{width:24px;height:24px;display:block}
+/* 톱니바퀴 드롭다운 — pop의 padding-top이 아이콘~카드 사이 마우스 이동 다리 역할(비우면 이동 중 닫힘) */
+.krds .hdr-set{position:relative;display:flex}
+.krds .hdr-set-pop{position:absolute;top:100%;right:0;padding-top:8px;display:none;z-index:60}
+.krds .hdr-set:hover .hdr-set-pop,.krds .hdr-set:focus-within .hdr-set-pop{display:block}
+.krds .hdr-set-card{display:flex;flex-direction:column;min-width:200px;padding:6px;background:#fff;border:1px solid #d8dae0;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.18)}
+.krds .hdr-set-card a{display:block;padding:9px 12px;border-radius:8px;color:#1e2124;font-size:14px;text-decoration:none;white-space:nowrap}
+.krds .hdr-set-card a:hover,.krds .hdr-set-card a:focus-visible{background:#f2f4f8;color:#0b50d0}
 .krds .hdr-weather{display:inline-flex;align-items:center;gap:4px;height:32px;color:#dadbdd;font-size:14px;margin:0 4px 0 8px;white-space:nowrap;border:0;background:transparent;border-radius:6px;padding:0 6px;cursor:pointer;font:inherit}
 .krds .hdr-weather:hover{background:rgba(255,255,255,.1);color:#fff}
 .krds .hdr-wrn{border:0;cursor:pointer;font:inherit;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;background:rgba(255,255,255,.08);color:#dadbdd;font-size:13px;text-decoration:none;white-space:nowrap;margin-right:8px}

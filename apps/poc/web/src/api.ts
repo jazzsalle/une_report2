@@ -46,7 +46,8 @@ export async function pickSaveLocation(suggestedName: string): Promise<SaveHandl
 
 /** 서버 파일을 고른 위치에 써 넣는다. 핸들이 null(미지원)이면 브라우저 기본 다운로드로 폴백. */
 export async function writeFileTo(handle: SaveHandle | null, url: string, fileName: string): Promise<'saved' | 'downloaded'> {
-  if (!handle) { const a = document.createElement('a'); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove(); return 'downloaded'; }
+  // 폴백 다운로드는 서버 Content-Disposition이 a.download를 이긴다 — ?dl=문서명 으로 받을 이름을 서버에 넘긴다(2026-08-24)
+  if (!handle) { const a = document.createElement('a'); a.href = `${url}${url.includes('?') ? '&' : '?'}dl=${encodeURIComponent(fileName)}`; a.download = fileName; document.body.appendChild(a); a.click(); a.remove(); return 'downloaded'; }
   const r = await fetch(url);
   if (!r.ok) throw new Error(`파일을 읽지 못했습니다 (HTTP ${r.status})`);
   const w = await handle.createWritable(); await w.write(await r.blob()); await w.close();
@@ -69,7 +70,7 @@ export const draftable = (n: TocNode) => n.children.length === 0;
 export const draftableIds = (toc: TocNode[]) => toc.flatMap((n) => (draftable(n) ? [n.id] : n.children.map((c) => c.id)));
 export type SecStatus = '-' | '대기' | '진행중' | '취소대기' | '취소' | '완료' | '오류';
 export interface Section { tocId: string; status: SecStatus; markdown: string; userEdited: boolean; sources: { filename: string; score: number; text: string }[]; history: { at: string; paraId: string; before: string; after: string; instruction: string }[]; origin?: string; provider?: string; references?: unknown[] }
-export interface Plan { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; linkedExercises: string[] }
+export interface Plan { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; context: PlanContext | null; toc: TocNode[]; sections: Record<string, Section>; export?: { fileName: string; at: string; pages: number }; exportDocx?: { fileName: string; at: string }; linkedExercises: string[] }
 export interface PlanSummary { id: string; title: string; hazardType?: string; managementPhase?: string; createdBy: string; updatedBy?: string; createdAt: string; updatedAt: string; hasToc: boolean; drafted: number; total: number; exported: boolean; linkedExercises: string[] }
 
 export type NodeType = 'START' | 'TASK' | 'DECISION' | 'DISPATCH' | 'FIELD_CHECK' | 'AUTO_LOG' | 'END';
